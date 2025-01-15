@@ -22,8 +22,8 @@ static size_t rmt_encode_led_strip(rmt_encoder_t *encoder, rmt_channel_handle_t 
     rmt_led_strip_encoder_t *led_encoder = __containerof(encoder, rmt_led_strip_encoder_t, base);
     rmt_encoder_handle_t bytes_encoder = led_encoder->bytes_encoder;
     rmt_encoder_handle_t copy_encoder = led_encoder->copy_encoder;
-    rmt_encode_state_t session_state = 0;
-    rmt_encode_state_t state = 0;
+    rmt_encode_state_t session_state = RMT_ENCODING_RESET;
+    rmt_encode_state_t state = RMT_ENCODING_RESET;
     size_t encoded_symbols = 0;
     switch (led_encoder->state) {
     case 0: // send RGB data
@@ -40,7 +40,7 @@ static size_t rmt_encode_led_strip(rmt_encoder_t *encoder, rmt_channel_handle_t 
         encoded_symbols += copy_encoder->encode(copy_encoder, channel, &led_encoder->reset_code,
                                                 sizeof(led_encoder->reset_code), &session_state);
         if (session_state & RMT_ENCODING_COMPLETE) {
-            led_encoder->state = 0; // back to the initial encoding session
+            led_encoder->state = RMT_ENCODING_RESET; // back to the initial encoding session
             state |= RMT_ENCODING_COMPLETE;
         }
         if (session_state & RMT_ENCODING_MEM_FULL) {
@@ -67,7 +67,7 @@ static esp_err_t rmt_led_strip_encoder_reset(rmt_encoder_t *encoder)
     rmt_led_strip_encoder_t *led_encoder = __containerof(encoder, rmt_led_strip_encoder_t, base);
     rmt_encoder_reset(led_encoder->bytes_encoder);
     rmt_encoder_reset(led_encoder->copy_encoder);
-    led_encoder->state = 0;
+    led_encoder->state = RMT_ENCODING_RESET;
     return ESP_OK;
 }
 
@@ -76,7 +76,7 @@ esp_err_t rmt_new_led_strip_encoder(const led_strip_encoder_config_t *config, rm
     esp_err_t ret = ESP_OK;
     rmt_led_strip_encoder_t *led_encoder = NULL;
     ESP_GOTO_ON_FALSE(config && ret_encoder, ESP_ERR_INVALID_ARG, err, TAG, "invalid argument");
-    led_encoder = calloc(1, sizeof(rmt_led_strip_encoder_t));
+    led_encoder = rmt_alloc_encoder_mem(sizeof(rmt_led_strip_encoder_t));
     ESP_GOTO_ON_FALSE(led_encoder, ESP_ERR_NO_MEM, err, TAG, "no mem for led strip encoder");
     led_encoder->base.encode = rmt_encode_led_strip;
     led_encoder->base.del = rmt_del_led_strip_encoder;

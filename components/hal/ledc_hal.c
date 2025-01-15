@@ -1,22 +1,20 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 // The HAL layer for LEDC (common part)
 
-#include "esp_attr.h"
 #include "hal/ledc_hal.h"
-#include "soc/soc_caps.h"
-#include "sdkconfig.h"
-#include "hal/assert.h"
+#include "esp_rom_sys.h"
 
 void ledc_hal_init(ledc_hal_context_t *hal, ledc_mode_t speed_mode)
 {
     //Get hardware instance.
     hal->dev = LEDC_LL_GET_HW();
     hal->speed_mode = speed_mode;
+    ledc_ll_enable_mem_power(true);
 }
 
 void ledc_hal_get_clk_cfg(ledc_hal_context_t *hal, ledc_timer_t timer_sel, ledc_clk_cfg_t *clk_cfg)
@@ -37,9 +35,9 @@ void ledc_hal_get_clk_cfg(ledc_hal_context_t *hal, ledc_timer_t timer_sel, ledc_
 #endif
     {
         /* If the timer-specific mux is not set to REF_TICK, it either means that:
-        * - The controler is in fast mode, and thus using APB clock (driver_clk
+        * - The controller is in fast mode, and thus using APB clock (driver_clk
         *   variable's default value)
-        * - The controler is in slow mode and so, using a global clock,
+        * - The controller is in slow mode and so, using a global clock,
         *   so we have to retrieve that clock here.
         */
         if (hal->speed_mode == LEDC_LOW_SPEED_MODE) {
@@ -58,3 +56,10 @@ void ledc_hal_get_clk_cfg(ledc_hal_context_t *hal, ledc_timer_t timer_sel, ledc_
 
     *clk_cfg = driver_clk;
 }
+
+#if SOC_LEDC_GAMMA_CURVE_FADE_SUPPORTED
+void ledc_hal_get_fade_param(ledc_hal_context_t *hal, ledc_channel_t channel_num, uint32_t range, uint32_t *dir, uint32_t *cycle, uint32_t *scale, uint32_t *step)
+{
+    ledc_ll_get_fade_param_range(hal->dev, hal->speed_mode, channel_num, range, dir, cycle, scale, step);
+}
+#endif

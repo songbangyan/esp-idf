@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -67,10 +67,49 @@ esp_netif_t *esp_openthread_get_backbone_netif(void);
 void esp_openthread_register_rcp_failure_handler(esp_openthread_rcp_failure_handler handler);
 
 /**
- * @brief   Deinitializes the conneciton to RCP.
+ * @brief   Registers the callback for spinel compatibility error.
+ *
+ * @note This function must be called before esp_openthread_init.
+ *
+ * @param[in]  callback   The callback.
  *
  */
-void esp_openthread_rcp_deinit(void);
+void esp_openthread_set_compatibility_error_callback(esp_openthread_compatibility_error_callback callback);
+
+/**
+ * @brief   Deinitializes the connection to RCP.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if fail to deinitialize RCP
+ *
+ */
+esp_err_t esp_openthread_rcp_deinit(void);
+
+/**
+ * @brief   Initializes the connection to RCP.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_FAIL if fail to initialize RCP
+ *
+ */
+esp_err_t esp_openthread_rcp_init(void);
+
+/**
+ * @brief   Sets the meshcop(e) instance name.
+ *
+ * @note This function can only be called before `esp_openthread_border_router_init`.
+ *       If `instance_name` is NULL, then the service will use the hostname as instance name.
+ *
+ * @param[in]  instance_name   The instance name, can be `NULL`.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_FAIL if fail to initialize RCP
+ *
+ */
+esp_err_t esp_openthread_set_meshcop_instance_name(const char *instance_name);
 
 #ifdef __cplusplus
 }

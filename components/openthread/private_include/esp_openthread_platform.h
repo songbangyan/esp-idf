@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -84,7 +84,7 @@ void esp_openthread_platform_workflow_unregister(const char *name);
  * @brief   Initializes the platform-specific support for the OpenThread stack.
  *
  * @note This function is not called by and will not call the OpenThread library.
- *       The user needs to call otInstanceInitSingle to intialize the OpenThread
+ *       The user needs to call otInstanceInitSingle to initialize the OpenThread
  *       stack after calling this function.
  *
  * @param[in]  init_config      The initialization configuration.
@@ -138,6 +138,22 @@ void esp_openthread_platform_update(esp_openthread_mainloop_context_t *mainloop)
  *
  */
 esp_err_t esp_openthread_platform_process(otInstance *instance, const esp_openthread_mainloop_context_t *mainloop);
+
+/**
+ * @brief This function set the OpenThread storage name
+ *
+ * @param[in]    name   The OpenThread storage name.
+ *
+ */
+void esp_openthread_set_storage_name(const char *name);
+
+/**
+ * @brief   Gets the caps of memory allocation.
+ *
+ * @return
+ *      - The caps of the memory.
+ */
+uint32_t esp_openthread_get_alloc_caps(void);
 
 #ifdef __cplusplus
 } // end of extern "C"

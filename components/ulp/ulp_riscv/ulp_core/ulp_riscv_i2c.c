@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 #include "soc/rtc_io_reg.h"
 #include "soc/sens_reg.h"
 #include "hal/i2c_ll.h"
+#include "sdkconfig.h"
 
 #define I2C_CTRL_SLAVE_ADDR_MASK        (0xFF << 0)
 #define I2C_CTRL_SLAVE_REG_ADDR_MASK    (0xFF << 11)
@@ -29,6 +30,9 @@
 #define ULP_I2C_CMD_END     I2C_LL_CMD_END      /*!<I2C end command */
 #endif // CONFIG_IDF_TARGET_ESP32S3
 
+/* Read/Write timeout (number of iterationis) */
+#define ULP_RISCV_I2C_RW_TIMEOUT            CONFIG_ULP_RISCV_I2C_RW_TIMEOUT
+
 /*
  * The RTC I2C controller follows the I2C command registers to perform read/write operations.
  * The cmd registers have the following format:
@@ -39,27 +43,63 @@
  * |----------|----------|---------|---------|----------|------------|---------|
  */
 static void ulp_riscv_i2c_format_cmd(uint32_t cmd_idx, uint8_t op_code, uint8_t ack_val,
-        uint8_t ack_expected, uint8_t ack_check_en, uint8_t byte_num)
+                                     uint8_t ack_expected, uint8_t ack_check_en, uint8_t byte_num)
 {
-    uint32_t reg_addr = RTC_I2C_CMD0_REG + 4*cmd_idx;
+    uint32_t reg_addr = RTC_I2C_CMD0_REG + 4 * cmd_idx;
 
     CLEAR_PERI_REG_MASK(reg_addr, 0xFFFFFFFF);
 
     WRITE_PERI_REG(reg_addr,
-            (0 << 31) |                     // CMD Done
+                   (0 << 31) |                     // CMD Done
 
-            ((op_code & 0x3) << 11) |       // Opcode
+                   ((op_code & 0x3) << 11) |       // Opcode
 
-            ((ack_val & 0x1) << 10) |       // ACK bit sent by I2C controller during READ.
-                                            // Ignored during RSTART, STOP, END and WRITE cmds.
+                   ((ack_val & 0x1) << 10) |       // ACK bit sent by I2C controller during READ.
+                   // Ignored during RSTART, STOP, END and WRITE cmds.
 
-            ((ack_expected & 0x1) << 9) |   // ACK bit expected by I2C controller during WRITE.
-                                            // Ignored during RSTART, STOP, END and READ cmds.
+                   ((ack_expected & 0x1) << 9) |   // ACK bit expected by I2C controller during WRITE.
+                   // Ignored during RSTART, STOP, END and READ cmds.
 
-            ((ack_check_en & 0x1) << 8) |   // I2C controller verifies that the ACK bit sent by the slave device matches
-                                            // the ACK expected bit during WRITE.
-                                            // Ignored during RSTART, STOP, END and READ cmds.
-            ((byte_num & 0xFF) << 0));      // Byte Num
+                   ((ack_check_en & 0x1) << 8) |   // I2C controller verifies that the ACK bit sent by the slave device matches
+                   // the ACK expected bit during WRITE.
+                   // Ignored during RSTART, STOP, END and READ cmds.
+                   ((byte_num & 0xFF) << 0));      // Byte Num
+}
+
+static inline int32_t ulp_riscv_i2c_wait_for_interrupt(int32_t ticks_to_wait)
+{
+    uint32_t status = 0;
+    uint32_t to = 0;
+
+    while (1) {
+        status = READ_PERI_REG(RTC_I2C_INT_ST_REG);
+
+        /* Return 0 if Tx or Rx data interrupt bits are set. */
+        if ((status & RTC_I2C_TX_DATA_INT_ST) ||
+                (status & RTC_I2C_RX_DATA_INT_ST)) {
+            return 0;
+            /* In case of error status, break and return -1 */
+#if CONFIG_IDF_TARGET_ESP32S2
+        } else if ((status & RTC_I2C_TIMEOUT_INT_ST) ||
+#elif CONFIG_IDF_TARGET_ESP32S3
+        } else if ((status & RTC_I2C_TIME_OUT_INT_ST) ||
+#endif // CONFIG_IDF_TARGET_ESP32S2
+                   (status & RTC_I2C_ACK_ERR_INT_ST) ||
+                   (status & RTC_I2C_ARBITRATION_LOST_INT_ST)) {
+            return -1;
+        }
+
+        if (ticks_to_wait > -1) {
+            /* If the ticks_to_wait value is not -1, keep track of ticks and
+             * break from the loop once the timeout is reached.
+             */
+            ulp_riscv_delay_cycles(1);
+            to++;
+            if (to >= ticks_to_wait) {
+                return -1;
+            }
+        }
+    }
 }
 
 void ulp_riscv_i2c_master_set_slave_addr(uint8_t slave_addr)
@@ -101,6 +141,9 @@ void ulp_riscv_i2c_master_read_from_device(uint8_t *data_rd, size_t size)
         return;
     }
 
+    // Workaround for IDF-9145
+    ULP_RISCV_ENTER_CRITICAL();
+
     /* By default, RTC I2C controller is hard wired to use CMD2 register onwards for read operations */
     cmd_idx = 2;
 
@@ -136,27 +179,34 @@ void ulp_riscv_i2c_master_read_from_device(uint8_t *data_rd, size_t size)
 
     for (i = 0; i < size; i++) {
         /* Poll for RTC I2C Rx Data interrupt bit to be set */
-        while (!REG_GET_FIELD(RTC_I2C_INT_ST_REG, RTC_I2C_RX_DATA_INT_ST)) {  }
-
-        /* Read the data
-         *
-         * Unfortunately, the RTC I2C has no fifo buffer to help us with reading and storing
-         * multiple bytes of data. Therefore, we need to read one byte at a time and clear the
-         * Rx interrupt to get ready for the next byte.
-         */
+        if (!ulp_riscv_i2c_wait_for_interrupt(ULP_RISCV_I2C_RW_TIMEOUT)) {
+            /* Read the data
+             *
+             * Unfortunately, the RTC I2C has no fifo buffer to help us with reading and storing
+             * multiple bytes of data. Therefore, we need to read one byte at a time and clear the
+             * Rx interrupt to get ready for the next byte.
+             */
 #if CONFIG_IDF_TARGET_ESP32S2
-        data_rd[i] = REG_GET_FIELD(RTC_I2C_DATA_REG, RTC_I2C_RDATA);
+            data_rd[i] = REG_GET_FIELD(RTC_I2C_DATA_REG, RTC_I2C_RDATA);
 #elif CONFIG_IDF_TARGET_ESP32S3
-        data_rd[i] = REG_GET_FIELD(RTC_I2C_DATA_REG, RTC_I2C_I2C_RDATA);
+            data_rd[i] = REG_GET_FIELD(RTC_I2C_DATA_REG, RTC_I2C_I2C_RDATA);
 #endif // CONFIG_IDF_TARGET_ESP32S2
 
-        /* Clear the Rx data interrupt bit */
-        SET_PERI_REG_MASK(RTC_I2C_INT_CLR_REG, RTC_I2C_RX_DATA_INT_CLR);
+            /* Clear the Rx data interrupt bit */
+            SET_PERI_REG_MASK(RTC_I2C_INT_CLR_REG, RTC_I2C_RX_DATA_INT_CLR);
+        } else {
+            /* Error in transaction */
+            CLEAR_PERI_REG_MASK(RTC_I2C_INT_CLR_REG, READ_PERI_REG(RTC_I2C_INT_ST_REG));
+            break;
+        }
     }
 
     /* Clear the RTC I2C transmission bits */
     CLEAR_PERI_REG_MASK(SENS_SAR_I2C_CTRL_REG, SENS_SAR_I2C_START_FORCE);
     CLEAR_PERI_REG_MASK(SENS_SAR_I2C_CTRL_REG, SENS_SAR_I2C_START);
+
+    // Workaround for IDF-9145
+    ULP_RISCV_EXIT_CRITICAL();
 }
 
 /*
@@ -186,6 +236,9 @@ void ulp_riscv_i2c_master_write_to_device(uint8_t *data_wr, size_t size)
         return;
     }
 
+    // Workaround for IDF-9145
+    ULP_RISCV_ENTER_CRITICAL();
+
     /* By default, RTC I2C controller is hard wired to use CMD0 and CMD1 registers for write operations */
     cmd_idx = 0;
 
@@ -213,13 +266,19 @@ void ulp_riscv_i2c_master_write_to_device(uint8_t *data_wr, size_t size)
         }
 
         /* Poll for RTC I2C Tx Data interrupt bit to be set */
-        while (!REG_GET_FIELD(RTC_I2C_INT_ST_REG, RTC_I2C_TX_DATA_INT_ST)) {  }
-
-        /* Clear the Tx data interrupt bit */
-        SET_PERI_REG_MASK(RTC_I2C_INT_CLR_REG, RTC_I2C_TX_DATA_INT_CLR);
+        if (!ulp_riscv_i2c_wait_for_interrupt(ULP_RISCV_I2C_RW_TIMEOUT)) {
+            /* Clear the Tx data interrupt bit */
+            SET_PERI_REG_MASK(RTC_I2C_INT_CLR_REG, RTC_I2C_TX_DATA_INT_CLR);
+        } else {
+            SET_PERI_REG_MASK(RTC_I2C_INT_CLR_REG, READ_PERI_REG(RTC_I2C_INT_ST_REG));
+            break;
+        }
     }
 
     /* Clear the RTC I2C transmission bits */
     CLEAR_PERI_REG_MASK(SENS_SAR_I2C_CTRL_REG, SENS_SAR_I2C_START_FORCE);
     CLEAR_PERI_REG_MASK(SENS_SAR_I2C_CTRL_REG, SENS_SAR_I2C_START);
+
+    // Workaround for IDF-9145
+    ULP_RISCV_EXIT_CRITICAL();
 }

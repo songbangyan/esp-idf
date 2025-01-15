@@ -11,3 +11,7 @@
 
     release-5.x/5.0/index
     release-5.x/5.1/index
+    release-5.x/5.2/index
+    release-5.x/5.3/index
+    release-5.x/5.4/index
+    release-5.x/5.5/index

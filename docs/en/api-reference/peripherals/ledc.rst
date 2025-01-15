@@ -1,14 +1,14 @@
 LED Control (LEDC)
 ==================
-{IDF_TARGET_LEDC_CHAN_NUM:default="6", esp32="16", esp32s2="8", esp32s3="8"}
+
+{IDF_TARGET_LEDC_MAX_FADE_RANGE_NUM: default="1", esp32c6="16", esp32h2="16", esp32p4="16", esp32c5="16", esp32c61="16"}
 
 :link_to_translation:`zh_CN:[中文]`
 
 Introduction
 ------------
 
-The LED control (LEDC) peripheral is primarily designed to control the intensity of LEDs, although it can also be used to generate PWM signals for other purposes.
-It has {IDF_TARGET_LEDC_CHAN_NUM} channels which can generate independent waveforms that can be used, for example, to drive RGB LED devices.
+The LED control (LEDC) peripheral is primarily designed to control the intensity of LEDs, although it can also be used to generate PWM signals for other purposes. It has {IDF_TARGET_SOC_LEDC_CHANNEL_NUM} channels which can generate independent waveforms that can be used, for example, to drive RGB LED devices.
 
 .. only:: esp32
 
@@ -59,7 +59,7 @@ Setting the timer is done by calling the function :cpp:func:`ledc_timer_config` 
     :esp32:     - Speed mode :cpp:type:`ledc_mode_t`
     :not esp32: - Speed mode (value must be ``LEDC_LOW_SPEED_MODE``)
     - Timer number :cpp:type:`ledc_timer_t`
-    - PWM signal frequency
+    - PWM signal frequency in Hz
     - Resolution of PWM duty
     - Source clock :cpp:type:`ledc_clk_cfg_t`
 
@@ -86,9 +86,9 @@ The source clock can also limit the PWM frequency. The higher the source clock f
          - High / Low
          - Dynamic Frequency Scaling compatible
        * - RC_FAST_CLK
-         - ~8 MHz
+         - ~ 8 MHz
          - Low
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
 
 .. only:: esp32s2
 
@@ -106,8 +106,8 @@ The source clock can also limit the PWM frequency. The higher the source clock f
          - 1 MHz
          - Dynamic Frequency Scaling compatible
        * - RC_FAST_CLK
-         - ~8 MHz
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
+         - ~ 8 MHz
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
        * - XTAL_CLK
          - 40 MHz
          - Dynamic Frequency Scaling compatible
@@ -125,8 +125,8 @@ The source clock can also limit the PWM frequency. The higher the source clock f
          - 80 MHz
          - /
        * - RC_FAST_CLK
-         - ~20 MHz
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
+         - ~ 20 MHz
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
        * - XTAL_CLK
          - 40 MHz
          - Dynamic Frequency Scaling compatible
@@ -144,13 +144,13 @@ The source clock can also limit the PWM frequency. The higher the source clock f
          - 60 MHz
          - /
        * - RC_FAST_CLK
-         - ~20 MHz
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
+         - ~ 20 MHz
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
        * - XTAL_CLK
-         - 40 MHz
+         - 40/26 MHz
          - Dynamic Frequency Scaling compatible
 
-.. only:: esp32c6
+.. only:: esp32c5
 
     .. list-table:: Characteristics of {IDF_TARGET_NAME} LEDC source clocks
        :widths: 15 15 30
@@ -163,8 +163,27 @@ The source clock can also limit the PWM frequency. The higher the source clock f
          - 80 MHz
          - /
        * - RC_FAST_CLK
-         - ~20 MHz
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
+         - ~ 17.5 MHz
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
+       * - XTAL_CLK
+         - 48 MHz
+         - Dynamic Frequency Scaling compatible
+
+.. only:: esp32c6 or esp32c61 or esp32p4
+
+    .. list-table:: Characteristics of {IDF_TARGET_NAME} LEDC source clocks
+       :widths: 15 15 30
+       :header-rows: 1
+
+       * - Clock name
+         - Clock freq
+         - Clock capabilities
+       * - PLL_80M_CLK
+         - 80 MHz
+         - /
+       * - RC_FAST_CLK
+         - ~ 17.5 MHz
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
        * - XTAL_CLK
          - 40 MHz
          - Dynamic Frequency Scaling compatible
@@ -182,27 +201,8 @@ The source clock can also limit the PWM frequency. The higher the source clock f
          - 96 MHz
          - /
        * - RC_FAST_CLK
-         - ~8 MHz
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
-       * - XTAL_CLK
-         - 32 MHz
-         - Dynamic Frequency Scaling compatible
-
-.. only:: esp32h4
-
-    .. list-table:: Characteristics of {IDF_TARGET_NAME} LEDC source clocks
-       :widths: 15 15 30
-       :header-rows: 1
-
-       * - Clock name
-         - Clock freq
-         - Clock capabilities
-       * - APB_CLK
-         - 96 MHz
-         - /
-       * - RC_FAST_CLK
-         - ~8 MHz
-         - Dynamic Frequency Scaling compatible, Light sleep compatible
+         - ~ 8 MHz
+         - Dynamic Frequency Scaling compatible, Light-sleep compatible
        * - XTAL_CLK
          - 32 MHz
          - Dynamic Frequency Scaling compatible
@@ -220,6 +220,16 @@ The source clock can also limit the PWM frequency. The higher the source clock f
     .. only:: not SOC_LEDC_HAS_TIMER_SPECIFIC_MUX
 
         2. For {IDF_TARGET_NAME}, all timers share one clock source. In other words, it is impossible to use different clock sources for different timers.
+
+The LEDC driver offers a helper function :cpp:func:`ledc_find_suitable_duty_resolution` to find the maximum possible resolution for the timer, given the source clock frequency and the desired PWM signal frequency.
+
+When a timer is no longer needed by any channel, it can be deconfigured by calling the same function :cpp:func:`ledc_timer_config`. The configuration structure :cpp:type:`ledc_timer_config_t` passes in should be:
+
+-  :cpp:member:`ledc_timer_config_t::speed_mode` The speed mode of the timer which wants to be deconfigured belongs to (:cpp:type:`ledc_mode_t`)
+
+-  :cpp:member:`ledc_timer_config_t::timer_num` The ID of the timers which wants to be deconfigured (:cpp:type:`ledc_timer_t`)
+
+-  :cpp:member:`ledc_timer_config_t::deconfigure` Set this to true so that the timer specified can be deconfigured
 
 
 .. _ledc-api-configure-channel:
@@ -257,10 +267,16 @@ To set the duty cycle, use the dedicated function :cpp:func:`ledc_set_duty`. Aft
 
 Another way to set the duty cycle, as well as some other channel parameters, is by calling :cpp:func:`ledc_channel_config` covered in Section :ref:`ledc-api-configure-channel`.
 
-The range of the duty cycle values passed to functions depends on selected ``duty_resolution`` and should be from ``0`` to ``(2 ** duty_resolution) - 1``. For example, if the selected duty resolution is 10, then the duty cycle values can range from 0 to 1023. This provides the resolution of ~0.1%.
+The range of the duty cycle values passed to functions depends on selected ``duty_resolution`` and should be from ``0`` to ``(2 ** duty_resolution)``. For example, if the selected duty resolution is 10, then the duty cycle values can range from 0 to 1024. This provides the resolution of ~ 0.1%.
+
+.. only:: esp32 or esp32s2 or esp32s3 or esp32c3 or esp32c2 or esp32c6 or esp32h2 or esp32p4
+
+    .. warning::
+
+        On {IDF_TARGET_NAME}, when channel's binded timer selects its maximum duty resolution, the duty cycle value cannot be set to ``(2 ** duty_resolution)``. Otherwise, the internal duty counter in the hardware will overflow and be messed up.
 
 
-Change PWM Duty Cycle using Hardware
+Change PWM Duty Cycle Using Hardware
 """"""""""""""""""""""""""""""""""""
 
 The LEDC hardware provides the means to gradually transition from one duty cycle value to another. To use this functionality, enable fading with :cpp:func:`ledc_fade_func_install` and then configure it by calling one of the available fading functions:
@@ -268,6 +284,12 @@ The LEDC hardware provides the means to gradually transition from one duty cycle
 * :cpp:func:`ledc_set_fade_with_time`
 * :cpp:func:`ledc_set_fade_with_step`
 * :cpp:func:`ledc_set_fade`
+
+.. only:: SOC_LEDC_GAMMA_CURVE_FADE_SUPPORTED
+
+    On {IDF_TARGET_NAME}, the hardware additionally allows to perform up to {IDF_TARGET_LEDC_MAX_FADE_RANGE_NUM} consecutive linear fades without CPU intervention. This feature can be useful if you want to do a fade with gamma correction.
+
+    The luminance perceived by human eyes does not have a linear relationship with the PWM duty cycle. In order to make human feel the LED is dimming or lighting linearly, the change in duty cycle should be non-linear, which is the so-called gamma correction. The LED controller can simulate a gamma curve fading by piecewise linear approximation. :cpp:func:`ledc_fill_multi_fade_param_list` is a function that can help to construct the parameters for the piecewise linear fades. First, you need to allocate a memory block for saving the fade parameters, then by providing start/end PWM duty cycle values, gamma correction function, and the total number of desired linear segments to the helper function, it will fill the calculation results into the allocated space. You can also construct the array of :cpp:type:`ledc_fade_param_config_t` manually. Once the fade parameter structs are prepared, a consecutive fading can be configured by passing the pointer to the prepared :cpp:type:`ledc_fade_param_config_t` list and the total number of fade ranges to :cpp:func:`ledc_set_multi_fade`.
 
 .. only:: esp32
 
@@ -297,14 +319,13 @@ The LEDC API provides several ways to change the PWM frequency "on the fly":
 More Control Over PWM
 """""""""""""""""""""
 
-There are several lower level timer-specific functions that can be used to change PWM settings:
+There are several individual timer-specific functions that can be used to change PWM output:
 
-* :cpp:func:`ledc_timer_set`
 * :cpp:func:`ledc_timer_rst`
 * :cpp:func:`ledc_timer_pause`
 * :cpp:func:`ledc_timer_resume`
 
-The first two functions are called "behind the scenes" by :cpp:func:`ledc_channel_config` to provide a startup of a timer after it is configured.
+The first function is called "behind the scenes" by :cpp:func:`ledc_timer_config` to provide a startup of a timer after it is configured.
 
 
 Use Interrupts
@@ -315,6 +336,18 @@ When configuring an LEDC channel, one of the parameters selected within :cpp:typ
 For registration of a handler to address this interrupt, call :cpp:func:`ledc_isr_register`.
 
 
+Power Management
+----------------
+
+LEDC driver does not utilize power management lock to prevent the system from going into Light-sleep. Instead, the LEDC peripheral power domain state and the PWM signal output behavior during sleep can be chosen by configuring :cpp:member:`ledc_channel_config_t::sleep_mode`. The default mode is :cpp:enumerator:`LEDC_SLEEP_MODE_NO_ALIVE_NO_PD`, which stands for no signal output and LEDC power domain will not be powered down during sleep.
+
+If signal output needs to be maintained in Light-sleep, then select :cpp:enumerator:`LEDC_SLEEP_MODE_KEEP_ALIVE`. As long as the binded LEDC timer clock source is Light-sleep compatible, the PWM signal can continue its output even the system enters Light-sleep. The cost is a higher power consumption in sleep, since the clock source and the power domain where LEDC belongs to cannot be powered down. Note that, if there is an unfinished fade before entering sleep, the fade can also continue during sleep, but the target duty might not be reached exactly. It will adjust to the target duty after wake-up.
+
+.. only:: SOC_LEDC_SUPPORT_SLEEP_RETENTION
+
+    There is another sleep mode, :cpp:enumerator:`LEDC_SLEEP_MODE_NO_ALIVE_ALLOW_PD`, can save some power consumption in sleep, but at the expense of more memory being consumed. The system retains LEDC register context before entering Light-sleep and restores them after waking up, so that the LEDC power domain can be powered down during sleep. Any unfinished fade will not resume upon waking up from sleep, instead, it will output a PWM signal with a fixed duty cycle that matches the duty cycle just before entering sleep.
+
+
 .. only:: esp32
 
     .. _ledc-api-high_low_speed_mode:
@@ -322,9 +355,9 @@ For registration of a handler to address this interrupt, call :cpp:func:`ledc_is
     LEDC High and Low Speed Mode
     ----------------------------
 
-    High speed mode enables a glitch-free changeover of timer settings. This means that if the timer settings are modified, the changes will be applied automatically on the next overflow interrupt of the timer. In contrast, when updating the low-speed timer, the change of settings should be explicitly triggered by software. The LEDC driver handles it in the background, e.g., when :cpp:func:`ledc_timer_config` or :cpp:func:`ledc_timer_set` is called.
+    High speed mode enables a glitch-free changeover of timer settings. This means that if the timer settings are modified, the changes will be applied automatically on the next overflow interrupt of the timer. In contrast, when updating the low-speed timer, the change of settings should be explicitly triggered by software. The LEDC driver handles it in the background, e.g., when :cpp:func:`ledc_timer_config` is called.
 
-    For additional details regarding speed modes, see *{IDF_TARGET_NAME} Technical Reference Manual* > *LED PWM Controller (LEDC)* [`PDF <{IDF_TARGET_TRM_EN_URL}#ledpwm>`__].
+    For additional details regarding speed modes, see **{IDF_TARGET_NAME} Technical Reference Manual** > **LED PWM Controller (LEDC)** [`PDF <{IDF_TARGET_TRM_EN_URL}#ledpwm>`__].
 
     .. _ledc-api-supported-range-frequency-duty-resolution:
 
@@ -335,11 +368,11 @@ For registration of a handler to address this interrupt, call :cpp:func:`ledc_is
 Supported Range of Frequency and Duty Resolutions
 -------------------------------------------------
 
-The LED PWM Controller is designed primarily to drive LEDs. It provides a large flexibility of PWM duty cycle settings. For instance, the PWM frequency of 5 kHz can have the maximum duty resolution of 13 bits. This means that the duty can be set anywhere from 0 to 100% with a resolution of ~0.012% (2 ** 13 = 8192 discrete levels of the LED intensity). Note, however, that these parameters depend on the clock signal clocking the LED PWM Controller timer which in turn clocks the channel (see :ref:`timer configuration<ledc-api-configure-timer>` and the *{IDF_TARGET_NAME} Technical Reference Manual* > *LED PWM Controller (LEDC)* [`PDF <{IDF_TARGET_TRM_EN_URL}#ledpwm>`__]).
+The LED PWM Controller is designed primarily to drive LEDs. It provides a large flexibility of PWM duty cycle settings. For instance, the PWM frequency of 5 kHz can have the maximum duty resolution of 13 bits. This means that the duty can be set anywhere from 0 to 100% with a resolution of ~ 0.012% (2 ** 13 = 8192 discrete levels of the LED intensity). Note, however, that these parameters depend on the clock signal clocking the LED PWM Controller timer which in turn clocks the channel (see :ref:`timer configuration <ledc-api-configure-timer>` and the **{IDF_TARGET_NAME} Technical Reference Manual** > **LED PWM Controller (LEDC)** [`PDF <{IDF_TARGET_TRM_EN_URL}#ledpwm>`__]).
 
 The LEDC can be used for generating signals at much higher frequencies that are sufficient enough to clock other devices, e.g., a digital camera module. In this case, the maximum available frequency is 40 MHz with duty resolution of 1 bit. This means that the duty cycle is fixed at 50% and cannot be adjusted.
 
-The LEDC API is designed to report an error when trying to set a frequency and a duty resolution that exceed the range of LEDC's hardware. For example, an attempt to set the frequency to 20 MHz and the duty resolution to 3 bits will result in the following error reported on a serial monitor:
+The LEDC API is designed to report an error when trying to set a frequency and a duty resolution that exceed the range of LEDC's hardware. For example, an attempt to set the frequency to 20 MHz and the duty resolution to 3 bits results in the following error reported on a serial monitor:
 
 .. highlight:: none
 
@@ -347,9 +380,9 @@ The LEDC API is designed to report an error when trying to set a frequency and a
 
     E (196) ledc: requested frequency and duty resolution cannot be achieved, try reducing freq_hz or duty_resolution. div_param=128
 
-In such a situation, either the duty resolution or the frequency must be reduced. For example, setting the duty resolution to 2 will resolve this issue and will make it possible to set the duty cycle at 25% steps, i.e., at 25%, 50% or 75%.
+In such a situation, either the duty resolution or the frequency must be reduced. For example, setting the duty resolution to 2 resolves this issue and makes it possible to set the duty cycle at 25% steps, i.e., at 25%, 50% or 75%.
 
-The LEDC driver will also capture and report attempts to configure frequency / duty resolution combinations that are below the supported minimum, e.g.:
+The LEDC driver also captures and reports attempts to configure frequency/duty resolution combinations that are below the supported minimum, e.g.,:
 
 ::
 
@@ -361,9 +394,12 @@ The duty resolution is normally set using :cpp:type:`ledc_timer_bit_t`. This enu
 Application Example
 -------------------
 
-The LEDC change duty cycle and fading control example: :example:`peripherals/ledc/ledc_fade`.
+.. list::
 
-The LEDC basic example: :example:`peripherals/ledc/ledc_basic`.
+    * :example:`peripherals/ledc/ledc_basic` demonstrates how to use the LEDC to generate a PWM signal in LOW SPEED mode.
+    * :example:`peripherals/ledc/ledc_fade` demonstrates how to control the intensity of LEDs using the LEDC fade functionality.
+    :SOC_LEDC_GAMMA_CURVE_FADE_SUPPORTED: * :example:`peripherals/ledc/ledc_gamma_curve_fade` demonstrates how to use the LEDC for color control of RGB LEDs with gamma correction.
+
 
 API Reference
 -------------

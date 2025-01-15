@@ -18,6 +18,7 @@
 #include "ap/comeback_token.h"
 #include "crypto/random.h"
 #include "esp_wpa3_i.h"
+#include "esp_hostap.h"
 
 #ifdef CONFIG_SAE
 
@@ -179,13 +180,16 @@ static int auth_sae_send_confirm(struct hostapd_data *hapd,
     if (sta->remove_pending) {
         reply_res = -1;
     } else {
-        reply_res = esp_send_sae_auth_reply(hapd, sta->addr, bssid, WLAN_AUTH_SAE, 2,
-                                       WLAN_STATUS_SUCCESS, wpabuf_head(data),
-                                       wpabuf_len(data));
+        if (sta->sae_data)
+            wpabuf_free(sta->sae_data);
+        sta->sae_data = data;
+        reply_res = 0;
+        /* confirm is sent in later stage when all the required processing for a sta is done*/
     }
+#else
+    wpabuf_free(data);
 #endif /* ESP_SUPPLICANT */
 
-    wpabuf_free(data);
     return reply_res;
 }
 
@@ -202,7 +206,7 @@ static int use_sae_anti_clogging(struct hostapd_data *hapd)
     for (sta = hapd->sta_list; sta; sta = sta->next) {
         if (sta->sae &&
             (sta->sae->state == SAE_COMMITTED ||
-             sta->sae->state != SAE_CONFIRMED)) {
+             sta->sae->state == SAE_CONFIRMED)) {
             open++;
         }
         if (open >= hapd->conf->sae_anti_clogging_threshold) {
@@ -358,12 +362,11 @@ static int sae_sm_step(struct hostapd_data *hapd, struct sta_info *sta,
             if (ret) {
                 return ret;
             }
+            sae_set_state(sta, SAE_COMMITTED, "Sent Commit");
 
             if (sae_process_commit(sta->sae) < 0) {
                 return WLAN_STATUS_UNSPECIFIED_FAILURE;
             }
-
-            sae_set_state(sta, SAE_COMMITTED, "Sent Commit");
 
             sta->sae->sync = 0;
         } else {
@@ -400,6 +403,65 @@ static int sae_status_success(struct hostapd_data *hapd, u16 status_code)
         (sae_pwe == SAE_PWE_BOTH &&
          (status_code == WLAN_STATUS_SUCCESS ||
           status_code == WLAN_STATUS_SAE_HASH_TO_ELEMENT));
+}
+
+
+static int sae_is_group_enabled(struct hostapd_data *hapd, int group)
+{
+    int *groups = NULL;
+    int default_groups[] = { 19, 0 };
+    int i;
+
+    if (!groups) {
+        groups = default_groups;
+    }
+
+    for (i = 0; groups[i] > 0; i++) {
+        if (groups[i] == group)
+            return 1;
+    }
+
+    return 0;
+}
+
+
+static int check_sae_rejected_groups(struct hostapd_data *hapd,
+				     struct sae_data *sae)
+{
+    const struct wpabuf *groups;
+    size_t i, count, len;
+    const u8 *pos;
+
+    if (!sae->tmp)
+        return 0;
+    groups = sae->tmp->peer_rejected_groups;
+    if (!groups)
+        return 0;
+
+    pos = wpabuf_head(groups);
+    len = wpabuf_len(groups);
+    if (len & 1) {
+        wpa_printf(MSG_DEBUG,
+                  "SAE: Invalid length of the Rejected Groups element payload: %zu",
+                  len);
+        return 1;
+    }
+
+    count = len / 2;
+    for (i = 0; i < count; i++) {
+        int enabled;
+        u16 group;
+
+        group = WPA_GET_LE16(pos);
+        pos += 2;
+        enabled = sae_is_group_enabled(hapd, group);
+        wpa_printf(MSG_DEBUG, "SAE: Rejected group %u is %s",
+                  group, enabled ? "enabled" : "disabled");
+        if (enabled)
+            return 1;
+    }
+
+    return 0;
 }
 
 
@@ -496,6 +558,11 @@ int handle_auth_sae(struct hostapd_data *hapd, struct sta_info *sta,
             goto remove_sta;
         }
 
+        if (check_sae_rejected_groups(hapd, sta->sae)) {
+            resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
+            goto reply;
+        }
+
         if (resp != WLAN_STATUS_SUCCESS) {
             goto reply;
         }
@@ -534,45 +601,46 @@ int handle_auth_sae(struct hostapd_data *hapd, struct sta_info *sta,
             goto remove_sta;
         }
 
-        if (sta->sae->state >= SAE_CONFIRMED) {
-            const u8 *var;
-            size_t var_len;
-            u16 peer_send_confirm;
+       const u8 *var;
+       size_t var_len;
+       u16 peer_send_confirm;
 
-            var = buf;
-            var_len = len;
-            if (var_len < 2) {
-                resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
-                goto reply;
-            }
+       var = buf;
+       var_len = len;
+       if (var_len < 2) {
+           resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
+           goto reply;
+       }
 
-            peer_send_confirm = WPA_GET_LE16(var);
+       peer_send_confirm = WPA_GET_LE16(var);
 
-            if (sta->sae->state == SAE_ACCEPTED &&
-                    (peer_send_confirm <= sta->sae->rc ||
-                     peer_send_confirm == 0xffff)) {
-                wpa_printf(MSG_DEBUG,
-                           "SAE: Silently ignore unexpected Confirm from peer "
-                           MACSTR
-                           " (peer-send-confirm=%u Rc=%u)",
-                           MAC2STR(sta->addr),
-                           peer_send_confirm, sta->sae->rc);
-                return 0;
-            }
+       if (sta->sae->state == SAE_ACCEPTED &&
+               (peer_send_confirm <= sta->sae->rc ||
+                peer_send_confirm == 0xffff)) {
+           wpa_printf(MSG_DEBUG,
+                      "SAE: Silently ignore unexpected Confirm from peer "
+                      MACSTR
+                      " (peer-send-confirm=%u Rc=%u)",
+                      MAC2STR(sta->addr),
+                      peer_send_confirm, sta->sae->rc);
+           return 0;
+       }
 
-            if (sae_check_confirm(sta->sae, buf, len) < 0) {
-                resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
-                goto reply;
-            }
-            sta->sae->rc = peer_send_confirm;
-        }
+       if (sae_check_confirm(sta->sae, buf, len) < 0) {
+           resp = WLAN_STATUS_CHALLENGE_FAIL;
+           wifi_event_ap_wrong_password_t evt = {0};
+           os_memcpy(evt.mac, bssid, ETH_ALEN);
+           esp_event_post(WIFI_EVENT, WIFI_EVENT_AP_WRONG_PASSWORD, &evt,
+                    sizeof(evt), 0);
+           goto reply;
+       }
+       sta->sae->rc = peer_send_confirm;
 
         resp = sae_sm_step(hapd, sta, bssid, auth_transaction,
                            status, 0, &sta_removed);
     } else {
         wpa_printf(MSG_ERROR, "unexpected SAE authentication transaction %u (status=%u )", auth_transaction, status);
         if (status != WLAN_STATUS_SUCCESS) {
-            resp = -1;
             goto remove_sta;
         }
         resp = WLAN_STATUS_UNKNOWN_AUTH_TRANSACTION;
@@ -611,7 +679,7 @@ int auth_sae_queue(struct hostapd_data *hapd,
     unsigned int queue_len;
 
     queue_len = dl_list_len(&hapd->sae_commit_queue);
-    if (queue_len >= 5) {
+    if (queue_len >= hapd->conf->max_num_sta) {
         wpa_printf(MSG_DEBUG,
                    "SAE: No more room in message queue - drop the new frame from "
                    MACSTR, MAC2STR(bssid));

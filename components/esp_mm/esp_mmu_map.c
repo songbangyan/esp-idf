@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
+#include "esp_compiler.h"
 
 #include "soc/soc_caps.h"
 #include "hal/cache_types.h"
@@ -29,7 +30,6 @@
 #include "ext_mem_layout.h"
 #include "esp_mmu_map.h"
 
-
 //This is for size align
 #define ALIGN_UP_BY(num, align) (((num) + ((align) - 1)) & ~((align) - 1))
 //This is for vaddr align
@@ -39,7 +39,7 @@
 #define MEM_REGION_MERGED             -1
 
 /**
- * We have some hw related tests for vaddr region capabilites
+ * We have some hw related tests for vaddr region capabilities
  * Use this macro to disable paddr check as we need to reuse certain paddr blocks
  */
 #define ENABLE_PADDR_CHECK            !ESP_MMAP_TEST_ALLOW_MAP_TO_MAPPED_PADDR
@@ -108,7 +108,6 @@ typedef struct {
     mem_region_t mem_regions[SOC_MMU_LINEAR_ADDRESS_REGION_NUM];
 } mmu_ctx_t;
 
-
 static mmu_ctx_t s_mmu_ctx;
 
 #if ENABLE_PADDR_CHECK
@@ -116,8 +115,17 @@ static bool s_is_enclosed(uint32_t block_start, uint32_t block_end, uint32_t new
 static bool s_is_overlapped(uint32_t block_start, uint32_t block_end, uint32_t new_block_start, uint32_t new_block_size);
 #endif  //#if ENABLE_PADDR_CHECK
 
-
 #if CONFIG_APP_BUILD_USE_FLASH_SECTIONS
+
+static cache_bus_mask_t s_get_bus_mask(uint32_t vaddr_start, uint32_t len)
+{
+#if CACHE_LL_EXT_MEM_VIA_L2CACHE
+    return cache_ll_l2_get_bus(0, vaddr_start, len);
+#else
+    return cache_ll_l1_get_bus(0, vaddr_start, len);
+#endif
+}
+
 static void s_reserve_irom_region(mem_region_t *hw_mem_regions, int region_nums)
 {
     /**
@@ -126,14 +134,14 @@ static void s_reserve_irom_region(mem_region_t *hw_mem_regions, int region_nums)
      * - Now IBUS addresses (between `_instruction_reserved_start` and `_instruction_reserved_end`) are consecutive on all chips,
      *   we strongly rely on this to calculate the .text length
      */
-    extern int _instruction_reserved_start;
-    extern int _instruction_reserved_end;
+    extern char _instruction_reserved_start;
+    extern char _instruction_reserved_end;
     size_t irom_len_to_reserve = (uint32_t)&_instruction_reserved_end - (uint32_t)&_instruction_reserved_start;
     assert((mmu_ll_vaddr_to_laddr((uint32_t)&_instruction_reserved_end) - mmu_ll_vaddr_to_laddr((uint32_t)&_instruction_reserved_start)) == irom_len_to_reserve);
 
     irom_len_to_reserve += (uint32_t)&_instruction_reserved_start - ALIGN_DOWN_BY((uint32_t)&_instruction_reserved_start, CONFIG_MMU_PAGE_SIZE);
     irom_len_to_reserve = ALIGN_UP_BY(irom_len_to_reserve, CONFIG_MMU_PAGE_SIZE);
-    cache_bus_mask_t bus_mask = cache_ll_l1_get_bus(0, (uint32_t)&_instruction_reserved_start, irom_len_to_reserve);
+    cache_bus_mask_t bus_mask = s_get_bus_mask((uint32_t)&_instruction_reserved_start, irom_len_to_reserve);
 
     for (int i = 0; i < SOC_MMU_LINEAR_ADDRESS_REGION_NUM; i++) {
         if (bus_mask & hw_mem_regions[i].bus_id) {
@@ -154,14 +162,14 @@ static void s_reserve_drom_region(mem_region_t *hw_mem_regions, int region_nums)
     /**
      * Similarly, we follow the way how 1st bootloader load flash .rodata:
      */
-    extern int _rodata_reserved_start;
-    extern int _rodata_reserved_end;
+    extern char _rodata_reserved_start;
+    extern char _rodata_reserved_end;
     size_t drom_len_to_reserve = (uint32_t)&_rodata_reserved_end - (uint32_t)&_rodata_reserved_start;
     assert((mmu_ll_vaddr_to_laddr((uint32_t)&_rodata_reserved_end) - mmu_ll_vaddr_to_laddr((uint32_t)&_rodata_reserved_start)) == drom_len_to_reserve);
 
     drom_len_to_reserve += (uint32_t)&_rodata_reserved_start - ALIGN_DOWN_BY((uint32_t)&_rodata_reserved_start, CONFIG_MMU_PAGE_SIZE);
     drom_len_to_reserve = ALIGN_UP_BY(drom_len_to_reserve, CONFIG_MMU_PAGE_SIZE);
-    cache_bus_mask_t bus_mask = cache_ll_l1_get_bus(0, (uint32_t)&_rodata_reserved_start, drom_len_to_reserve);
+    cache_bus_mask_t bus_mask = s_get_bus_mask((uint32_t)&_rodata_reserved_start, drom_len_to_reserve);
 
     for (int i = 0; i < SOC_MMU_LINEAR_ADDRESS_REGION_NUM; i++) {
         if (bus_mask & hw_mem_regions[i].bus_id) {
@@ -177,6 +185,13 @@ static void s_reserve_drom_region(mem_region_t *hw_mem_regions, int region_nums)
     }
 }
 #endif  //#if CONFIG_APP_BUILD_USE_FLASH_SECTIONS
+
+#if SOC_MMU_PER_EXT_MEM_TARGET
+FORCE_INLINE_ATTR uint32_t s_get_mmu_id_from_target(mmu_target_t target)
+{
+    return (target == MMU_TARGET_FLASH0) ? MMU_LL_FLASH_MMU_ID : MMU_LL_PSRAM_MMU_ID;
+}
+#endif
 
 void esp_mmu_map_init(void)
 {
@@ -222,11 +237,11 @@ void esp_mmu_map_init(void)
     //Count the mem regions left after coalescing
     uint32_t region_num = 0;
     for (int i = 0; i < SOC_MMU_LINEAR_ADDRESS_REGION_NUM; i++) {
-        if(hw_mem_regions[i].caps != MEM_REGION_MERGED) {
+        if (hw_mem_regions[i].caps != MEM_REGION_MERGED) {
             region_num++;
         }
     }
-    ESP_EARLY_LOGV(TAG, "after coalescing, %d regions are left", region_num);
+    ESP_EARLY_LOGV(TAG, "after coalescing, %" PRIu32 " regions are left", region_num);
 
     //Initialise `s_mmu_ctx.mem_regions[]`, as we've done all static allocation, to prepare available virtual memory regions
     uint32_t available_region_idx = 0;
@@ -246,7 +261,6 @@ void esp_mmu_map_init(void)
 
     assert(available_region_idx == region_num);
 }
-
 
 static esp_err_t s_mem_caps_check(mmu_mem_caps_t caps)
 {
@@ -281,7 +295,6 @@ esp_err_t esp_mmu_map_get_max_consecutive_free_block_size(mmu_mem_caps_t caps, m
     return ESP_OK;
 }
 
-
 static int32_t s_find_available_region(mem_region_t *mem_regions, uint32_t region_nums, size_t size, mmu_mem_caps_t caps, mmu_target_t target)
 {
     int32_t found_region_id = -1;
@@ -313,19 +326,54 @@ esp_err_t esp_mmu_map_reserve_block_with_caps(size_t size, mmu_mem_caps_t caps, 
     laddr = (uint32_t)s_mmu_ctx.mem_regions[found_region_id].free_head;
     s_mmu_ctx.mem_regions[found_region_id].free_head += aligned_size;
     s_mmu_ctx.mem_regions[found_region_id].max_slot_size -= aligned_size;
-    ESP_EARLY_LOGV(TAG, "found laddr is 0x%x", laddr);
+    ESP_EARLY_LOGV(TAG, "found laddr is 0x%" PRIx32, laddr);
 
     uint32_t vaddr = 0;
     if (caps & MMU_MEM_CAP_EXEC) {
-        vaddr = mmu_ll_laddr_to_vaddr(laddr, MMU_VADDR_INSTRUCTION);
+        vaddr = mmu_ll_laddr_to_vaddr(laddr, MMU_VADDR_INSTRUCTION, target);
     } else {
-        vaddr = mmu_ll_laddr_to_vaddr(laddr, MMU_VADDR_DATA);
+        vaddr = mmu_ll_laddr_to_vaddr(laddr, MMU_VADDR_DATA, target);
     }
     *out_ptr = (void *)vaddr;
 
     return ESP_OK;
 }
 
+IRAM_ATTR esp_err_t esp_mmu_paddr_find_caps(const esp_paddr_t paddr, mmu_mem_caps_t *out_caps)
+{
+    mem_region_t *region = NULL;
+    mem_block_t *mem_block = NULL;
+    bool found = false;
+    mem_block_t *found_block = NULL;
+    if (out_caps == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    for (int i = 0; i < s_mmu_ctx.num_regions; i++) {
+        region = &s_mmu_ctx.mem_regions[i];
+
+        TAILQ_FOREACH(mem_block, &region->mem_block_head, entries) {
+            if (mem_block == TAILQ_FIRST(&region->mem_block_head) || mem_block == TAILQ_LAST(&region->mem_block_head, mem_block_head_)) {
+                //we don't care the dummy_head and the dummy_tail
+                continue;
+            }
+
+            //now we are only traversing the actual dynamically allocated blocks, dummy_head and dummy_tail are excluded already
+            if (mem_block->paddr_start == paddr) {
+                found = true;
+                found_block = mem_block;
+                break;
+            }
+        }
+    }
+
+    if (!found) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    *out_caps = found_block->caps;
+    return ESP_OK;
+}
 
 static void IRAM_ATTR NOINLINE_ATTR s_do_cache_invalidate(uint32_t vaddr_start, uint32_t size)
 {
@@ -341,6 +389,31 @@ static void IRAM_ATTR NOINLINE_ATTR s_do_cache_invalidate(uint32_t vaddr_start, 
 #endif // CONFIG_IDF_TARGET_ESP32
 }
 
+#if SOC_MMU_PER_EXT_MEM_TARGET
+FORCE_INLINE_ATTR uint32_t s_mapping_operation(mmu_target_t target, uint32_t vaddr_start, esp_paddr_t paddr_start, uint32_t size)
+{
+    uint32_t actual_mapped_len = 0;
+    uint32_t mmu_id = s_get_mmu_id_from_target(target);
+    mmu_hal_map_region(mmu_id, target, vaddr_start, paddr_start, size, &actual_mapped_len);
+
+    return actual_mapped_len;
+}
+#else
+FORCE_INLINE_ATTR uint32_t s_mapping_operation(mmu_target_t target, uint32_t vaddr_start, esp_paddr_t paddr_start, uint32_t size)
+{
+    uint32_t actual_mapped_len = 0;
+
+    mmu_hal_map_region(0, target, vaddr_start, paddr_start, size, &actual_mapped_len);
+#if (SOC_MMU_PERIPH_NUM == 2)
+#if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
+    mmu_hal_map_region(1, target, vaddr_start, paddr_start, size, &actual_mapped_len);
+#endif //  #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
+#endif //  #if (SOC_MMU_PERIPH_NUM == 2)
+
+    return actual_mapped_len;
+}
+#endif
+
 static void IRAM_ATTR NOINLINE_ATTR s_do_mapping(mmu_target_t target, uint32_t vaddr_start, esp_paddr_t paddr_start, uint32_t size)
 {
     /**
@@ -350,17 +423,11 @@ static void IRAM_ATTR NOINLINE_ATTR s_do_mapping(mmu_target_t target, uint32_t v
      */
     spi_flash_disable_interrupts_caches_and_other_cpu();
 
-    uint32_t actual_mapped_len = 0;
-    mmu_hal_map_region(0, target, vaddr_start, paddr_start, size, &actual_mapped_len);
-#if (SOC_MMU_PERIPH_NUM == 2)
-#if !CONFIG_FREERTOS_UNICORE
-    mmu_hal_map_region(1, target, vaddr_start, paddr_start, size, &actual_mapped_len);
-#endif //  #if !CONFIG_FREERTOS_UNICORE
-#endif //  #if (SOC_MMU_PERIPH_NUM == 2)
+    uint32_t actual_mapped_len = s_mapping_operation(target, vaddr_start, paddr_start, size);
 
     cache_bus_mask_t bus_mask = cache_ll_l1_get_bus(0, vaddr_start, size);
     cache_ll_l1_enable_bus(0, bus_mask);
-#if !CONFIG_FREERTOS_UNICORE
+#if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
     bus_mask = cache_ll_l1_get_bus(0, vaddr_start, size);
     cache_ll_l1_enable_bus(1, bus_mask);
 #endif
@@ -443,7 +510,15 @@ esp_err_t esp_mmu_map(esp_paddr_t paddr_start, size_t size, mmu_target_t target,
 
     if (is_enclosed) {
         ESP_LOGW(TAG, "paddr block is mapped already, vaddr_start: %p, size: 0x%x", (void *)mem_block->vaddr_start, mem_block->size);
-        *out_ptr = (void *)mem_block->vaddr_start;
+        /*
+         * This condition is triggered when `s_is_enclosed` is true and hence
+         * we are sure that `paddr_start` >= `mem_block->paddr_start`.
+         *
+         * Add the offset of new physical address while returning the virtual
+         * address.
+         */
+        const uint32_t new_paddr_offset = paddr_start - mem_block->paddr_start;
+        *out_ptr = (void *)mem_block->vaddr_start + new_paddr_offset;
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -492,16 +567,16 @@ esp_err_t esp_mmu_map(esp_paddr_t paddr_start, size_t size, mmu_target_t target,
     new_block->laddr_end = new_block->laddr_start + aligned_size;
     new_block->size = aligned_size;
     new_block->caps = caps;
-    if (caps & MMU_MEM_CAP_EXEC) {
-        new_block->vaddr_start = mmu_ll_laddr_to_vaddr(new_block->laddr_start, MMU_VADDR_INSTRUCTION);
-        new_block->vaddr_end = mmu_ll_laddr_to_vaddr(new_block->laddr_end, MMU_VADDR_INSTRUCTION);
-    } else {
-        new_block->vaddr_start = mmu_ll_laddr_to_vaddr(new_block->laddr_start, MMU_VADDR_DATA);
-        new_block->vaddr_end = mmu_ll_laddr_to_vaddr(new_block->laddr_end, MMU_VADDR_DATA);
-    }
     new_block->paddr_start = paddr_start;
     new_block->paddr_end = paddr_start + aligned_size;
     new_block->target = target;
+    if (caps & MMU_MEM_CAP_EXEC) {
+        new_block->vaddr_start = mmu_ll_laddr_to_vaddr(new_block->laddr_start, MMU_VADDR_INSTRUCTION, target);
+        new_block->vaddr_end = mmu_ll_laddr_to_vaddr(new_block->laddr_end, MMU_VADDR_INSTRUCTION, target);
+    } else {
+        new_block->vaddr_start = mmu_ll_laddr_to_vaddr(new_block->laddr_start, MMU_VADDR_DATA, target);
+        new_block->vaddr_end = mmu_ll_laddr_to_vaddr(new_block->laddr_end, MMU_VADDR_DATA, target);
+    }
 
     //do mapping
     s_do_mapping(target, new_block->vaddr_start, paddr_start, aligned_size);
@@ -520,6 +595,24 @@ err:
     return ret;
 }
 
+#if SOC_MMU_PER_EXT_MEM_TARGET
+FORCE_INLINE_ATTR void s_unmapping_operation(uint32_t vaddr_start, uint32_t size)
+{
+    mmu_target_t target = mmu_ll_vaddr_to_target(vaddr_start);
+    uint32_t mmu_id = s_get_mmu_id_from_target(target);
+    mmu_hal_unmap_region(mmu_id, vaddr_start, size);
+}
+#else
+FORCE_INLINE_ATTR void s_unmapping_operation(uint32_t vaddr_start, uint32_t size)
+{
+    mmu_hal_unmap_region(0, vaddr_start, size);
+#if (SOC_MMU_PERIPH_NUM == 2)
+#if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
+    mmu_hal_unmap_region(1, vaddr_start, size);
+#endif //  #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
+#endif //  #if (SOC_MMU_PERIPH_NUM == 2)
+}
+#endif
 
 static void IRAM_ATTR NOINLINE_ATTR s_do_unmapping(uint32_t vaddr_start, uint32_t size)
 {
@@ -530,12 +623,7 @@ static void IRAM_ATTR NOINLINE_ATTR s_do_unmapping(uint32_t vaddr_start, uint32_
      */
     spi_flash_disable_interrupts_caches_and_other_cpu();
 
-    mmu_hal_unmap_region(0, vaddr_start, size);
-#if (SOC_MMU_PERIPH_NUM == 2)
-#if !CONFIG_FREERTOS_UNICORE
-    mmu_hal_unmap_region(1, vaddr_start, size);
-#endif //  #if !CONFIG_FREERTOS_UNICORE
-#endif //  #if (SOC_MMU_PERIPH_NUM == 2)
+    s_unmapping_operation(vaddr_start, size);
 
     //enable Cache, after this function, internal RAM access is no longer mandatory
     spi_flash_enable_interrupts_caches_and_other_cpu();
@@ -551,9 +639,11 @@ esp_err_t esp_mmu_unmap(void *ptr)
     size_t slot_len = 0;
 
     for (int i = 0; i < s_mmu_ctx.num_regions; i++) {
+        ESP_COMPILER_DIAGNOSTIC_PUSH_IGNORE("-Wanalyzer-out-of-bounds")
         if (ptr_laddr >= s_mmu_ctx.mem_regions[i].free_head && ptr_laddr < s_mmu_ctx.mem_regions[i].end) {
             region = &s_mmu_ctx.mem_regions[i];
         }
+        ESP_COMPILER_DIAGNOSTIC_POP("-Wanalyzer-out-of-bounds")
     }
     ESP_RETURN_ON_FALSE(region, ESP_ERR_NOT_FOUND, TAG, "munmap target pointer is outside external memory regions");
 
@@ -586,7 +676,6 @@ esp_err_t esp_mmu_unmap(void *ptr)
 
     return ESP_OK;
 }
-
 
 esp_err_t esp_mmu_map_dump_mapped_blocks(FILE* stream)
 {
@@ -632,7 +721,6 @@ esp_err_t esp_mmu_map_dump_mapped_blocks(FILE* stream)
     return ESP_OK;
 }
 
-
 /*---------------------------------------------------------------
         Private dump functions, IRAM Safe
 ---------------------------------------------------------------*/
@@ -646,20 +734,19 @@ esp_err_t IRAM_ATTR esp_mmu_map_dump_mapped_blocks_private(void)
                 ESP_DRAM_LOGI(TAG, "block vaddr_start: 0x%x", mem_block->vaddr_start);
                 ESP_DRAM_LOGI(TAG, "block vaddr_end: 0x%x", mem_block->vaddr_end);
                 ESP_DRAM_LOGI(TAG, "block size: 0x%x", mem_block->size);
-                ESP_DRAM_LOGI(TAG, "block caps: 0x%x\n", mem_block->caps);
-                ESP_DRAM_LOGI(TAG, "block paddr_start: 0x%x\n", mem_block->paddr_start);
-                ESP_DRAM_LOGI(TAG, "block paddr_end: 0x%x\n", mem_block->paddr_end);
+                ESP_DRAM_LOGI(TAG, "block caps: 0x%x", mem_block->caps);
+                ESP_DRAM_LOGI(TAG, "block paddr_start: 0x%x", mem_block->paddr_start);
+                ESP_DRAM_LOGI(TAG, "block paddr_end: 0x%x", mem_block->paddr_end);
             }
         }
         ESP_DRAM_LOGI(TAG, "region bus_id: 0x%x", s_mmu_ctx.mem_regions[i].bus_id);
         ESP_DRAM_LOGI(TAG, "region start: 0x%x", s_mmu_ctx.mem_regions[i].start);
         ESP_DRAM_LOGI(TAG, "region end: 0x%x", s_mmu_ctx.mem_regions[i].end);
-        ESP_DRAM_LOGI(TAG, "region caps: 0x%x\n", s_mmu_ctx.mem_regions[i].caps);
+        ESP_DRAM_LOGI(TAG, "region caps: 0x%x", s_mmu_ctx.mem_regions[i].caps);
     }
 
     return ESP_OK;
 }
-
 
 /*---------------------------------------------------------------
     Helper APIs for conversion between vaddr and paddr
@@ -668,8 +755,12 @@ static bool NOINLINE_ATTR IRAM_ATTR s_vaddr_to_paddr(uint32_t vaddr, esp_paddr_t
 {
     //we call this for now, but this will be refactored to move out of `spi_flash`
     spi_flash_disable_interrupts_caches_and_other_cpu();
-    //On ESP32, core 1 settings should be the same as the core 0
     bool is_mapped = mmu_hal_vaddr_to_paddr(0, vaddr, out_paddr, out_target);
+#if SOC_MMU_PER_EXT_MEM_TARGET
+    if (!is_mapped) {
+        is_mapped = mmu_hal_vaddr_to_paddr(1, vaddr, out_paddr, out_target);
+    }
+#endif
     spi_flash_enable_interrupts_caches_and_other_cpu();
 
     return is_mapped;
@@ -692,13 +783,15 @@ esp_err_t esp_mmu_vaddr_to_paddr(void *vaddr, esp_paddr_t *out_paddr, mmu_target
     return ESP_OK;
 }
 
-
 static bool NOINLINE_ATTR IRAM_ATTR s_paddr_to_vaddr(esp_paddr_t paddr, mmu_target_t target, mmu_vaddr_t type, uint32_t *out_vaddr)
 {
     //we call this for now, but this will be refactored to move out of `spi_flash`
     spi_flash_disable_interrupts_caches_and_other_cpu();
-    //On ESP32, core 1 settings should be the same as the core 0
-    bool found = mmu_hal_paddr_to_vaddr(0, paddr, target, type, out_vaddr);
+    uint32_t mmu_id = 0;
+#if SOC_MMU_PER_EXT_MEM_TARGET
+    mmu_id = s_get_mmu_id_from_target(target);
+#endif
+    bool found = mmu_hal_paddr_to_vaddr(mmu_id, paddr, target, type, out_vaddr);
     spi_flash_enable_interrupts_caches_and_other_cpu();
 
     return found;
@@ -718,7 +811,6 @@ esp_err_t esp_mmu_paddr_to_vaddr(esp_paddr_t paddr, mmu_target_t target, mmu_vad
 
     return ESP_OK;
 }
-
 
 #if ENABLE_PADDR_CHECK
 /*---------------------------------------------------------------
@@ -782,7 +874,7 @@ static bool s_is_overlapped(uint32_t block_start, uint32_t block_end, uint32_t n
     uint32_t new_block_end = new_block_start + new_block_size;
 
     if (((new_block_start < block_start) && (new_block_end > block_start)) ||
-        ((new_block_start < block_end) && (new_block_end > block_end))) {
+            ((new_block_start < block_end) && (new_block_end > block_end))) {
         is_overlapped = true;
     } else {
         is_overlapped = false;

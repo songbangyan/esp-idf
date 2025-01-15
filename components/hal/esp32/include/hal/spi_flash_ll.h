@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -47,6 +47,9 @@ extern "C" {
 
 // On ESP32, we extent 4 bits to occupy `Continuous Read Mode` bits. (same to origin code.)
 #define SPI_FLASH_LL_CONTINUOUS_MODE_BIT_NUMS (4)
+
+#define SPIMEM_LL_APB     SPI1
+#define SPIMEM_LL_CACHE   SPI0
 
 /// type to store pre-calculated register value in above layers
 typedef typeof(SPI1.clock.val) spi_flash_ll_clock_reg_t;
@@ -130,6 +133,7 @@ static inline void spi_flash_ll_set_write_protect(spi_dev_t *dev, bool wp)
  * @param buffer Buffer to hold the output data
  * @param read_len Length to get out of the buffer
  */
+__attribute__((always_inline))
 static inline void spi_flash_ll_get_buffer_data(spi_dev_t *dev, void *buffer, uint32_t read_len)
 {
     if (((intptr_t)buffer % 4 == 0) && (read_len % 4 == 0)) {
@@ -166,6 +170,7 @@ static inline void spi_flash_ll_write_word(spi_dev_t *dev, uint32_t word)
  * @param buffer Buffer holding the data
  * @param length Length of data in bytes.
  */
+__attribute__((always_inline))
 static inline void spi_flash_ll_set_buffer_data(spi_dev_t *dev, const void *buffer, uint32_t length)
 {
     // Load data registers, word at a time
@@ -201,7 +206,7 @@ static inline void spi_flash_ll_program_page(spi_dev_t *dev, const void *buffer,
  *
  * @param dev Beginning address of the peripheral registers.
  */
-static inline void spi_flash_ll_user_start(spi_dev_t *dev)
+static inline void spi_flash_ll_user_start(spi_dev_t *dev, bool pe_ops)
 {
     dev->cmd.usr = 1;
 }
@@ -242,9 +247,10 @@ static inline void spi_flash_ll_set_cs_pin(spi_dev_t *dev, int pin)
  */
 static inline void spi_flash_ll_set_read_mode(spi_dev_t *dev, esp_flash_io_mode_t read_mode)
 {
-    typeof (dev->ctrl) ctrl = dev->ctrl;
-    ctrl.val &= ~(SPI_FREAD_QIO_M | SPI_FREAD_QUAD_M | SPI_FREAD_DIO_M | SPI_FREAD_DUAL_M);
-    ctrl.val |= SPI_FASTRD_MODE_M;
+    typeof (dev->ctrl) ctrl;
+    ctrl.val = dev->ctrl.val;
+    ctrl.val = ctrl.val & ~(SPI_FREAD_QIO_M | SPI_FREAD_QUAD_M | SPI_FREAD_DIO_M | SPI_FREAD_DUAL_M);
+    ctrl.val = ctrl.val | SPI_FASTRD_MODE_M;
     switch (read_mode) {
     case SPI_FLASH_FASTRD:
         //the default option
@@ -267,7 +273,7 @@ static inline void spi_flash_ll_set_read_mode(spi_dev_t *dev, esp_flash_io_mode_
     default:
         abort();
     }
-    dev->ctrl = ctrl;
+    dev->ctrl.val = ctrl.val;
 }
 
 /**
@@ -300,6 +306,7 @@ static inline void spi_flash_ll_set_miso_bitlen(spi_dev_t *dev, uint32_t bitlen)
  * @param dev Beginning address of the peripheral registers.
  * @param bitlen Length of output, in bits.
  */
+__attribute__((always_inline))
 static inline void spi_flash_ll_set_mosi_bitlen(spi_dev_t *dev, uint32_t bitlen)
 {
     dev->user.usr_mosi = bitlen > 0;
@@ -318,9 +325,10 @@ static inline void spi_flash_ll_set_command(spi_dev_t *dev, uint8_t command, uin
     dev->user.usr_command = 1;
     typeof(dev->user2) user2 = {
         .usr_command_value = command,
+        .reserved16 = 0,
         .usr_command_bitlen = (bitlen - 1),
     };
-    dev->user2 = user2;
+    dev->user2.val = user2.val;
 }
 
 /**
@@ -340,6 +348,7 @@ static inline int spi_flash_ll_get_addr_bitlen(spi_dev_t *dev)
  * @param dev Beginning address of the peripheral registers.
  * @param bitlen Length of the address, in bits
  */
+__attribute__((always_inline))
 static inline void spi_flash_ll_set_addr_bitlen(spi_dev_t *dev, uint32_t bitlen)
 {
     dev->user1.usr_addr_bitlen = (bitlen - 1);
@@ -352,6 +361,7 @@ static inline void spi_flash_ll_set_addr_bitlen(spi_dev_t *dev, uint32_t bitlen)
  * @param dev Beginning address of the peripheral registers.
  * @param addr Address to send
  */
+__attribute__((always_inline))
 static inline void spi_flash_ll_set_usr_address(spi_dev_t *dev, uint32_t addr, int bit_len)
 {
     // The blank region should be all ones
@@ -360,7 +370,9 @@ static inline void spi_flash_ll_set_usr_address(spi_dev_t *dev, uint32_t addr, i
         dev->slv_wr_status = UINT32_MAX;
     } else {
         uint32_t padding_ones = UINT32_MAX >> bit_len;
-        dev->addr = (addr << (32 - bit_len)) | padding_ones;
+        if (bit_len != 0) {
+            dev->addr = (addr << (32 - bit_len)) | padding_ones;
+        }
     }
 }
 
@@ -443,6 +455,71 @@ static inline uint32_t spi_flash_ll_calculate_clock_reg(uint8_t host_id, uint8_t
 static inline void spi_flash_ll_set_extra_address(spi_dev_t *dev, uint32_t extra_addr)
 {
     // Not supported on ESP32.
+}
+
+/**
+ * @brief Write protect signal output when SPI is idle
+
+ * @param level 1: 1: output high, 0: output low
+ */
+static inline void spi_flash_ll_set_wp_level(spi_dev_t *dev, bool level)
+{
+    dev->ctrl.wp = level;
+}
+
+/**
+ * @brief Get the ctrl value of mspi
+ *
+ * @return uint32_t The value of ctrl register
+ */
+static inline uint32_t spi_flash_ll_get_ctrl_val(spi_dev_t *dev)
+{
+    return dev->ctrl.val;
+}
+
+/**
+ * @brief Reset whole memory spi
+ */
+static inline void spi_flash_ll_sync_reset(void)
+{
+    SPI1.slave.sync_reset = 0;
+    SPI0.slave.sync_reset = 0;
+    SPI1.slave.sync_reset = 1;
+    SPI0.slave.sync_reset = 1;
+    SPI1.slave.sync_reset = 0;
+    SPI0.slave.sync_reset = 0;
+}
+
+/**
+ * @brief Get common command related registers
+ *
+ * @param ctrl_reg ctrl_reg
+ * @param user_reg user_reg
+ * @param user1_reg user1_reg
+ * @param user2_reg user2_reg
+ */
+static inline void spi_flash_ll_get_common_command_register_info(spi_dev_t *dev, uint32_t *ctrl_reg, uint32_t *user_reg, uint32_t *user1_reg, uint32_t *user2_reg)
+{
+    *ctrl_reg = dev->ctrl.val;
+    *user_reg = dev->user.val;
+    *user1_reg = dev->user1.val;
+    *user2_reg = dev->user2.val;
+}
+
+/**
+ * @brief Set common command related registers
+ *
+ * @param ctrl_reg ctrl_reg
+ * @param user_reg user_reg
+ * @param user1_reg user1_reg
+ * @param user2_reg user2_reg
+ */
+static inline void spi_flash_ll_set_common_command_register_info(spi_dev_t *dev, uint32_t ctrl_reg, uint32_t user_reg, uint32_t user1_reg, uint32_t user2_reg)
+{
+    dev->ctrl.val = ctrl_reg;
+    dev->user.val = user_reg;
+    dev->user1.val = user1_reg;
+    dev->user2.val = user2_reg;
 }
 
 #ifdef __cplusplus

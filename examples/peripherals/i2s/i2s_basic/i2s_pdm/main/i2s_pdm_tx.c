@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -13,11 +13,12 @@
 #include "esp_check.h"
 #include "sdkconfig.h"
 #include "i2s_pdm_example.h"
+#include "i2s_example_pins.h"
 
-#define EXAMPLE_PDM_TX_CLK_IO           GPIO_NUM_4      // I2S PDM TX clock io number
-#define EXAMPLE_PDM_TX_DOUT_IO          GPIO_NUM_5      // I2S PDM TX data out io number
+#define EXAMPLE_PDM_TX_CLK_IO           EXAMPLE_I2S_BCLK_IO1      // I2S PDM TX clock io number
+#define EXAMPLE_PDM_TX_DOUT_IO          EXAMPLE_I2S_DOUT_IO1      // I2S PDM TX data out io number
 
-#define EXAMPLE_PDM_TX_FREQ_HZ          44100           // I2S PDM TX frequency
+#define EXAMPLE_PDM_TX_FREQ_HZ          16000           // I2S PDM TX frequency
 #define EXAMPLE_WAVE_AMPLITUDE          (1000.0)        // 1~32767
 #define CONST_PI                        (3.1416f)
 #define EXAMPLE_SINE_WAVE_LEN(tone)     (uint32_t)((EXAMPLE_PDM_TX_FREQ_HZ / (float)tone) + 0.5) // The sample point number per sine wave to generate the tone
@@ -25,14 +26,17 @@
 #define EXAMPLE_BYTE_NUM_EVERY_TONE     (EXAMPLE_TONE_LAST_TIME_MS * EXAMPLE_PDM_TX_FREQ_HZ / 1000)
 
 /* The frequency of tones: do, re, mi, fa, so, la, si, in Hz. */
-static const uint32_t tone[3][7] = {{262, 294, 330, 349, 392, 440, 494},            // bass
-                                    {523, 587, 659, 698, 784, 880, 988},            // alto
-                                    {1046, 1175, 1318, 1397, 1568, 1760, 1976}};    // treble
+static const uint32_t tone[3][7] = {
+    {262, 294, 330, 349, 392, 440, 494},        // bass
+    {523, 587, 659, 698, 784, 880, 988},        // alto
+    {1046, 1175, 1318, 1397, 1568, 1760, 1976}, // treble
+};
 /* Numbered musical notation of 'twinkle twinkle little star' */
 static const uint8_t song[28] = {1, 1, 5, 5, 6, 6, 5,
                                  4, 4, 3, 3, 2, 2, 1,
                                  5, 5, 4, 4, 3, 3, 2,
-                                 5, 5, 4, 4, 3, 3, 2};
+                                 5, 5, 4, 4, 3, 3, 2
+                                };
 /* Rhythm of 'twinkle twinkle little star', it's repeated in four sections */
 static const uint8_t rhythm[7] = {1, 1, 1, 1, 1, 1, 2};
 
@@ -54,9 +58,15 @@ static i2s_chan_handle_t i2s_example_init_pdm_tx(void)
      * These two helper macros is defined in 'i2s_pdm.h' which can only be used in PDM TX mode.
      * They can help to specify the slot and clock configurations for initialization or re-configuring */
     i2s_pdm_tx_config_t pdm_tx_cfg = {
+#if CONFIG_EXAMPLE_PDM_TX_DAC
+        .clk_cfg = I2S_PDM_TX_CLK_DAC_DEFAULT_CONFIG(EXAMPLE_PDM_TX_FREQ_HZ),
+        /* The data bit-width of PDM mode is fixed to 16 */
+        .slot_cfg = I2S_PDM_TX_SLOT_DAC_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+#else
         .clk_cfg = I2S_PDM_TX_CLK_DEFAULT_CONFIG(EXAMPLE_PDM_TX_FREQ_HZ),
         /* The data bit-width of PDM mode is fixed to 16 */
         .slot_cfg = I2S_PDM_TX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+#endif
         .gpio_cfg = {
             .clk = EXAMPLE_PDM_TX_CLK_IO,
             .dout = EXAMPLE_PDM_TX_DOUT_IO,
@@ -86,10 +96,10 @@ void i2s_example_pdm_tx_task(void *args)
 
     printf("Playing %s `twinkle twinkle little star`\n", tone_name[tone_select]);
     while (1) {
-        int tone_point = EXAMPLE_SINE_WAVE_LEN(tone[tone_select][song[cnt]-1]);
+        int tone_point = EXAMPLE_SINE_WAVE_LEN(tone[tone_select][song[cnt] - 1]);
         /* Generate the tone buffer */
         for (int i = 0; i < tone_point; i++) {
-            w_buf[i] =  (int16_t)((sin(2 * (float)i * CONST_PI / tone_point)) * EXAMPLE_WAVE_AMPLITUDE);
+            w_buf[i] = (int16_t)((sin(2 * (float)i * CONST_PI / tone_point)) * EXAMPLE_WAVE_AMPLITUDE);
         }
         for (int tot_bytes = 0; tot_bytes < EXAMPLE_BYTE_NUM_EVERY_TONE * rhythm[cnt % 7]; tot_bytes += w_bytes) {
             /* Play the tone */

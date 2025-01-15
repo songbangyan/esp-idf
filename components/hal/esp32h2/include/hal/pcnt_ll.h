@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,6 +19,10 @@
 #include <stdbool.h>
 #include "soc/pcnt_struct.h"
 #include "hal/pcnt_types.h"
+#include "hal/misc.h"
+#include "hal/efuse_hal.h"
+#include "soc/chip_revision.h"
+#include "soc/pcr_struct.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +43,12 @@ typedef enum {
     PCNT_LL_WATCH_EVENT_MAX
 } pcnt_ll_watch_event_id_t;
 
+typedef enum {
+    PCNT_LL_STEP_EVENT_REACH_LIMIT = PCNT_LL_WATCH_EVENT_MAX,
+    PCNT_LL_STEP_EVENT_REACH_INTERVAL
+} pcnt_ll_step_event_id_t;
+
+#define PCNT_LL_STEP_NOTIFY_DIR_LIMIT     1
 #define PCNT_LL_WATCH_EVENT_MASK          ((1 << PCNT_LL_WATCH_EVENT_MAX) - 1)
 #define PCNT_LL_UNIT_WATCH_EVENT(unit_id) (1 << (unit_id))
 
@@ -92,7 +102,9 @@ static inline void pcnt_ll_set_level_action(pcnt_dev_t *hw, uint32_t unit, uint3
 __attribute__((always_inline))
 static inline int pcnt_ll_get_count(pcnt_dev_t *hw, uint32_t unit)
 {
-    pcnt_un_cnt_reg_t cnt_reg = hw->cnt_unit[unit];
+    pcnt_un_cnt_reg_t cnt_reg;
+    cnt_reg.val = hw->cnt_unit[unit].val;
+
     int16_t value = cnt_reg.pulse_cnt;
     return value;
 }
@@ -132,6 +144,46 @@ static inline void pcnt_ll_clear_count(pcnt_dev_t *hw, uint32_t unit)
 {
     hw->ctrl.val |= 1 << (2 * unit);
     hw->ctrl.val &= ~(1 << (2 * unit));
+}
+
+/**
+ * @brief Enable PCNT step comparator event
+ *
+ * @param hw Peripheral PCNT hardware instance address.
+ * @param unit PCNT unit number
+ * @param enable true to enable, false to disable
+ */
+static inline void pcnt_ll_enable_step_notify(pcnt_dev_t *hw, uint32_t unit, bool enable)
+{
+    if (enable) {
+        hw->ctrl.val |= 1 << (8 + unit);
+    } else {
+        hw->ctrl.val &= ~(1 << (8 + unit));
+    }
+}
+
+/**
+ * @brief Set PCNT step value
+ *
+ * @param hw Peripheral PCNT hardware instance address.
+ * @param unit PCNT unit number
+ * @param value PCNT step value
+ */
+static inline void pcnt_ll_set_step_value(pcnt_dev_t *hw, uint32_t unit, int value)
+{
+    HAL_FORCE_MODIFY_U32_REG_FIELD(hw->change_conf_unit[3 - unit], cnt_step, value);
+}
+
+/**
+ * @brief Set PCNT step limit value
+ *
+ * @param hw Peripheral PCNT hardware instance address.
+ * @param unit PCNT unit number
+ * @param value PCNT step limit value
+ */
+static inline void pcnt_ll_set_step_limit_value(pcnt_dev_t *hw, uint32_t unit, int value)
+{
+    HAL_FORCE_MODIFY_U32_REG_FIELD(hw->change_conf_unit[3 - unit], cnt_step_lim, value);
 }
 
 /**
@@ -248,9 +300,11 @@ static inline void pcnt_ll_disable_all_events(pcnt_dev_t *hw, uint32_t unit)
  */
 static inline void pcnt_ll_set_high_limit_value(pcnt_dev_t *hw, uint32_t unit, int value)
 {
-    pcnt_un_conf2_reg_t conf2_reg = hw->conf_unit[unit].conf2;
+    pcnt_un_conf2_reg_t conf2_reg;
+    conf2_reg.val = hw->conf_unit[unit].conf2.val;
+
     conf2_reg.cnt_h_lim = value;
-    hw->conf_unit[unit].conf2 = conf2_reg;
+    hw->conf_unit[unit].conf2.val = conf2_reg.val;
 }
 
 /**
@@ -262,9 +316,11 @@ static inline void pcnt_ll_set_high_limit_value(pcnt_dev_t *hw, uint32_t unit, i
  */
 static inline void pcnt_ll_set_low_limit_value(pcnt_dev_t *hw, uint32_t unit, int value)
 {
-    pcnt_un_conf2_reg_t conf2_reg = hw->conf_unit[unit].conf2;
+    pcnt_un_conf2_reg_t conf2_reg;
+    conf2_reg.val = hw->conf_unit[unit].conf2.val;
+
     conf2_reg.cnt_l_lim = value;
-    hw->conf_unit[unit].conf2 = conf2_reg;
+    hw->conf_unit[unit].conf2.val = conf2_reg.val;
 }
 
 /**
@@ -277,13 +333,15 @@ static inline void pcnt_ll_set_low_limit_value(pcnt_dev_t *hw, uint32_t unit, in
  */
 static inline void pcnt_ll_set_thres_value(pcnt_dev_t *hw, uint32_t unit, uint32_t thres, int value)
 {
-    pcnt_un_conf1_reg_t conf1_reg = hw->conf_unit[unit].conf1;
+    pcnt_un_conf1_reg_t conf1_reg;
+    conf1_reg.val = hw->conf_unit[unit].conf1.val;
+
     if (thres == 0) {
         conf1_reg.cnt_thres0 = value;
     } else {
         conf1_reg.cnt_thres1 = value;
     }
-    hw->conf_unit[unit].conf1 = conf1_reg;
+    hw->conf_unit[unit].conf1.val = conf1_reg.val;
 }
 
 /**
@@ -295,7 +353,9 @@ static inline void pcnt_ll_set_thres_value(pcnt_dev_t *hw, uint32_t unit, uint32
  */
 static inline int pcnt_ll_get_high_limit_value(pcnt_dev_t *hw, uint32_t unit)
 {
-    pcnt_un_conf2_reg_t conf2_reg = hw->conf_unit[unit].conf2;
+    pcnt_un_conf2_reg_t conf2_reg;
+    conf2_reg.val = hw->conf_unit[unit].conf2.val;
+
     int16_t value = conf2_reg.cnt_h_lim ;
     return value;
 }
@@ -309,7 +369,9 @@ static inline int pcnt_ll_get_high_limit_value(pcnt_dev_t *hw, uint32_t unit)
  */
 static inline int pcnt_ll_get_low_limit_value(pcnt_dev_t *hw, uint32_t unit)
 {
-    pcnt_un_conf2_reg_t conf2_reg = hw->conf_unit[unit].conf2;
+    pcnt_un_conf2_reg_t conf2_reg;
+    conf2_reg.val = hw->conf_unit[unit].conf2.val;
+
     int16_t value = conf2_reg.cnt_l_lim ;
     return value;
 }
@@ -322,10 +384,13 @@ static inline int pcnt_ll_get_low_limit_value(pcnt_dev_t *hw, uint32_t unit)
  * @param thres Threshold ID
  * @return PCNT threshold value
  */
+__attribute__((always_inline))
 static inline int pcnt_ll_get_thres_value(pcnt_dev_t *hw, uint32_t unit, uint32_t thres)
 {
     int16_t value;
-    pcnt_un_conf1_reg_t conf1_reg = hw->conf_unit[unit].conf1;
+    pcnt_un_conf1_reg_t conf1_reg;
+    conf1_reg.val = hw->conf_unit[unit].conf1.val;
+
     if (thres == 0) {
         value = conf1_reg.cnt_thres0 ;
     } else {
@@ -356,7 +421,7 @@ static inline uint32_t pcnt_ll_get_unit_status(pcnt_dev_t *hw, uint32_t unit)
 __attribute__((always_inline))
 static inline pcnt_unit_zero_cross_mode_t pcnt_ll_get_zero_cross_mode(pcnt_dev_t *hw, uint32_t unit)
 {
-    return hw->status_unit[unit].val & 0x03;
+    return (pcnt_unit_zero_cross_mode_t)(hw->status_unit[unit].val & 0x03);
 }
 
 /**
@@ -420,6 +485,37 @@ static inline volatile void *pcnt_ll_get_intr_status_reg(pcnt_dev_t *hw)
 {
     return &hw->int_st.val;
 }
+
+/**
+ * @brief Enable or disable the bus clock for the PCNT module
+ *
+ * @param set_bit True to set bit, false to clear bit
+ */
+static inline void pcnt_ll_enable_bus_clock(int group_id, bool enable)
+{
+    (void)group_id;
+    PCR.pcnt_conf.pcnt_clk_en = enable;
+}
+
+/**
+ * @brief Reset the PCNT module
+ */
+static inline void pcnt_ll_reset_register(int group_id)
+{
+    (void)group_id;
+    PCR.pcnt_conf.pcnt_rst_en = 1;
+    PCR.pcnt_conf.pcnt_rst_en = 0;
+}
+
+/**
+ * @brief Check if the step notify is supported
+ */
+static inline bool pcnt_ll_is_step_notify_supported(int group_id)
+{
+    (void)group_id;
+    return ESP_CHIP_REV_ABOVE(efuse_hal_chip_revision(), 102);
+}
+
 
 #ifdef __cplusplus
 }

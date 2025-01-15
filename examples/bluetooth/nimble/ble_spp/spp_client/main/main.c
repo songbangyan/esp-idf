@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -26,6 +26,43 @@ uint16_t attribute_handle[CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1];
 static void ble_spp_client_scan(void);
 static ble_addr_t connected_addr[CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1];
 
+static void ble_spp_client_write_subscribe(const struct peer *peer)
+{
+  uint8_t value[2];
+  int rc;
+  const struct peer_dsc *dsc;
+
+  /* Subscribe to notifications for the SPP characteristic.
+   * A central enables notifications by writing two bytes (1, 0) to the
+   * characteristic's client-characteristic-configuration-descriptor (CCCD).
+   */
+  dsc = peer_dsc_find_uuid(peer,
+                    BLE_UUID16_DECLARE(GATT_SPP_SVC_UUID),
+                    BLE_UUID16_DECLARE(GATT_SPP_CHR_UUID),
+                    BLE_UUID16_DECLARE(BLE_GATT_DSC_CLT_CFG_UUID16));
+  if (dsc == NULL) {
+     MODLOG_DFLT(ERROR, "Error: Peer lacks a CCCD for the Unread Alert "
+                       "Status characteristic\n");
+    goto err;
+  }
+
+  value[0] = 1;
+  value[1] = 0;
+  rc = ble_gattc_write_flat(peer->conn_handle, dsc->dsc.handle,
+                          value, sizeof value, NULL, NULL);
+
+  if (rc != 0) {
+     MODLOG_DFLT(ERROR, "Error: Failed to subscribe to characteristic; "
+                       "rc=%d\n", rc);
+    goto err;
+  }
+  return;
+  err:
+    /* Terminate the connection. */
+    ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+
+}
+
 static void
 ble_spp_client_set_handle(const struct peer *peer)
 {
@@ -34,7 +71,9 @@ ble_spp_client_set_handle(const struct peer *peer)
                              BLE_UUID16_DECLARE(GATT_SPP_SVC_UUID),
                              BLE_UUID16_DECLARE(GATT_SPP_CHR_UUID));
     attribute_handle[peer->conn_handle] = chr->chr.val_handle;
+
 }
+
 
 /**
  * Called when service discovery of the specified peer has completed.
@@ -58,6 +97,8 @@ ble_spp_client_on_disc_complete(const struct peer *peer, int status, void *arg)
                 "conn_handle=%d\n", status, peer->conn_handle);
 
     ble_spp_client_set_handle(peer);
+    ble_spp_client_write_subscribe(peer);
+
 #if CONFIG_BT_NIMBLE_MAX_CONNECTIONS > 1
     ble_spp_client_scan();
 #endif
@@ -134,7 +175,7 @@ ble_spp_client_should_connect(const struct ble_gap_disc_desc *disc)
 
     rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
     if (rc != 0) {
-        return rc;
+        return 0;
     }
 
     /* The device has to advertise support for the SPP
@@ -164,12 +205,14 @@ ble_spp_client_connect_if_interesting(const struct ble_gap_disc_desc *disc)
         return;
     }
 
+#if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
     /* Scanning must be stopped before a connection can be initiated. */
     rc = ble_gap_disc_cancel();
     if (rc != 0) {
         MODLOG_DFLT(DEBUG, "Failed to cancel scan; rc=%d\n", rc);
         return;
     }
+#endif
 
     /* Figure out address to use for connect (no privacy for now) */
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
@@ -221,34 +264,34 @@ ble_spp_client_gap_event(struct ble_gap_event *event, void *arg)
             return 0;
         }
 
-        /* An advertisment report was received during GAP discovery. */
+        /* An advertisement report was received during GAP discovery. */
         print_adv_fields(&fields);
 
         /* Try to connect to the advertiser if it looks interesting. */
         ble_spp_client_connect_if_interesting(&event->disc);
         return 0;
 
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed. */
-        if (event->connect.status == 0) {
+        if (event->link_estab.status == 0) {
             /* Connection successfully established. */
             MODLOG_DFLT(INFO, "Connection established ");
-            rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+            rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
-            memcpy(&connected_addr[event->connect.conn_handle].val, desc.peer_id_addr.val,
+            memcpy(&connected_addr[event->link_estab.conn_handle].val, desc.peer_id_addr.val,
                    PEER_ADDR_VAL_SIZE);
             print_conn_desc(&desc);
             MODLOG_DFLT(INFO, "\n");
 
             /* Remember peer. */
-            rc = peer_add(event->connect.conn_handle);
+            rc = peer_add(event->link_estab.conn_handle);
             if (rc != 0) {
                 MODLOG_DFLT(ERROR, "Failed to add peer; rc=%d\n", rc);
                 return 0;
             }
 
             /* Perform service discovery. */
-            rc = peer_disc_all(event->connect.conn_handle,
+            rc = peer_disc_all(event->link_estab.conn_handle,
                                ble_spp_client_on_disc_complete, NULL);
             if (rc != 0) {
                 MODLOG_DFLT(ERROR, "Failed to discover services; rc=%d\n", rc);
@@ -257,7 +300,7 @@ ble_spp_client_gap_event(struct ble_gap_event *event, void *arg)
         } else {
             /* Connection attempt failed; resume scanning. */
             MODLOG_DFLT(ERROR, "Error: Connection failed; status=%d\n",
-                        event->connect.status);
+                        event->link_estab.status);
             ble_spp_client_scan();
         }
 
@@ -339,7 +382,7 @@ void ble_spp_client_host_task(void *param)
 }
 void ble_client_uart_task(void *pvParameters)
 {
-    ESP_LOGI(tag, "BLE client UART task started\n");
+    ESP_LOGI(tag, "BLE client UART task started");
     int rc;
     int i;
     uart_event_t event;
@@ -347,7 +390,7 @@ void ble_client_uart_task(void *pvParameters)
         //Waiting for UART event.
         if (xQueueReceive(spp_common_uart_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
             switch (event.type) {
-            //Event of UART receving data
+            //Event of UART receiving data
             case UART_DATA:
                 if (event.size) {
 
@@ -355,7 +398,7 @@ void ble_client_uart_task(void *pvParameters)
                     uint8_t *temp = NULL;
                     temp = (uint8_t *)malloc(sizeof(uint8_t) * event.size);
                     if (temp == NULL) {
-                        ESP_LOGE(tag, "malloc failed,%s L#%d\n", __func__, __LINE__);
+                        ESP_LOGE(tag, "malloc failed,%s L#%d", __func__, __LINE__);
                         break;
                     }
                     memset(temp, 0x0, event.size);

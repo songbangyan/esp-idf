@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "sdkconfig.h"
+#include <sys/lock.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -13,14 +14,18 @@
 #include "esp_rom_gpio.h"
 #include "esp_intr_alloc.h"
 #include "soc/mcpwm_periph.h"
+#include "soc/io_mux_reg.h"
+#include "soc/soc_caps.h"
 #include "hal/mcpwm_hal.h"
 #include "hal/gpio_hal.h"
 #include "hal/mcpwm_ll.h"
 #include "driver/mcpwm_types_legacy.h"
 #include "driver/gpio.h"
 #include "esp_private/periph_ctrl.h"
-#include "clk_tree.h"
+#include "esp_private/gpio.h"
 #include "esp_private/esp_clk.h"
+#include "esp_private/esp_clk_tree_common.h"
+#include "esp_clk_tree.h"
 
 static const char *TAG = "mcpwm(legacy)";
 
@@ -44,6 +49,18 @@ _Static_assert(MCPWM_UNIT_MAX == SOC_MCPWM_GROUPS, "MCPWM unit number not equal 
 #else
 #define MCPWM_ISR_ATTR
 #define MCPWM_INTR_FLAG  0
+#endif
+
+#if SOC_PERIPH_CLK_CTRL_SHARED
+#define MCPWM_CLOCK_SRC_ATOMIC() PERIPH_RCC_ATOMIC()
+#else
+#define MCPWM_CLOCK_SRC_ATOMIC()
+#endif
+
+#if !SOC_RCC_IS_INDEPENDENT
+#define MCPWM_RCC_ATOMIC() PERIPH_RCC_ATOMIC()
+#else
+#define MCPWM_RCC_ATOMIC()
 #endif
 
 // Note: we can't modify the default MCPWM group resolution once it's determined
@@ -93,6 +110,7 @@ typedef struct {
     int timer_resolution_hz[SOC_MCPWM_TIMERS_PER_GROUP];
     intr_handle_t mcpwm_intr_handle;  // handler for ISR register, one per MCPWM group
     cap_isr_func_t cap_isr_func[SOC_MCPWM_CAPTURE_CHANNELS_PER_TIMER]; // handler for ISR callback, one for each cap ch
+    int module_ref_count;
 } mcpwm_context_t;
 
 static mcpwm_context_t context[SOC_MCPWM_GROUPS] = {
@@ -132,6 +150,37 @@ static inline void mcpwm_mutex_unlock(mcpwm_unit_t mcpwm_num)
     _lock_release(&context[mcpwm_num].mutex_lock);
 }
 
+static void mcpwm_module_enable(mcpwm_unit_t mcpwm_num)
+{
+    mcpwm_critical_enter(mcpwm_num);
+    if (context[mcpwm_num].module_ref_count == 0) {
+        MCPWM_RCC_ATOMIC() {
+            mcpwm_ll_enable_bus_clock(mcpwm_num, true);
+            mcpwm_ll_reset_register(mcpwm_num);
+        }
+        MCPWM_CLOCK_SRC_ATOMIC() {
+            mcpwm_ll_group_enable_clock(mcpwm_num, true);
+        }
+    }
+    context[mcpwm_num].module_ref_count++;
+    mcpwm_critical_exit(mcpwm_num);
+}
+
+static void mcpwm_module_disable(mcpwm_unit_t mcpwm_num)
+{
+    mcpwm_critical_enter(mcpwm_num);
+    context[mcpwm_num].module_ref_count--;
+    if (context[mcpwm_num].module_ref_count == 0) {
+        MCPWM_RCC_ATOMIC() {
+            mcpwm_ll_enable_bus_clock(mcpwm_num, false);
+        }
+        MCPWM_CLOCK_SRC_ATOMIC() {
+            mcpwm_ll_group_enable_clock(mcpwm_num, false);
+        }
+    }
+    mcpwm_critical_exit(mcpwm_num);
+}
+
 esp_err_t mcpwm_gpio_init(mcpwm_unit_t mcpwm_num, mcpwm_io_signals_t io_signal, int gpio_num)
 {
     if (gpio_num < 0) { // ignore on minus gpio number
@@ -160,7 +209,7 @@ esp_err_t mcpwm_gpio_init(mcpwm_unit_t mcpwm_num, mcpwm_io_signals_t io_signal, 
         int capture_id = io_signal - MCPWM_CAP_0;
         esp_rom_gpio_connect_in_signal(gpio_num, mcpwm_periph_signals.groups[mcpwm_num].captures[capture_id].cap_sig, 0);
     }
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[gpio_num], PIN_FUNC_GPIO);
+    gpio_func_sel(gpio_num, PIN_FUNC_GPIO);
     return ESP_OK;
 }
 
@@ -223,17 +272,17 @@ static inline uint32_t mcpwm_timer_get_resolution(mcpwm_unit_t mcpwm_num, mcpwm_
 
 esp_err_t mcpwm_group_set_resolution(mcpwm_unit_t mcpwm_num, uint32_t resolution)
 {
-    mcpwm_hal_context_t *hal = &context[mcpwm_num].hal;
+    mcpwm_module_enable(mcpwm_num);
     uint32_t clk_src_hz = 0;
-    clk_tree_src_get_freq_hz(MCPWM_TIMER_CLK_SRC_DEFAULT, CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_src_hz);
+    esp_clk_tree_src_get_freq_hz(MCPWM_TIMER_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_src_hz);
 
     int pre_scale_temp = clk_src_hz / resolution;
     ESP_RETURN_ON_FALSE(pre_scale_temp >= 1, ESP_ERR_INVALID_ARG, TAG, "invalid resolution");
     context[mcpwm_num].group_resolution_hz = clk_src_hz / pre_scale_temp;
 
-    mcpwm_critical_enter(mcpwm_num);
-    mcpwm_ll_group_set_clock_prescale(hal->dev, pre_scale_temp);
-    mcpwm_critical_exit(mcpwm_num);
+    MCPWM_CLOCK_SRC_ATOMIC() {
+        mcpwm_ll_group_set_clock_prescale(mcpwm_num, pre_scale_temp);
+    }
     return ESP_OK;
 }
 
@@ -408,23 +457,26 @@ esp_err_t mcpwm_init(mcpwm_unit_t mcpwm_num, mcpwm_timer_t timer_num, const mcpw
     const int op = timer_num;
     MCPWM_TIMER_ID_CHECK(mcpwm_num, op);
     mcpwm_hal_context_t *hal = &context[mcpwm_num].hal;
-    periph_module_enable(mcpwm_periph_signals.groups[mcpwm_num].module);
+    mcpwm_module_enable(mcpwm_num);
     mcpwm_hal_init_config_t config = {
         .group_id = mcpwm_num
     };
     mcpwm_hal_init(hal, &config);
 
     uint32_t clk_src_hz = 0;
-    clk_tree_src_get_freq_hz(MCPWM_TIMER_CLK_SRC_DEFAULT, CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_src_hz);
+    esp_clk_tree_src_get_freq_hz(MCPWM_TIMER_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_src_hz);
     uint32_t group_resolution = mcpwm_group_get_resolution(mcpwm_num);
     uint32_t timer_resolution = mcpwm_timer_get_resolution(mcpwm_num, timer_num);
     uint32_t group_pre_scale = clk_src_hz / group_resolution;
     uint32_t timer_pre_scale = group_resolution / timer_resolution;
 
+    esp_clk_tree_enable_src((soc_module_clk_t)MCPWM_CAPTURE_CLK_SRC_DEFAULT, true);
+    MCPWM_CLOCK_SRC_ATOMIC() {
+        mcpwm_ll_group_set_clock_source(mcpwm_num, (soc_module_clk_t)MCPWM_CAPTURE_CLK_SRC_DEFAULT);
+        mcpwm_ll_group_set_clock_prescale(mcpwm_num, group_pre_scale);
+    }
+
     mcpwm_critical_enter(mcpwm_num);
-    mcpwm_ll_group_enable_clock(hal->dev, true);
-    mcpwm_ll_group_set_clock_source(hal->dev, (soc_module_clk_t)MCPWM_CAPTURE_CLK_SRC_DEFAULT);
-    mcpwm_ll_group_set_clock_prescale(hal->dev, group_pre_scale);
     mcpwm_ll_timer_set_clock_prescale(hal->dev, timer_num, timer_pre_scale);
     mcpwm_ll_timer_set_count_mode(hal->dev, timer_num, mcpwm_conf->counter_mode);
     mcpwm_ll_timer_update_period_at_once(hal->dev, timer_num);
@@ -803,8 +855,8 @@ esp_err_t mcpwm_capture_enable_channel(mcpwm_unit_t mcpwm_num, mcpwm_capture_cha
                         MCPWM_CAP_EXIST_ERROR);
     mcpwm_hal_context_t *hal = &context[mcpwm_num].hal;
 
-    // enable MCPWM module incase user don't use `mcpwm_init` at all. always increase reference count
-    periph_module_enable(mcpwm_periph_signals.groups[mcpwm_num].module);
+    // enable MCPWM module in case user don't use `mcpwm_init` at all. always increase reference count
+    mcpwm_module_enable(mcpwm_num);
 
     mcpwm_hal_init_config_t init_config = {
         .group_id = mcpwm_num
@@ -812,14 +864,17 @@ esp_err_t mcpwm_capture_enable_channel(mcpwm_unit_t mcpwm_num, mcpwm_capture_cha
     mcpwm_hal_init(hal, &init_config);
 
     uint32_t clk_src_hz = 0;
-    clk_tree_src_get_freq_hz(MCPWM_TIMER_CLK_SRC_DEFAULT, CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_src_hz);
+    esp_clk_tree_src_get_freq_hz(MCPWM_TIMER_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_src_hz);
     uint32_t group_resolution = mcpwm_group_get_resolution(mcpwm_num);
     uint32_t group_pre_scale = clk_src_hz / group_resolution;
 
+    esp_clk_tree_enable_src((soc_module_clk_t)MCPWM_CAPTURE_CLK_SRC_DEFAULT, true);
+    MCPWM_CLOCK_SRC_ATOMIC() {
+        mcpwm_ll_group_set_clock_source(mcpwm_num, (soc_module_clk_t)MCPWM_CAPTURE_CLK_SRC_DEFAULT);
+        mcpwm_ll_group_set_clock_prescale(mcpwm_num, group_pre_scale);
+    }
+
     mcpwm_critical_enter(mcpwm_num);
-    mcpwm_ll_group_enable_clock(hal->dev, true);
-    mcpwm_ll_group_set_clock_source(hal->dev, (soc_module_clk_t)MCPWM_CAPTURE_CLK_SRC_DEFAULT);
-    mcpwm_ll_group_set_clock_prescale(hal->dev, group_pre_scale);
     mcpwm_ll_capture_enable_timer(hal->dev, true);
     mcpwm_ll_capture_enable_channel(hal->dev, cap_channel, true);
     mcpwm_ll_capture_enable_negedge(hal->dev, cap_channel, cap_conf->cap_edge & MCPWM_NEG_EDGE);
@@ -837,7 +892,7 @@ esp_err_t mcpwm_capture_enable_channel(mcpwm_unit_t mcpwm_num, mcpwm_capture_cha
     if (context[mcpwm_num].mcpwm_intr_handle == NULL) {
         ret = esp_intr_alloc(mcpwm_periph_signals.groups[mcpwm_num].irq_id, MCPWM_INTR_FLAG,
                              mcpwm_default_isr_handler,
-                             (void *) (context + mcpwm_num), &(context[mcpwm_num].mcpwm_intr_handle));
+                             (void *)(context + mcpwm_num), &(context[mcpwm_num].mcpwm_intr_handle));
     }
     mcpwm_mutex_unlock(mcpwm_num);
 
@@ -878,7 +933,7 @@ esp_err_t mcpwm_capture_disable_channel(mcpwm_unit_t mcpwm_num, mcpwm_capture_ch
     mcpwm_mutex_unlock(mcpwm_num);
 
     // always decrease reference count
-    periph_module_disable(mcpwm_periph_signals.groups[mcpwm_num].module);
+    mcpwm_module_disable(mcpwm_num);
     return ret;
 }
 
@@ -998,6 +1053,7 @@ esp_err_t mcpwm_set_timer_sync_output(mcpwm_unit_t mcpwm_num, mcpwm_timer_t time
     return ESP_OK;
 }
 
+#if !CONFIG_MCPWM_SKIP_LEGACY_CONFLICT_CHECK
 /**
  * @brief This function will be called during start up, to check that this legacy mcpwm driver is not running along with the new MCPWM driver
  */
@@ -1013,3 +1069,4 @@ static void check_mcpwm_driver_conflict(void)
     }
     ESP_EARLY_LOGW(TAG, "legacy driver is deprecated, please migrate to `driver/mcpwm_prelude.h`");
 }
+#endif //CONFIG_MCPWM_SKIP_LEGACY_CONFLICT_CHECK

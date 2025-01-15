@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,7 +8,6 @@
 #include "esp_netif.h"
 
 #include "lwip/dns.h"
-#include "netif/ppp/pppapi.h"
 #include "netif/ppp/pppos.h"
 #include "esp_log.h"
 #include "esp_netif_net_stack.h"
@@ -17,6 +16,7 @@
 #include "esp_netif_lwip_internal.h"
 #include <string.h>
 #include "lwip/ip6_addr.h"
+#include "netif/pppif.h"
 
 ESP_EVENT_DEFINE_BASE(NETIF_PPP_STATUS);
 
@@ -31,31 +31,15 @@ typedef struct lwip_peer2peer_ctx {
     // PPP specific fields follow
     bool ppp_phase_event_enabled;
     bool ppp_error_event_enabled;
+#ifdef CONFIG_LWIP_ENABLE_LCP_ECHO
+    bool ppp_lcp_echo_disabled;
+#endif
+#ifdef CONFIG_LWIP_PPP_SERVER_SUPPORT
+    esp_ip4_addr_t ppp_our_ip4_addr;      // our desired IP (IPADDR_ANY if no preference)
+    esp_ip4_addr_t ppp_their_ip4_addr;    // their desired IP (IPADDR_ANY if no preference)
+#endif
     ppp_pcb *ppp;
 } lwip_peer2peer_ctx_t;
-
-#if PPP_SUPPORT && PPP_AUTH_SUPPORT
-typedef struct {
-    struct tcpip_api_call_data call;
-    ppp_pcb *ppp;
-    u8_t authtype;
-    const char *user;
-    const char *passwd;
-} set_auth_msg_t;
-
-static err_t pppapi_do_ppp_set_auth(struct tcpip_api_call_data *m)
-{
-    set_auth_msg_t *msg = (set_auth_msg_t *)m;
-    ppp_set_auth(msg->ppp, msg->authtype, msg->user, msg->passwd);
-    return ERR_OK;
-}
-
-static void pppapi_set_auth(ppp_pcb *pcb, u8_t authtype, const char *user, const char *passwd)
-{
-    set_auth_msg_t msg = { .ppp = pcb, .authtype = authtype, .user = user, .passwd = passwd};
-    tcpip_api_call(pppapi_do_ppp_set_auth, &msg.call);
-}
-#endif // PPP_SUPPORT && PPP_AUTH_SUPPORT
 
 /**
  * @brief lwip callback from PPP client used here to produce PPP error related events,
@@ -91,6 +75,7 @@ static void on_ppp_status_changed(ppp_pcb *pcb, int err_code, void *ctx)
             break;
         case PPPERR_CONNECT: /* Connection lost */
             ESP_LOGI(TAG, "Connection lost");
+            esp_netif_update_default_netif(netif, ESP_NETIF_LOST_IP);
             err = esp_event_post(IP_EVENT, netif->lost_ip_event, &evt, sizeof(evt), 0);
 
             if (ESP_OK != err) {
@@ -181,7 +166,7 @@ static void on_ppp_notify_phase(ppp_pcb *pcb, u8_t phase, void *ctx)
 #endif // PPP_NOTIFY_PHASE
 
 /**
- * @brief PPP low level output callback used to transmit data using standard esp-netif interafce
+ * @brief PPP low level output callback used to transmit data using standard esp-netif interface
  *
  * @param pcb PPP control block
  * @param data Buffer to write to serial port
@@ -190,24 +175,23 @@ static void on_ppp_notify_phase(ppp_pcb *pcb, u8_t phase, void *ctx)
  *
  * @return uint32_t Length of data successfully sent
  */
-static uint32_t pppos_low_level_output(ppp_pcb *pcb, uint8_t *data, uint32_t len, void *netif)
+static uint32_t pppos_low_level_output(ppp_pcb *pcb, const void *data, uint32_t len, void *netif)
 {
-    esp_err_t ret = esp_netif_transmit(netif, data, len);
+    esp_err_t ret = esp_netif_transmit(netif, (void*)data, len);
     if (ret == ESP_OK) {
         return len;
     }
     return 0;
 }
 
-esp_err_t esp_netif_ppp_set_auth(esp_netif_t *netif, esp_netif_auth_type_t authtype, const char *user, const char *passwd)
+esp_err_t esp_netif_ppp_set_auth_internal(esp_netif_t *netif, esp_netif_auth_type_t authtype, const char *user, const char *passwd)
 {
     if (!ESP_NETIF_IS_POINT2POINT_TYPE(netif, PPP_LWIP_NETIF)) {
         return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
     }
 #if PPP_AUTH_SUPPORT
     lwip_peer2peer_ctx_t *ppp_ctx = (lwip_peer2peer_ctx_t *)netif->related_data;
-    assert(ppp_ctx->base.netif_type == PPP_LWIP_NETIF);
-    pppapi_set_auth(ppp_ctx->ppp, authtype, user, passwd);
+    ppp_set_auth(ppp_ctx->ppp, authtype, user, passwd);
     return ESP_OK;
 #else
     ESP_LOGE(TAG, "%s failed: No authorisation enabled in menuconfig", __func__);
@@ -235,10 +219,11 @@ netif_related_data_t * esp_netif_new_ppp(esp_netif_t *esp_netif, const esp_netif
     ppp_obj->base.is_point2point = true;
     ppp_obj->base.netif_type = PPP_LWIP_NETIF;
 
-    ppp_obj->ppp = pppapi_pppos_create(netif_impl, pppos_low_level_output, on_ppp_status_changed, esp_netif);
+    ppp_obj->ppp = pppos_create(netif_impl, pppos_low_level_output, on_ppp_status_changed, esp_netif);
     ESP_LOGD(TAG, "%s: PPP connection created: %p", __func__, ppp_obj->ppp);
     if (!ppp_obj->ppp) {
         ESP_LOGE(TAG, "%s: lwIP PPP connection cannot be created", __func__);
+        return NULL;
     }
 
     // Set the related data here, since the phase callback could be triggered before this function exits
@@ -246,7 +231,9 @@ netif_related_data_t * esp_netif_new_ppp(esp_netif_t *esp_netif, const esp_netif
 #if PPP_NOTIFY_PHASE
     ppp_set_notify_phase_callback(ppp_obj->ppp, on_ppp_notify_phase);
 #endif
+#if PPP_IPV4_SUPPORT
     ppp_set_usepeerdns(ppp_obj->ppp, 1);
+#endif
 
     return (netif_related_data_t *)ppp_obj;
 }
@@ -257,8 +244,42 @@ esp_err_t esp_netif_start_ppp(esp_netif_t *esp_netif)
     lwip_peer2peer_ctx_t *ppp_ctx = (lwip_peer2peer_ctx_t *)netif_related;
     assert(ppp_ctx->base.netif_type == PPP_LWIP_NETIF);
 
+#ifdef CONFIG_LWIP_ENABLE_LCP_ECHO
+    if (ppp_ctx->ppp_lcp_echo_disabled) {
+        ppp_ctx->ppp->settings.lcp_echo_interval = 0;
+        ppp_ctx->ppp->settings.lcp_echo_fails = 0;
+    } else {
+        ppp_ctx->ppp->settings.lcp_echo_interval = LCP_ECHOINTERVAL;
+        ppp_ctx->ppp->settings.lcp_echo_fails = LCP_MAXECHOFAILS;
+    }
+#endif
+#ifdef CONFIG_LWIP_PPP_SERVER_SUPPORT
+    if (ppp_ctx->ppp_our_ip4_addr.addr != IPADDR_ANY) {
+        // Set our preferred address, and accept the remote
+        ppp_ctx->ppp->ipcp_wantoptions.ouraddr = ppp_ctx->ppp_our_ip4_addr.addr;
+        ppp_ctx->ppp->ipcp_wantoptions.accept_remote = 1;
+        ppp_ctx->ppp->ask_for_local = 1;    /* `ask_for_local` option in the lwip's pcb is `0` by default and causes
+                                             * the initial negotiation IPCP request to reset our own address to '0.0.0.0'.
+                                             * https://github.com/lwip-tcpip/lwip/blob/1cc1536e/src/netif/ppp/ipcp.c#L728-L729
+                                             */
+    }
+    if (ppp_ctx->ppp_their_ip4_addr.addr != IPADDR_ANY) {
+        // Set their preferred address, and accept the local
+        ppp_ctx->ppp->ipcp_wantoptions.hisaddr = ppp_ctx->ppp_their_ip4_addr.addr;
+        ppp_ctx->ppp->ipcp_wantoptions.accept_local = 1;
+    }
+#endif // CONFIG_LWIP_PPP_SERVER_SUPPORT
+
+#if ESP_IPV6_AUTOCONFIG
+    ppp_ctx->ppp->netif->ip6_autoconfig_enabled = (esp_netif->flags & ESP_NETIF_FLAG_IPV6_AUTOCONFIG_ENABLED) ? 1 : 0;
+#endif
+
     ESP_LOGD(TAG, "%s: Starting PPP connection: %p", __func__, ppp_ctx->ppp);
-    esp_err_t err = pppapi_connect(ppp_ctx->ppp, 0);
+#ifdef CONFIG_LWIP_PPP_SERVER_SUPPORT
+    esp_err_t err = ppp_listen(ppp_ctx->ppp);
+#else
+    err_t err = ppp_connect(ppp_ctx->ppp, 0);
+#endif
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "%s: PPP connection cannot be started", __func__);
         if (ppp_ctx->ppp_error_event_enabled) {
@@ -269,13 +290,15 @@ esp_err_t esp_netif_start_ppp(esp_netif_t *esp_netif)
     return ESP_OK;
 }
 
-void esp_netif_lwip_ppp_input(void *ppp_ctx, void *buffer, size_t len, void *eb)
+esp_netif_recv_ret_t esp_netif_lwip_ppp_input(void *ppp_ctx, void *buffer, size_t len, void *eb)
 {
     struct lwip_peer2peer_ctx * obj = ppp_ctx;
-    err_t ret = pppos_input_tcpip(obj->ppp, buffer, len);
+    err_t ret = pppos_input_tcpip_as_ram_pbuf(obj->ppp, buffer, len);
     if (ret != ERR_OK) {
         ESP_LOGE(TAG, "pppos_input_tcpip failed with %d", ret);
+        return ESP_NETIF_OPTIONAL_RETURN_CODE(ESP_FAIL);
     }
+    return ESP_NETIF_OPTIONAL_RETURN_CODE(ESP_OK);
 }
 
 esp_err_t esp_netif_stop_ppp(netif_related_data_t *netif_related)
@@ -283,9 +306,9 @@ esp_err_t esp_netif_stop_ppp(netif_related_data_t *netif_related)
     lwip_peer2peer_ctx_t *ppp_ctx = (lwip_peer2peer_ctx_t *)netif_related;
     assert(ppp_ctx->base.netif_type == PPP_LWIP_NETIF);
     ESP_LOGD(TAG, "%s: Stopped PPP connection: %p", __func__, ppp_ctx->ppp);
-    err_t ret = pppapi_close(ppp_ctx->ppp, 0);
+    err_t ret = ppp_close(ppp_ctx->ppp, 0);
     if (ret != ERR_OK) {
-        ESP_LOGE(TAG, "pppapi_close failed with %d", ret);
+        ESP_LOGE(TAG, "ppp_close failed with %d", ret);
         return ESP_FAIL;
     }
     return ESP_OK;
@@ -296,7 +319,7 @@ void esp_netif_destroy_ppp(netif_related_data_t *netif_related)
     lwip_peer2peer_ctx_t *ppp_ctx = (lwip_peer2peer_ctx_t *)netif_related;
     assert(ppp_ctx->base.netif_type == PPP_LWIP_NETIF);
 
-    pppapi_free(ppp_ctx->ppp);
+    ppp_free(ppp_ctx->ppp);
     free(netif_related);
 }
 
@@ -309,6 +332,13 @@ esp_err_t esp_netif_ppp_set_params(esp_netif_t *netif, const esp_netif_ppp_confi
     struct lwip_peer2peer_ctx *obj =  (struct lwip_peer2peer_ctx *)netif->related_data;
     obj->ppp_phase_event_enabled = config->ppp_phase_event_enabled;
     obj->ppp_error_event_enabled = config->ppp_error_event_enabled;
+#ifdef CONFIG_LWIP_ENABLE_LCP_ECHO
+    obj->ppp_lcp_echo_disabled = config->ppp_lcp_echo_disabled;
+#endif
+#ifdef CONFIG_LWIP_PPP_SERVER_SUPPORT
+    obj->ppp_our_ip4_addr = config->ppp_our_ip4_addr;
+    obj->ppp_their_ip4_addr = config->ppp_their_ip4_addr;
+#endif
     return ESP_OK;
 }
 
@@ -321,5 +351,13 @@ esp_err_t esp_netif_ppp_get_params(esp_netif_t *netif, esp_netif_ppp_config_t *c
     struct lwip_peer2peer_ctx *obj =  (struct lwip_peer2peer_ctx *)netif->related_data;
     config->ppp_phase_event_enabled = obj->ppp_phase_event_enabled;
     config->ppp_error_event_enabled = obj->ppp_error_event_enabled;
+#ifdef CONFIG_LWIP_ENABLE_LCP_ECHO
+    config->ppp_lcp_echo_disabled = obj->ppp_lcp_echo_disabled;
+#endif
+#ifdef CONFIG_LWIP_PPP_SERVER_SUPPORT
+    config->ppp_our_ip4_addr = obj->ppp_our_ip4_addr;
+    config->ppp_their_ip4_addr = obj->ppp_their_ip4_addr;
+#endif
+
     return ESP_OK;
 }

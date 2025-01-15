@@ -15,7 +15,7 @@ This example is designed to run on commonly available ESP32 development board, e
 
 ### Configure the project
 
-Open the project configuration menu: 
+Open the project configuration menu:
 
 ```bash
 idf.py menuconfig
@@ -45,6 +45,37 @@ The default configuration is `PCM`, if you want to use `vHCI` you should configu
 
     `Component config --> Bluetooth --> Bluedroid Options --> Hands Free/Handset Profile --> audio(SCO) data path --> HCI`.
 
+#### PCM Signal Configurations
+
+PCM Signal supports three configurations in menuconfig: PCM Role, PCM Polar and Channel Mode(Stereo/Mono).
+
+- PCM Role: PCM role can be configured as PCM master or PCM slave. The default configuration is `Master`, you can change the PCM role in `menuconfig` path:
+    `Component config --> Bluetooth --> Controller Options --> PCM Signal Configurations --> PCM Signal Configurations: Role, Polar and Channel Mode(Stereo/Mono) --> PCM Role`
+
+- PCM Polar: PCM polarity can be configured as Falling Edge or Rising Edge. The default configuration is `Falling Edge`, you can change the PCM polar in `menuconfig` path:
+    `Component config --> Bluetooth --> Controller Options --> PCM Signal Configurations --> PCM Signal Configurations: Role, Polar and Channel Mode(Stereo/Mono) --> PCM Polar`
+
+- Channel Mode(Stereo/Mono): PCM frame synchronization signal can be configured as Stereo mode or Mono mode, where the Mono mode can be configured in two different forms(Mono mode 1 and Mono mode 2). As is shown in the figure   ![Stereo/Mono](../hfp_ag/image/Channel_Mode_Stereo_Mono.png)
+
+  - Stereo Mode(Dual channel): FSYNC and DOUT signals both change simultaneously on the edge of CLK. The FSYNC signal continues until the end of the current channel-data transmission.
+  - Mono Mode 1(Single channel): FSYNC signal starts to change a CLK clock cycle earlier than the DOUT signal, which means that the FSYNC signal takes effect a clock cycle earlier than the first bit of the current channel-data transmission. The FSYNC signal continues for one extra CLK clock cycle.
+  - Mono Mode 2(Single channel): FSYNC and DOUT signals both change simultaneously on the edge of CLK. The FSYNC signal continues for one extra CLK clock cycle.
+
+- The default configuration is `Stereo Mode`, you can change the PCM Channel mode in `menuconfig` path:
+    `Component config --> Bluetooth --> Controller Options --> PCM Signal Configurations --> PCM Signal Configurations: Role, Polar and Channel Mode(Stereo/Mono) --> Channel Mode(Stereo/Mono)`
+
+### Special Configurations for PBA Client
+
+To use PBA Client function, we need to enable PBA Client in `menuconfig` path: `Component config --> Bluetooth --> Bluedroid Options --> Classic Bluetooth --> Classic BT PBA Client`, this example already enable PBA Client by `sdkconfig.defaults`.
+
+Step to initialize PBA Client connection:
+
+- Register user callback: `esp_pbac_register_callback(bt_app_pbac_cb)`
+- Initialize PBA Client API: `esp_pbac_init()`
+- Connect to peer device ...
+- Call `esp_pbac_connect(peer_addr, supported_features, 0)`, this will initiate service discover and try to connect to PBA Server.
+- After the operation done, whether success or not, we will receive a `ESP_PBAC_CONNECTION_STATE_EVT` event in user callback.
+
 ### Codec Choice
 
 ESP32 supports two types of codec for HFP audio data: `CVSD` and `mSBC`.
@@ -53,7 +84,7 @@ ESP32 supports two types of codec for HFP audio data: `CVSD` and `mSBC`.
 
 `Component config --> Bluetooth --> Bluedroid Options --> Wide Band Speech`.
 
-Switching on the `Wide Band Speech` means that the prefered codec is `mSBC`, but which one is actually being used also depends on the `Data Path` configuration.
+Switching on the `Wide Band Speech` means that the preferred codec is `mSBC`, but which one is actually being used also depends on the `Data Path` configuration.
 
 - If you choose `PCM` for datapath, you can only use `CVSD` and hardware is responsible for the codec job. In the meanwhile, you cannot use `mSBC` by switching `Wide Band Speech` on, because the `mSBC` is implemented in the Bluedroid (Bluetooth Host Stack) by software.
 
@@ -77,7 +108,7 @@ See the [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/l
 
 ## Example Output
 
-When you run this example, the explain prints the following at the very begining:
+When you run this example, the explain prints the following at the very beginning:
 
 ```
 Type 'help' to get the list of commands.
@@ -167,7 +198,7 @@ I (133262) BT_HF: --audio state disconnected
 - Reject an incoming call
 - Disable the voice recognition
 
-#### Choise of Codec
+#### Choice of Codec
 
 ESP32 supports both CVSD and mSBC codec. HF Unit and AG device determine which codec to use by exchanging features during service level connection. The choice of codec also depends on the your configuration in `menuconfig`.
 
@@ -268,7 +299,7 @@ I (293172) BT_HF: APP HFP event: AT_RESPONSE
 I (293172) BT_HF: --AT response event, code 0, cme 0
 E (293702) BT_BTM: btm_sco_connected, handle 181
 I (293702) BT_HF: APP HFP event: AUDIO_STATE_EVT
-I (293702) BT_HF: --audio state connecte
+I (293702) BT_HF: --audio state connected
 ```
 
 #### Query Current Operator Name
@@ -332,6 +363,5 @@ Due to the complexity of HFP, this example has more source files than other blue
 - The example will respond to user command through UART console. Please go to `console_uart.c`  for the configuration details.
 - For voice interface, ESP32 has provided PCM input/output signals which can be mapped to GPIO pins. So, please go to `gpio_pcm_config.c` for the configuration details.
 - If you want to update the command table, please refer to `app_hf_msg_set.c`.
-- If you want to update the command parse rules, please refer to `app_hf_msg_prs.c`.
 - If you want to update the responses of HF Unit or want to update the log, please refer to `bt_app_hf.c`.
 - Task configuration part is in `bt_app_core.c`.

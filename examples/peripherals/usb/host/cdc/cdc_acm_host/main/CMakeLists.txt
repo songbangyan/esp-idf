@@ -1,3 +1,4 @@
-idf_component_register(SRCS "usb-cdc.c"
-                    INCLUDE_DIRS ".")
-target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-format")
+idf_component_register(SRCS "usb_cdc_example_main.c"
+                    INCLUDE_DIRS "."
+                    PRIV_REQUIRES usb
+                    )

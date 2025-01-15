@@ -1,22 +1,40 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
+#include "sdkconfig.h"
+
+#if CONFIG_LIBC_NEWLIB
+#define _REENT_BACKWARD_BINARY_COMPAT
+#define _REENT_SDIDINIT(_ptr)  ((_ptr)->_reserved_0)
+#define _REENT_SGLUE(_ptr)     (__sglue)
 
 #include_next<sys/reent.h>
+#endif // CONFIG_LIBC_NEWLIB
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* This function is not part of the newlib API, it is defined in libc/stdio/local.h
- * There is no nice way to get __cleanup member populated while avoiding __sinit,
- * so extern declaration is used here.
- */
-extern void _cleanup_r(struct _reent* r);
+#if CONFIG_LIBC_NEWLIB
+
+extern void   __sinit(struct _reent *);
+
+extern struct _glue __sglue;
+extern struct _reent * _global_impure_ptr;
+
+#else // CONFIG_LIBC_NEWLIB
+
+struct _reent {};
+#define __getreent() NULL
+
+int _system_r(struct _reent *r, const char *str);
+int _raise_r(struct _reent *r, int sig);
+
+#endif // CONFIG_LIBC_NEWLIB
 
 #ifdef __cplusplus
 }

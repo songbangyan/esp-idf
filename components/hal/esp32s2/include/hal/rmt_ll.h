@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,12 +16,12 @@
 #include "hal/misc.h"
 #include "hal/assert.h"
 #include "soc/rmt_struct.h"
+#include "soc/system_reg.h"
 #include "hal/rmt_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 
 #define RMT_LL_EVENT_TX_DONE(channel)     (1 << ((channel) * 3))
 #define RMT_LL_EVENT_TX_THRES(channel)    (1 << ((channel) + 12))
@@ -34,11 +34,48 @@ extern "C" {
 #define RMT_LL_EVENT_RX_MASK(channel)     (RMT_LL_EVENT_RX_DONE(channel) | RMT_LL_EVENT_RX_THRES(channel))
 
 #define RMT_LL_MAX_LOOP_COUNT_PER_BATCH   1023
+#define RMT_LL_MAX_FILTER_VALUE           255
+#define RMT_LL_MAX_IDLE_VALUE             65535
 
 typedef enum {
     RMT_LL_MEM_OWNER_SW = 0,
     RMT_LL_MEM_OWNER_HW = 1,
 } rmt_ll_mem_owner_t;
+
+/**
+ * @brief Enable the bus clock for RMT module
+ *
+ * @param group_id Group ID
+ * @param enable true to enable, false to disable
+ */
+static inline void rmt_ll_enable_bus_clock(int group_id, bool enable)
+{
+    (void)group_id;
+    uint32_t reg_val = READ_PERI_REG(DPORT_PERIP_CLK_EN0_REG);
+    reg_val &= ~DPORT_RMT_CLK_EN_M;
+    reg_val |= enable << DPORT_RMT_CLK_EN_S;
+    WRITE_PERI_REG(DPORT_PERIP_CLK_EN0_REG, reg_val);
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define rmt_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; rmt_ll_enable_bus_clock(__VA_ARGS__)
+
+/**
+ * @brief Reset the RMT module
+ *
+ * @param group_id Group ID
+ */
+static inline void rmt_ll_reset_register(int group_id)
+{
+    (void)group_id;
+    WRITE_PERI_REG(DPORT_PERIP_RST_EN0_REG, DPORT_RMT_RST_M);
+    WRITE_PERI_REG(DPORT_PERIP_RST_EN0_REG, 0);
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define rmt_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; rmt_ll_reset_register(__VA_ARGS__)
 
 /**
  * @brief Enable clock gate for register and memory
@@ -53,15 +90,36 @@ static inline void rmt_ll_enable_periph_clock(rmt_dev_t *dev, bool enable)
 }
 
 /**
- * @brief Power down memory
+ * @brief Force power on the RMT memory block, regardless of the outside PMU logic
  *
  * @param dev Peripheral instance address
- * @param enable True to power down, False to power up
  */
-static inline void rmt_ll_power_down_mem(rmt_dev_t *dev, bool enable)
+static inline void rmt_ll_mem_force_power_on(rmt_dev_t *dev)
 {
-    dev->apb_conf.mem_force_pu = !enable;
-    dev->apb_conf.mem_force_pd = enable;
+    dev->apb_conf.mem_force_pu = 1;
+    dev->apb_conf.mem_force_pd = 0;
+}
+
+/**
+ * @brief Force power off the RMT memory block, regardless of the outside PMU logic
+ *
+ * @param dev Peripheral instance address
+ */
+static inline void rmt_ll_mem_force_power_off(rmt_dev_t *dev)
+{
+    dev->apb_conf.mem_force_pd = 1;
+    dev->apb_conf.mem_force_pu = 0;
+}
+
+/**
+ * @brief Power control the RMT memory block by the outside PMU logic
+ *
+ * @param dev Peripheral instance address
+ */
+static inline void rmt_ll_mem_power_by_pmu(rmt_dev_t *dev)
+{
+    dev->apb_conf.mem_force_pd = 0;
+    dev->apb_conf.mem_force_pu = 0;
 }
 
 /**
@@ -86,7 +144,7 @@ static inline void rmt_ll_enable_mem_access_nonfifo(rmt_dev_t *dev, bool enable)
  * @param divider_numerator Numerator part of the divider
  */
 static inline void rmt_ll_set_group_clock_src(rmt_dev_t *dev, uint32_t channel, rmt_clock_source_t src,
-        uint32_t divider_integral, uint32_t divider_denominator, uint32_t divider_numerator)
+                                              uint32_t divider_integral, uint32_t divider_denominator, uint32_t divider_numerator)
 {
     (void)divider_integral;
     (void)divider_denominator;
@@ -386,7 +444,7 @@ static inline void rmt_ll_tx_set_carrier_level(rmt_dev_t *dev, uint32_t channel,
  *
  * @param dev Peripheral instance address
  * @param channel RMT TX channel number
- * @param enable True to output carrier signal in all RMT state, False to only ouput carrier signal for effective data
+ * @param enable True to output carrier signal in all RMT state, False to only output carrier signal for effective data
  */
 static inline void rmt_ll_tx_enable_carrier_always_on(rmt_dev_t *dev, uint32_t channel, bool enable)
 {
@@ -471,6 +529,7 @@ static inline void rmt_ll_rx_set_mem_blocks(rmt_dev_t *dev, uint32_t channel, ui
  * @param channel RMT RX channel number
  * @param thres Time length threshold
  */
+__attribute__((always_inline))
 static inline void rmt_ll_rx_set_idle_thres(rmt_dev_t *dev, uint32_t channel, uint32_t thres)
 {
     HAL_FORCE_MODIFY_U32_REG_FIELD(dev->conf_ch[channel].conf0, idle_thres_chn, thres);
@@ -496,6 +555,7 @@ static inline void rmt_ll_rx_set_mem_owner(rmt_dev_t *dev, uint32_t channel, rmt
  * @param channel RMT RX chanenl number
  * @param enable True to enable, False to disable
  */
+__attribute__((always_inline))
 static inline void rmt_ll_rx_enable_filter(rmt_dev_t *dev, uint32_t channel, bool enable)
 {
     dev->conf_ch[channel].conf1.rx_filter_en_chn = enable;
@@ -508,6 +568,7 @@ static inline void rmt_ll_rx_enable_filter(rmt_dev_t *dev, uint32_t channel, boo
  * @param channel RMT RX channel number
  * @param thres Filter threshold
  */
+__attribute__((always_inline))
 static inline void rmt_ll_rx_set_filter_thres(rmt_dev_t *dev, uint32_t channel, uint32_t thres)
 {
     HAL_FORCE_MODIFY_U32_REG_FIELD(dev->conf_ch[channel].conf1, rx_filter_thres_chn, thres);
@@ -588,7 +649,7 @@ static inline void rmt_ll_enable_interrupt(rmt_dev_t *dev, uint32_t mask, bool e
  * @brief Clear RMT interrupt status by mask
  *
  * @param dev Peripheral instance address
- * @param mask Interupt status mask
+ * @param mask Interrupt status mask
  */
 __attribute__((always_inline))
 static inline void rmt_ll_clear_interrupt_status(rmt_dev_t *dev, uint32_t mask)
@@ -734,12 +795,9 @@ static inline uint32_t rmt_ll_tx_get_idle_level(rmt_dev_t *dev, uint32_t channel
     return dev->conf_ch[channel].conf1.idle_out_lv_chn;
 }
 
-static inline bool rmt_ll_is_mem_powered_down(rmt_dev_t *dev)
+static inline bool rmt_ll_is_mem_force_powered_down(rmt_dev_t *dev)
 {
-    // the RTC domain can also power down RMT memory
-    // so it's probably not enough to detect whether it's powered down or not
-    // mem_force_pd has higher priority than mem_force_pu
-    return (dev->apb_conf.mem_force_pd) || !(dev->apb_conf.mem_force_pu);
+    return dev->apb_conf.mem_force_pd;
 }
 
 __attribute__((always_inline))

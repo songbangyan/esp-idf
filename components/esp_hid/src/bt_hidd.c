@@ -1,17 +1,16 @@
 /*
- * SPDX-FileCopyrightText: 2017-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2017-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "bt_hidd.h"
 
 #if CONFIG_BT_HID_DEVICE_ENABLED
-#include "esp_bt.h"
 #include "esp_bt_defs.h"
 #include "esp_bt_main.h"
 #include "esp_hidd.h"
 #include "esp_hidd_api.h"
-#include "esp_hidd_private.h"
+#include "esp_private/esp_hidd_private.h"
 #include "esp_log.h"
 #include "osi/mutex.h"
 #include "string.h"
@@ -44,8 +43,7 @@ typedef struct {
     uint8_t                     devices_len;
 } esp_bt_hidd_dev_t;
 
-typedef struct
-{
+typedef struct {
     osi_mutex_t mutex;
     esp_bt_hidd_dev_t *dev;
     esp_hidd_app_param_t app_param;
@@ -314,7 +312,7 @@ static bool esp_bt_hidd_dev_connected(void *devp)
             ret = false;
             break;
         }
-    } while(0);
+    } while (0);
     if (ret) {
         ret = dev->connected;
     }
@@ -338,7 +336,7 @@ static esp_err_t esp_bt_hidd_dev_deinit(void *devp)
             ESP_LOGE(TAG, "Wrong HID device provided");
             ret = ESP_FAIL;
         }
-    } while(0);
+    } while (0);
     osi_mutex_unlock(&s_hidd_param.mutex);
 
     if (ret == ESP_OK) {
@@ -370,7 +368,7 @@ static esp_err_t esp_bt_hidd_dev_disconnect(void *devp)
             ESP_LOGW(TAG, "already disconnected");
             return ESP_OK;
         }
-    } while(0);
+    } while (0);
     osi_mutex_unlock(&s_hidd_param.mutex);
 
     if (ret == ESP_OK) {
@@ -424,7 +422,7 @@ static esp_err_t esp_bt_hidd_dev_input_set(void *devp, size_t index, size_t id, 
             ret = ESP_FAIL;
             break;
         }
-    } while(0);
+    } while (0);
     osi_mutex_unlock(&s_hidd_param.mutex);
 
     if (ret == ESP_OK) {
@@ -470,7 +468,7 @@ static esp_err_t esp_bt_hidd_dev_feature_set(void *devp, size_t index, size_t id
             ret = ESP_FAIL;
             break;
         }
-    } while(0);
+    } while (0);
     osi_mutex_unlock(&s_hidd_param.mutex);
 
     if (ret == ESP_OK) {
@@ -717,11 +715,9 @@ void bt_hidd_cb(esp_hidd_cb_event_t event, esp_hidd_cb_param_t *param)
     }
     case ESP_HIDD_SET_PROTOCOL_EVT: {
         if (param->set_protocol.protocol_mode != ESP_HIDD_UNSUPPORTED_MODE) {
-            if (s_hidd_param.dev->protocol_mode == param->set_protocol.protocol_mode) {
-                break;
-            }
             osi_mutex_lock(&s_hidd_param.mutex, OSI_MUTEX_MAX_TIMEOUT);
-            s_hidd_param.dev->protocol_mode = param->set_protocol.protocol_mode;
+            s_hidd_param.dev->protocol_mode =
+                param->set_protocol.protocol_mode ? ESP_HID_PROTOCOL_MODE_BOOT : ESP_HID_PROTOCOL_MODE_REPORT;
             osi_mutex_unlock(&s_hidd_param.mutex);
             cb_param.protocol_mode.dev = s_hidd_param.dev->dev;
             cb_param.protocol_mode.protocol_mode = s_hidd_param.dev->protocol_mode;

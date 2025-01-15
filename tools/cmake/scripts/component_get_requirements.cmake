@@ -27,7 +27,7 @@ endfunction()
 function(__component_get_target var name_or_alias)
     idf_build_get_property(component_targets __COMPONENT_TARGETS)
 
-    # Assume first that the paramters is an alias.
+    # Assume first that the parameters is an alias.
     string(REPLACE "::" "_" name_or_alias "${name_or_alias}")
     set(component_target ___${name_or_alias})
 
@@ -76,6 +76,7 @@ macro(idf_component_register)
     set(__component_requires "${__REQUIRES}")
     set(__component_kconfig "${__KCONFIG}")
     set(__component_kconfig_projbuild "${__KCONFIG_PROJBUILD}")
+    set(__component_include_dirs "${__INCLUDE_DIRS}")
     set(__component_registered 1)
     return()
 endmacro()
@@ -107,16 +108,51 @@ function(__component_get_requirements)
 
     spaces2list(__component_requires)
     spaces2list(__component_priv_requires)
+    spaces2list(__component_include_dirs)
 
     set(__component_requires "${__component_requires}" PARENT_SCOPE)
     set(__component_priv_requires "${__component_priv_requires}" PARENT_SCOPE)
     set(__component_kconfig "${__component_kconfig}" PARENT_SCOPE)
     set(__component_kconfig_projbuild "${__component_kconfig_projbuild}" PARENT_SCOPE)
+    set(__component_include_dirs "${__component_include_dirs}" PARENT_SCOPE)
     set(__component_registered ${__component_registered} PARENT_SCOPE)
 endfunction()
 
 set(CMAKE_BUILD_EARLY_EXPANSION 1)
+
+# smaller number means lower priority
+set(__TARGETS_IDF_COMPONENTS "")                # 0
+set(__TARGETS_PROJECT_MANAGED_COMPONENTS "")    # 1
+set(__TARGETS_PROJECT_EXTRA_COMPONENTS "")      # 2
+set(__TARGETS_PROJECT_COMPONENTS "")            # 3
+
 foreach(__component_target ${__component_targets})
+    __component_get_property(__component_source ${__component_target} COMPONENT_SOURCE)
+
+    if("${__component_source}" STREQUAL "idf_components")
+        list(APPEND __TARGETS_IDF_COMPONENTS ${__component_target})
+    elseif("${__component_source}" STREQUAL "project_managed_components")
+        list(APPEND __TARGETS_PROJECT_MANAGED_COMPONENTS ${__component_target})
+    elseif("${__component_source}" STREQUAL "project_extra_components")
+        list(APPEND __TARGETS_PROJECT_EXTRA_COMPONENTS ${__component_target})
+    elseif("${__component_source}" STREQUAL "project_components")
+        list(APPEND __TARGETS_PROJECT_COMPONENTS ${__component_target})
+    else()
+        message(FATAL_ERROR "Unknown component source for component ${__component_target}: ${__component_source}")
+    endif()
+endforeach()
+
+# priority higher ones goes first
+set(__sorted_component_targets "")
+foreach(__target IN LISTS __TARGETS_PROJECT_COMPONENTS
+                          __TARGETS_PROJECT_EXTRA_COMPONENTS
+                          __TARGETS_PROJECT_MANAGED_COMPONENTS
+                          __TARGETS_IDF_COMPONENTS)
+    __component_get_property(__component_name ${__target} COMPONENT_NAME)
+    list(APPEND __sorted_component_targets ${__target})
+endforeach()
+
+foreach(__component_target ${__sorted_component_targets})
     set(__component_requires "")
     set(__component_priv_requires "")
     set(__component_registered 0)
@@ -138,10 +174,14 @@ foreach(__component_target ${__component_targets})
         list(REMOVE_ITEM __component_priv_requires ${__component_alias} ${__component_name})
     endif()
 
+    __component_get_property(__component_source ${__component_target} COMPONENT_SOURCE)
+
     set(__contents
 "__component_set_property(${__component_target} REQUIRES \"${__component_requires}\")
 __component_set_property(${__component_target} PRIV_REQUIRES \"${__component_priv_requires}\")
-__component_set_property(${__component_target} __COMPONENT_REGISTERED ${__component_registered})"
+__component_set_property(${__component_target} __COMPONENT_REGISTERED ${__component_registered})
+__component_set_property(${__component_target} INCLUDE_DIRS \"${__component_include_dirs}\")
+__component_set_property(${__component_target} __COMPONENT_SOURCE \"${__component_source}\")"
     )
 
     if(__component_kconfig)

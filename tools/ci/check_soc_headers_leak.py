@@ -1,9 +1,8 @@
+#!/usr/bin/env python
 # SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
-
 # This check script is used to ensure the public APIs won't expose the unstable soc files like register files
 # public API header files are those taken by doxygen and have full documented docs
-
 import fnmatch
 import os
 import re
@@ -14,9 +13,12 @@ from string import Template
 # The following header files in soc component is treated as stable, so is allowed to be used in any public header files
 allowed_soc_headers = (
     'soc/soc_caps.h',
+    'soc/gpio_num.h',
     'soc/reset_reasons.h',
     'soc/reg_base.h',
     'soc/clk_tree_defs.h',
+    'soc/uart_channel.h',
+    'soc/bitscrambler_peri_select.h',
 )
 
 include_header_pattern = re.compile(r'[\s]*#[\s]*include ["<](.*)[">].*')

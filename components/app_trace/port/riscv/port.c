@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
+#include "sdkconfig.h"
 #include "esp_cpu.h"
 #include "esp_log.h"
 #include "esp_app_trace_membufs_proto.h"
@@ -56,7 +57,13 @@ static bool esp_apptrace_riscv_host_data_pending(void);
 
 const static char *TAG = "esp_apptrace";
 
-static esp_apptrace_riscv_ctrl_block_t s_tracing_ctrl[portNUM_PROCESSORS];
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#define APPTRACE_DRAM_ATTR TCM_DRAM_ATTR
+#else
+#define APPTRACE_DRAM_ATTR
+#endif
+
+static APPTRACE_DRAM_ATTR esp_apptrace_riscv_ctrl_block_t s_tracing_ctrl[CONFIG_FREERTOS_NUMBER_OF_CORES];
 
 esp_apptrace_hw_t *esp_apptrace_jtag_hw_get(void **data)
 {
@@ -91,7 +98,7 @@ esp_apptrace_hw_t *esp_apptrace_jtag_hw_get(void **data)
 }
 
 /* Advertises apptrace control block address to host.
-   This function can be overriden with custom implementation,
+   This function can be overridden with custom implementation,
    e.g. OpenOCD flasher stub use own implementation of it. */
 __attribute__((weak)) int esp_apptrace_advertise_ctrl_block(void *ctrl_block_addr)
 {
@@ -102,7 +109,7 @@ __attribute__((weak)) int esp_apptrace_advertise_ctrl_block(void *ctrl_block_add
 }
 
 /* Returns up buffers config.
-   This function can be overriden with custom implementation,
+   This function can be overridden with custom implementation,
    e.g. OpenOCD flasher stub use own implementation of it. */
 __attribute__((weak)) void esp_apptrace_get_up_buffers(esp_apptrace_mem_block_t mem_blocks_cfg[2])
 {
@@ -158,13 +165,13 @@ static esp_err_t esp_apptrace_riscv_init(esp_apptrace_riscv_data_t *hw_data)
     ESP_APPTRACE_LOGI("Apptrace initialized on CPU%d. Tracing control block @ %p.", core_id, &s_tracing_ctrl[core_id]);
     s_tracing_ctrl[core_id].mem_blocks = hw_data->membufs.blocks;
     for (int i = 0; i < 2; i++) {
-        ESP_APPTRACE_LOGD("Mem buf[%d] %d bytes @ %p (%p/%p)", i,
+        ESP_APPTRACE_LOGD("Mem buf[%d] %" PRIu32 " bytes @ %p (%p/%p)", i,
             s_tracing_ctrl[core_id].mem_blocks[i].sz, s_tracing_ctrl[core_id].mem_blocks[i].start,
             &(s_tracing_ctrl[core_id].mem_blocks[i].start), &(s_tracing_ctrl[core_id].mem_blocks[i].sz));
     }
     // notify host about control block address
     int res = esp_apptrace_advertise_ctrl_block(&s_tracing_ctrl[core_id]);
-    assert(res == 0 && "Falied to send config to host!");
+    assert(res == 0 && "Failed to send config to host!");
 
     return ESP_OK;
 }
@@ -324,7 +331,7 @@ static esp_err_t esp_apptrace_riscv_buffer_swap_start(uint32_t curr_block_id)
         uint32_t acked_block = ESP_APPTRACE_RISCV_BLOCK_ID_GET(ctrl_reg);
         uint32_t host_to_read = ESP_APPTRACE_RISCV_BLOCK_LEN_GET(ctrl_reg);
         if (host_to_read != 0 || acked_block != (curr_block_id & ESP_APPTRACE_RISCV_BLOCK_ID_MSK)) {
-            ESP_APPTRACE_LOGD("[%d]: Can not switch %x %d %x %x/%lx", esp_cpu_get_core_id(), ctrl_reg, host_to_read, acked_block,
+            ESP_APPTRACE_LOGD("[%d]: Can not switch %" PRIx32 " %" PRIu32 " %" PRIx32 " %" PRIx32 "/%" PRIx32, esp_cpu_get_core_id(), ctrl_reg, host_to_read, acked_block,
                 curr_block_id & ESP_APPTRACE_RISCV_BLOCK_ID_MSK, curr_block_id);
             res = ESP_ERR_NO_MEM;
             goto _on_err;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2010-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -86,10 +86,11 @@ static void sc_ack_send_task(void *pvParameters)
         remote_port = SC_ACK_TOUCH_SERVER_PORT;
     } else if (ack->type == SC_TYPE_ESPTOUCH_V2) {
         uint8_t port_bit =  ack->ctx.token;
-        if(port_bit > 3) {
+        if (port_bit > 3) {
             port_bit = 0;
         }
         remote_port = SC_ACK_TOUCH_V2_SERVER_PORT(port_bit);
+        memset(remote_ip, 0xFF, sizeof(remote_ip));
     } else {
         remote_port = SC_ACK_AIRKISS_SERVER_PORT;
     }
@@ -163,15 +164,24 @@ static void sc_ack_send_task(void *pvParameters)
                     memcpy(remote_ip, &from.sin_addr, 4);
                     server_addr.sin_addr.s_addr = from.sin_addr.s_addr;
                 } else {
-                    goto _end;
+                    server_addr.sin_addr.s_addr = INADDR_BROADCAST;
                 }
             }
 
+            uint32_t ip_addr = server_addr.sin_addr.s_addr;
             while (s_sc_ack_send) {
                 /* Send smartconfig ACK every 100ms. */
                 vTaskDelay(100 / portTICK_PERIOD_MS);
 
-                sendlen = sendto(send_sock, &ack->ctx, ack_len, 0, (struct sockaddr*) &server_addr, sin_size);
+                if (ip_addr != INADDR_BROADCAST) {
+                    sendto(send_sock, &ack->ctx, ack_len, 0, (struct sockaddr*) &server_addr, sin_size);
+                    server_addr.sin_addr.s_addr = INADDR_BROADCAST;
+                    sendlen = sendto(send_sock, &ack->ctx, ack_len, 0, (struct sockaddr*) &server_addr, sin_size);
+                    server_addr.sin_addr.s_addr = ip_addr;
+                } else {
+                    sendlen = sendto(send_sock, &ack->ctx, ack_len, 0, (struct sockaddr*) &server_addr, sin_size);
+                }
+
                 if (sendlen <= 0) {
                     err = sc_ack_send_get_errno(send_sock);
                     ESP_LOGD(TAG, "send failed, errno %d", err);
@@ -184,8 +194,7 @@ static void sc_ack_send_task(void *pvParameters)
                     goto _end;
                 }
             }
-        }
-        else {
+        } else {
             vTaskDelay((TickType_t)(100 / portTICK_PERIOD_MS));
         }
     }

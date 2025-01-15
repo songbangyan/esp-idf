@@ -1,19 +1,11 @@
 SPI Slave Driver
 ================
 
-SPI Slave driver is a program that controls {IDF_TARGET_NAME}'s SPI peripherals while they function as slaves.
+:link_to_translation:`zh_CN:[中文]`
 
+SPI Slave driver is a program that controls {IDF_TARGET_NAME}'s General Purpose SPI (GP-SPI) peripheral(s) when it functions as a slave.
 
-Overview of {IDF_TARGET_NAME}'s SPI peripherals
------------------------------------------------
-
-On {IDF_TARGET_NAME}, {SOC_SPI_PERIPH_NUM} SPI controllers are available for general purpose usage. A certain SPI controller has an independent signal bus with the same name.
-
-.. only:: esp32
-
-    .. note::
-
-        On ESP32, HSPI refers to SPI2, VSPI refers to SPI3.
+For more hardware information about the GP-SPI peripheral(s), see **{IDF_TARGET_NAME} Technical Reference Manual** > **SPI Controller** [`PDF <{IDF_TARGET_TRM_EN_URL}#spi>`__].
 
 Terminology
 -----------
@@ -45,13 +37,13 @@ The terms used in relation to the SPI slave driver are given in the table below.
    * - QUADHD
      - Hold signal. Only used for 4-bit (qio/qout) transactions.
    * - Assertion
-     - The action of activating a line. The opposite action of returning the line back to inactive (back to idle) is called *de-assertion*.
+     - The action of activating a line. The opposite action of returning the line back to inactive (back to idle) is called **de-assertion**.
    * - Transaction
      - One instance of a Host asserting a CS line, transferring data to and from a Device, and de-asserting the CS line. Transactions are atomic, which means they can never be interrupted by another transaction.
    * - Launch Edge
-     - Edge of the clock at which the source register *launches* the signal onto the line.
+     - Edge of the clock at which the source register **launches** the signal onto the line.
    * - Latch Edge
-     - Edge of the clock at which the destination register *latches in* the signal.
+     - Edge of the clock at which the destination register **latches in** the signal.
 
 
 Driver Features
@@ -61,7 +53,18 @@ Driver Features
 
 The SPI slave driver allows using the SPI peripherals as full-duplex Devices. The driver can send/receive transactions up to {IDF_TARGET_MAX_DATA_BUF} bytes in length, or utilize DMA to send/receive longer transactions. However, there are some :ref:`known issues <spi_dma_known_issues>` related to DMA.
 
-The SPI slave driver supports registering the SPI ISR to a certain CPU core. If multiple tasks try to access the same SPI Device, it is recommended to refactor your application so that each SPI peripheral is only accessed by a single task at a time. and use :cpp:member:`spi_bus_config_t::isr_cpu_id` to register the SPI ISR to the same core as SPI peripheral related tasks to ensure thread safe.
+The SPI slave driver supports registering the SPI ISR to a certain CPU core. If multiple tasks try to access the same SPI Device simultaneously, it is recommended that your application be refactored so that each SPI peripheral is only accessed by a single task at a time. Please also use :cpp:member:`spi_bus_config_t::isr_cpu_id` to register the SPI ISR to the same core as SPI peripheral related tasks to ensure thread safety.
+
+.. only:: SOC_SPI_SUPPORT_SLEEP_RETENTION
+
+    Sleep Retention
+    ^^^^^^^^^^^^^^^
+
+    {IDF_TARGET_NAME} supports to retain the SPI register context before entering **light sleep** and restore them after waking up. This means you don't have to re-init the SPI driver after the light sleep.
+
+    This feature can be enabled by setting the flag :c:macro:`SPICOMMON_BUSFLAG_SLP_ALLOW_PD`. It will allow the system to power down the SPI in light sleep, meanwhile save the register context. It can help to save more power consumption with some extra cost of the memory.
+
+    Notice that when GPSPI is working as a slave, it is **not** support to enter sleep when any transaction (including TX and RX) is not finished.
 
 SPI Transactions
 ----------------
@@ -70,7 +73,7 @@ A full-duplex SPI transaction begins when the Host asserts the CS line and start
 
 The attributes of a transaction are determined by the configuration structure for an SPI peripheral acting as a slave device :cpp:type:`spi_slave_interface_config_t`, and transaction configuration structure :cpp:type:`spi_slave_transaction_t`.
 
-As not every transaction requires both writing and reading data, you have a choice to configure the :cpp:type:`spi_transaction_t` structure for TX only, RX only, or TX and RX transactions. If :cpp:member:`spi_slave_transaction_t::rx_buffer` is set to NULL, the read phase will be skipped. If :cpp:member:`spi_slave_transaction_t::tx_buffer` is set to NULL, the write phase will be skipped.
+As not every transaction requires both writing and reading data, you can choose to configure the :cpp:type:`spi_transaction_t` structure for TX only, RX only, or TX and RX transactions. If :cpp:member:`spi_slave_transaction_t::rx_buffer` is set to ``NULL``, the read phase will be skipped. Similarly, if :cpp:member:`spi_slave_transaction_t::tx_buffer` is set to ``NULL``, the write phase will be skipped.
 
 .. note::
 
@@ -84,7 +87,7 @@ Driver Usage
 
 .. only:: esp32
 
-    If transactions will be longer than 32 bytes, allow a DMA channel 1 or 2 by setting the parameter ``dma_chan`` to ``1`` or ``2`` respectively. Otherwise, set ``dma_chan`` to ``0``.
+    If transactions are expected to be longer than 32 bytes, set the parameter ``dma_chan`` to ``1`` or ``2`` to allow a DMA channel 1 or 2 respectively. Otherwise, set ``dma_chan`` to ``0``.
 
 .. only:: esp32s2
 
@@ -121,32 +124,40 @@ GPIO Matrix and IO_MUX
 
     The IO_MUX pins for SPI buses are given below.
 
-    +----------+------+------+
-    | Pin Name | SPI2 | SPI3 |
-    +          +------+------+
-    |          | GPIO Number |
-    +==========+======+======+
-    | CS0      | 15   | 5    |
-    +----------+------+------+
-    | SCLK     | 14   | 18   |
-    +----------+------+------+
-    | MISO     | 12   | 19   |
-    +----------+------+------+
-    | MOSI     | 13   | 23   |
-    +----------+------+------+
-    | QUADWP   | 2    | 22   |
-    +----------+------+------+
-    | QUADHD   | 4    | 21   |
-    +----------+------+------+
+    .. list-table::
+       :widths: 40 30 30
+       :header-rows: 1
+
+       * - Pin Name
+         - GPIO Number (SPI2)
+         - GPIO Number (SPI3)
+       * - CS0
+         - 15
+         - 5
+       * - SCLK
+         - 14
+         - 18
+       * - MISO
+         - 12
+         - 19
+       * - MOSI
+         - 13
+         - 23
+       * - QUADWP
+         - 2
+         - 22
+       * - QUADHD
+         - 4
+         - 21
 
 .. only:: not esp32
 
-    {IDF_TARGET_SPI2_IOMUX_PIN_CS:default="N/A",   esp32s2="10", esp32s3="10", esp32c2="10", esp32c3="10", esp32c6="16", esp32h2="1"}
-    {IDF_TARGET_SPI2_IOMUX_PIN_CLK:default="N/A",  esp32s2="12", esp32s3="12", esp32c2="6",  esp32c3="6",  esp32c6="6",  esp32h2="4"}
-    {IDF_TARGET_SPI2_IOMUX_PIN_MOSI:default="N/A", esp32s2="11"  esp32s3="11", esp32c2="7"   esp32c3="7",  esp32c6="7",  esp32h2="5"}
-    {IDF_TARGET_SPI2_IOMUX_PIN_MISO:default="N/A", esp32s2="13"  esp32s3="13", esp32c2="2"   esp32c3="2",  esp32c6="2",  esp32h2="0"}
-    {IDF_TARGET_SPI2_IOMUX_PIN_HD:default="N/A",   esp32s2="9"   esp32s3="9",  esp32c2="4"   esp32c3="4",  esp32c6="4",  esp32h2="3"}
-    {IDF_TARGET_SPI2_IOMUX_PIN_WP:default="N/A",   esp32s2="14"  esp32s3="14", esp32c2="5"   esp32c3="5",  esp32c6="5",  esp32h2="2"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_CS:default="N/A",   esp32s2="10", esp32s3="10", esp32c2="10", esp32c3="10", esp32c6="16", esp32h2="1", esp32p4="7" , esp32c5="10", esp32c61="8"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_CLK:default="N/A",  esp32s2="12", esp32s3="12", esp32c2="6",  esp32c3="6",  esp32c6="6",  esp32h2="4", esp32p4="9" , esp32c5="6",  esp32c61="6"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_MOSI:default="N/A", esp32s2="11"  esp32s3="11", esp32c2="7"   esp32c3="7",  esp32c6="7",  esp32h2="5", esp32p4="8" , esp32c5="7",  esp32c61="7"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_MISO:default="N/A", esp32s2="13"  esp32s3="13", esp32c2="2"   esp32c3="2",  esp32c6="2",  esp32h2="0", esp32p4="10", esp32c5="2",  esp32c61="2"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_HD:default="N/A",   esp32s2="9"   esp32s3="9",  esp32c2="4"   esp32c3="4",  esp32c6="4",  esp32h2="3", esp32p4="6" , esp32c5="4",  esp32c61="3"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_WP:default="N/A",   esp32s2="14"  esp32s3="14", esp32c2="5"   esp32c3="5",  esp32c6="5",  esp32h2="2", esp32p4="11", esp32c5="5",  esp32c61="4"}
 
     Most of chip's peripheral signals have direct connection to their dedicated IO_MUX pins. However, the signals can also be routed to any other available pins using the less direct GPIO matrix. If at least one signal is routed through the GPIO matrix, then all signals will be routed through it.
 
@@ -215,10 +226,10 @@ The SPI slaves are designed to operate at up to {IDF_TARGET_MAX_FREQ} MHz. The d
              - Freq. limit (MHz)
            * - IO_MUX
              - 43.75
-             - <11.4
+             - < 11.4
            * - GPIO matrix
              - 68.75
-             - <7.2
+             - < 7.2
 
         Note:
         1. If the frequency reaches the maximum limitation, random errors may occur.
@@ -246,10 +257,14 @@ Restrictions and Known Issues
     If DMA is enabled, a Device's launch edge is half of an SPI clock cycle ahead of the normal time, shifting to the Master's actual latch edge. In this case, if the GPIO matrix is bypassed, the hold time for data sampling is 68.75 ns and no longer a half of an SPI clock cycle. If the GPIO matrix is used, the hold time will increase to 93.75 ns. The Host should sample the data immediately at the latch edge or communicate in SPI modes 1 or 3. If your Host cannot meet these timing requirements, initialize your Device without DMA.
 
 
-Application Example
--------------------
+Application Examples
+--------------------
 
 The code example for Device/Host communication can be found in the :example:`peripherals/spi_slave` directory of ESP-IDF examples.
+
+- :example: `peripherals/spi_slave/receiver` demonstrates how to configure an SPI slave to receive data from an SPI master and implement handshaking to manage data transfer readiness.
+
+- :example: `peripherals/spi_slave/sender` demonstrate how to configure an SPI master to send data to an SPI slave and use handshaking to ensure proper timing for data transmission.
 
 
 API Reference

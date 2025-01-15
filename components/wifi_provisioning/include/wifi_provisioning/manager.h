@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,6 +35,13 @@ typedef enum {
      * Indicates that provisioning has started
      */
     WIFI_PROV_START,
+
+    /**
+     * Emitted before accepting the wifi credentials to
+     * set the wifi configurations according to requirement.
+     * NOTE - In this case event_data shall be populated with a pointer to `wifi_config_t`.
+    */
+    WIFI_PROV_SET_STA_CONFIG,
 
     /**
      * Emitted when Wi-Fi AP credentials are received via `protocomm`
@@ -93,6 +100,17 @@ typedef struct {
     .event_cb  = NULL,                 \
     .user_data = NULL                  \
 }
+
+/**
+ * @brief   Structure holding the configuration related to Wi-Fi provisioning
+ */
+typedef struct {
+    /**
+     * Maximum number of allowed connection attempts for Wi-Fi. If value 0
+     * same as legacy behavior of infinite connection attempts.
+    */
+    uint32_t wifi_conn_attempts;
+} wifi_prov_conn_cfg_t;
 
 /**
  * @brief   Structure for specifying the provisioning scheme to be
@@ -180,6 +198,11 @@ typedef struct {
      * specific behavior. Use WIFI_PROV_EVENT_HANDLER_NONE when not used.
      */
     wifi_prov_event_handler_t app_event_handler;
+
+    /**
+     * This config holds the Wi-Fi provisioning related configurations.
+     */
+    wifi_prov_conn_cfg_t wifi_prov_conn_cfg;
 } wifi_prov_mgr_config_t;
 
 /**
@@ -201,7 +224,7 @@ typedef enum wifi_prov_security {
      * + proof of possession (pop) based authentication
      * + AES-CTR encryption
      */
-    WIFI_PROV_SECURITY_1,
+    WIFI_PROV_SECURITY_1 = 1,
 #endif
 #ifdef CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_2
     /**
@@ -209,7 +232,7 @@ typedef enum wifi_prov_security {
      *  SRP6a based authentication and key exchange
      *  + AES-GCM encryption/decryption
      */
-    WIFI_PROV_SECURITY_2
+    WIFI_PROV_SECURITY_2 = 2
 #endif
 } wifi_prov_security_t;
 
@@ -281,6 +304,13 @@ void wifi_prov_mgr_deinit(void);
  *  - ESP_ERR_INVALID_ARG   : Null argument supplied
  */
 esp_err_t wifi_prov_mgr_is_provisioned(bool *provisioned);
+
+/**
+ * @brief   Checks whether the provisioning state machine is idle
+ *
+ * @return  True if state machine is idle, else false
+ */
+bool wifi_prov_mgr_is_sm_idle(void);
 
 /**
  * @brief   Start provisioning service

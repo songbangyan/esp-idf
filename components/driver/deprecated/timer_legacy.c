@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,8 +15,10 @@
 #include "hal/timer_ll.h"
 #include "hal/check.h"
 #include "soc/timer_periph.h"
-#include "clk_tree.h"
+#include "soc/soc_caps.h"
+#include "esp_clk_tree.h"
 #include "soc/timer_group_reg.h"
+#include "esp_private/esp_clk_tree_common.h"
 #include "esp_private/periph_ctrl.h"
 
 static const char *TIMER_TAG = "timer_group";
@@ -33,6 +35,12 @@ static const char *TIMER_TAG = "timer_group";
 
 #define TIMER_ENTER_CRITICAL(mux)      portENTER_CRITICAL_SAFE(mux);
 #define TIMER_EXIT_CRITICAL(mux)       portEXIT_CRITICAL_SAFE(mux);
+
+#if SOC_PERIPH_CLK_CTRL_SHARED
+#define GPTIMER_CLOCK_SRC_ATOMIC() PERIPH_RCC_ATOMIC()
+#else
+#define GPTIMER_CLOCK_SRC_ATOMIC()
+#endif
 
 typedef struct {
     timer_isr_t fn;  /*!< isr function */
@@ -78,8 +86,8 @@ esp_err_t timer_get_counter_time_sec(timer_group_t group_num, timer_idx_t timer_
     uint32_t div = p_timer_obj[group_num][timer_num]->divider;
     // get clock source frequency
     uint32_t counter_src_hz = 0;
-    ESP_RETURN_ON_ERROR(clk_tree_src_get_freq_hz((soc_module_clk_t)p_timer_obj[group_num][timer_num]->clk_src,
-                        CLK_TREE_SRC_FREQ_PRECISION_CACHED, &counter_src_hz),
+    ESP_RETURN_ON_ERROR(esp_clk_tree_src_get_freq_hz((soc_module_clk_t)p_timer_obj[group_num][timer_num]->clk_src,
+                                                     ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &counter_src_hz),
                         TIMER_TAG, "get clock source frequency failed");
     *time = (double)timer_val * div / counter_src_hz;
     return ESP_OK;
@@ -211,7 +219,7 @@ static void IRAM_ATTR timer_isr_default(void *arg)
         timer_ll_clear_intr_status(hal->dev, TIMER_LL_EVENT_ALARM(timer_id));
         // call user registered callback
         is_awoken = timer_obj->timer_isr_fun.fn(timer_obj->timer_isr_fun.args);
-        // reenable alarm if required
+        // re-enable alarm if required
         uint64_t new_alarm_value = timer_obj->alarm_value;
         bool reenable_alarm = (new_alarm_value != old_alarm_value) || timer_obj->auto_reload_en;
         timer_ll_enable_alarm(hal->dev, timer_id, reenable_alarm);
@@ -305,7 +313,12 @@ esp_err_t timer_init(timer_group_t group_num, timer_idx_t timer_num, const timer
     }
     timer_hal_context_t *hal = &p_timer_obj[group_num][timer_num]->hal;
 
-    periph_module_enable(timer_group_periph_signals.groups[group_num].module);
+    PERIPH_RCC_ACQUIRE_ATOMIC(timer_group_periph_signals.groups[group_num].module, ref_count) {
+        if (ref_count == 0) {
+            timer_ll_enable_bus_clock(group_num, true);
+            timer_ll_reset_register(group_num);
+        }
+    }
 
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_init(hal, group_num, timer_num);
@@ -315,9 +328,13 @@ esp_err_t timer_init(timer_group_t group_num, timer_idx_t timer_num, const timer
     if (config->clk_src) {
         clk_src = config->clk_src;
     }
-    // although `clk_src` is of `timer_src_clk_t` type, but it's binary compatible with `gptimer_clock_source_t`,
-    // as the underlying enum entries come from the same `soc_module_clk_t`
-    timer_ll_set_clock_source(p_timer_obj[group_num][timer_num]->hal.dev, timer_num, (gptimer_clock_source_t)clk_src);
+    esp_clk_tree_enable_src((soc_module_clk_t)clk_src, true);
+    GPTIMER_CLOCK_SRC_ATOMIC() {
+        // although `clk_src` is of `timer_src_clk_t` type, but it's binary compatible with `gptimer_clock_source_t`,
+        // as the underlying enum entries come from the same `soc_module_clk_t`
+        timer_ll_set_clock_source(p_timer_obj[group_num][timer_num]->hal.dev, timer_num, (gptimer_clock_source_t)clk_src);
+        timer_ll_enable_clock(hal->dev, timer_num, true);
+    }
     timer_ll_set_clock_prescale(hal->dev, timer_num, config->divider);
     timer_ll_set_count_direction(p_timer_obj[group_num][timer_num]->hal.dev, timer_num, config->counter_dir);
     timer_ll_enable_intr(hal->dev, TIMER_LL_EVENT_ALARM(timer_num), false);
@@ -343,11 +360,21 @@ esp_err_t timer_deinit(timer_group_t group_num, timer_idx_t timer_num)
     ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     timer_hal_context_t *hal = &p_timer_obj[group_num][timer_num]->hal;
 
+    // disable the source clock
+    GPTIMER_CLOCK_SRC_ATOMIC() {
+        timer_ll_enable_clock(hal->dev, hal->timer_id, false);
+    }
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_ll_enable_intr(hal->dev, TIMER_LL_EVENT_ALARM(timer_num), false);
     timer_ll_clear_intr_status(hal->dev, TIMER_LL_EVENT_ALARM(timer_num));
     timer_hal_deinit(hal);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
+
+    PERIPH_RCC_RELEASE_ATOMIC(timer_group_periph_signals.groups[group_num].module, ref_count) {
+        if (ref_count == 0) {
+            timer_ll_enable_bus_clock(group_num, false);
+        }
+    }
 
     free(p_timer_obj[group_num][timer_num]);
     p_timer_obj[group_num][timer_num] = NULL;
@@ -441,6 +468,7 @@ bool IRAM_ATTR timer_group_get_auto_reload_in_isr(timer_group_t group_num, timer
     return p_timer_obj[group_num][timer_num]->auto_reload_en;
 }
 
+#if !CONFIG_GPTIMER_SKIP_LEGACY_CONFLICT_CHECK
 /**
  * @brief This function will be called during start up, to check that this legacy timer group driver is not running along with the gptimer driver
  */
@@ -456,3 +484,4 @@ static void check_legacy_timer_driver_conflict(void)
     }
     ESP_EARLY_LOGW(TIMER_TAG, "legacy driver is deprecated, please migrate to `driver/gptimer.h`");
 }
+#endif //CONFIG_GPTIMER_SKIP_LEGACY_CONFLICT_CHECK

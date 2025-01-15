@@ -1,5 +1,9 @@
 idf_build_get_property(target IDF_TARGET)
 
+if(${target} STREQUAL "linux")
+    return() # This component is not supported by the POSIX/Linux simulator
+endif()
+
 set(includes "include")
 
 # Note: requires spi_flash for cache_utils, will be refactored
@@ -16,6 +20,8 @@ if(NOT CONFIG_APP_BUILD_TYPE_PURE_RAM_APP)
         list(APPEND srcs "cache_esp32.c")
     endif()
 endif()
+
+list(APPEND srcs "heap_align_hw.c")
 
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${includes}

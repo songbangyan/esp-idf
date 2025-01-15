@@ -9,12 +9,10 @@
 #include "esp_efuse_table.h"
 #include "stdlib.h"
 #include "esp_types.h"
-#include "esp32c2/rom/efuse.h"
 #include "assert.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "soc/efuse_periph.h"
-#include "bootloader_random.h"
 #include "sys/param.h"
 
 static __attribute__((unused)) const char *TAG = "efuse";

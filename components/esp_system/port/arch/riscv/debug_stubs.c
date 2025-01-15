@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,7 +14,6 @@
 
 const static char *TAG = "esp_dbg_stubs";
 
-
 /* Advertises apptrace control block address to host */
 static int esp_dbg_stubs_advertise_table(void *stub_table_addr)
 {
@@ -27,7 +26,8 @@ static int esp_dbg_stubs_advertise_table(void *stub_table_addr)
 void esp_dbg_stubs_ll_init(void *stub_table_addr)
 {
     // notify host about control block address
-    int res = esp_dbg_stubs_advertise_table(stub_table_addr);
+    // Value unused if asserts are disabled
+    int __attribute__((unused)) res = esp_dbg_stubs_advertise_table(stub_table_addr);
     assert(res == 0 && "Failed to send debug stubs table address to host!");
-    ESP_LOGV(TAG, "%s stubs %x", __func__, stub_table_addr);
+    ESP_LOGV(TAG, "%s stubs %p", __func__, stub_table_addr);
 }

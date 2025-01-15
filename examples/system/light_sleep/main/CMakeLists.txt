@@ -1,13 +1,15 @@
+idf_build_get_property(target IDF_TARGET)
+
 set(srcs "light_sleep_example_main.c"
          "gpio_wakeup.c"
          "timer_wakeup.c"
          "uart_wakeup.c")
+set(includes ".")
 
-set(TOUCH_ELEMENT_COMPATIBLE_TARGETS "esp32s2" "esp32s3")
-
-if(IDF_TARGET IN_LIST TOUCH_ELEMENT_COMPATIBLE_TARGETS)
-    list(APPEND srcs "touch_wakeup.c")
+if(CONFIG_SOC_TOUCH_SENSOR_SUPPORTED AND CONFIG_SOC_PM_SUPPORT_TOUCH_SENSOR_WAKEUP)
+    list(APPEND srcs "touch_sens_wakeup.c")
 endif()
 
 idf_component_register(SRCS ${srcs}
-                       INCLUDE_DIRS ".")
+                       PRIV_REQUIRES esp_driver_uart esp_driver_gpio esp_timer esp_driver_touch_sens
+                       INCLUDE_DIRS ${includes})

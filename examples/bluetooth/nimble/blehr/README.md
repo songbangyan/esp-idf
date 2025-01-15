@@ -1,11 +1,11 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- |
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- |
 
 # BLE Heart Rate Measurement Example
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
-This example creates GATT server demonstrating standard Heart Rate measurement service. It simulates Hear rate measurement and notifies to client when the notifications are enabled.
+This example creates GATT server demonstrating standard Heart Rate measurement service. It simulates Heart rate measurement and notifies to client when the notifications are enabled.
 
 It uses ESP32's Bluetooth controller and NimBLE stack based BLE host
 
@@ -13,11 +13,9 @@ This example aims at understanding notification subscriptions and sending notifi
 
 To test this demo, any BLE scanner app can be used.
 
-A Python based utility `blehr_test.py` is also provided (which will run as a BLE GATT Client) and can be used to test this example.   
-
 Note :
 
-* To install the dependency packages needed, please refer to the top level [README file](../../../README.md#running-test-python-script-ttfw).
+* To install the dependency packages needed, please refer to the top level [README file](../../../README.md#running-test-python-script-pytest).
 * Currently this Python utility is only supported on Linux (BLE communication is via BLuez + DBus).
 
 ## How to Use Example
@@ -67,54 +65,6 @@ GATT procedure initiated: notify; att_handle=3
 GATT procedure initiated: notify; att_handle=3
 GATT procedure initiated: notify; att_handle=3
 
-```
-
-## Running Python Utility
-
-```
-python blehr_test.py
-```
-
-## Python Utility Output
-
-This is this output seen on the python side on successful connection:
-
-```
-discovering adapter...
-bluetooth adapter discovered
-powering on adapter...
-bluetooth adapter powered on
-
-Started Discovery
-
-Connecting to device...
-
-Connected to device
-
-Services
-
-[dbus.String(u'00001801-0000-1000-8000-00805f9b34fb', variant_level=1), dbus.String(u'0000180d-0000-1000-8000-00805f9b34fb', variant_level=1), dbus.String(u'0000180a-0000-1000-8000-00805f9b34fb', variant_level=1)]
-
-Subscribe to notifications: On
-dbus.Array([dbus.Byte(6), dbus.Byte(90)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(91)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(92)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(93)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(94)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(95)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(96)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(97)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(98)], signature=dbus.Signature('y'), variant_level=1)
-dbus.Array([dbus.Byte(6), dbus.Byte(99)], signature=dbus.Signature('y'), variant_level=1)
-
-Subscribe to notifications: Off
-Success: blehr example test passed
-
-exiting from test...
-disconnecting device...
-device disconnected
-powering off adapter...
-bluetooth adapter powered off
 ```
 
 ## Troubleshooting

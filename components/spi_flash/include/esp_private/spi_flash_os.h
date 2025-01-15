@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,6 +18,7 @@
 #include "hal/spi_flash_hal.h"
 #include "spi_flash_override.h"
 #include "soc/soc_caps.h"
+#include "soc/clk_tree_defs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,8 +40,9 @@ typedef enum {
     ESP_MSPI_IO_D7,
 #endif // SOC_SPI_MEM_SUPPORT_OPI_MODE
 #if CONFIG_SPIRAM
-    ESP_MSPI_IO_CS1 /* cs for spi ram */
+    ESP_MSPI_IO_CS1, /* cs for spi ram */
 #endif
+    ESP_MSPI_IO_MAX, /* Maximum IO MSPI occupied */
 } esp_mspi_io_t;
 
 /**
@@ -52,6 +54,11 @@ esp_err_t spi_flash_init_chip_state(void);
  * @brief To initislize the MSPI pins
  */
 void esp_mspi_pin_init(void);
+
+/**
+ * @brief Reserve MSPI IOs
+ */
+void esp_mspi_pin_reserve(void);
 
 /**
  * @brief Get the number of the GPIO corresponding to the given MSPI io
@@ -81,9 +88,9 @@ esp_err_t esp_flash_init_main(esp_flash_t *chip);
 void spi_timing_get_flash_timing_param(spi_flash_hal_timing_config_t *out_timing_config);
 
 /**
- * @brief Get the knowledge if the MSPI timing is tuned or not
+ * @brief Get the knowledge if the Flash timing is tuned or not
  */
-bool spi_timing_is_tuned(void);
+bool spi_flash_timing_is_tuned(void);
 
 /**
  * @brief Set Flash chip specifically required MSPI register settings here
@@ -113,7 +120,20 @@ void spi_flash_set_erasing_flag(bool status);
 bool spi_flash_brownout_need_reset(void);
 
 /**
+ * @brief Check whether esp-chip supports 32bit address properly
+ *
+ * @return ESP_OK for supported, ESP_ERR_NOT_SUPPORTED for not supported
+*/
+esp_err_t esp_mspi_32bit_address_flash_feature_check(void);
+
+#if CONFIG_SPI_FLASH_HPM_ON
+/**
  * @brief Enable SPI flash high performance mode.
+ *
+ * @note 1. When `CONFIG_SPI_FLASH_HPM_ON` is True, caller can always call this function without taking whether the used
+ *          frequency falls into the HPM range into consideration.
+ *       2. However, caller shouldn't attempt to call this function on Octal flash. `CONFIG_SPI_FLASH_HPM_ON` may be
+ *          True when `CONFIG_ESPTOOLPY_FLASH_MODE_AUTO_DETECT && !CONFIG_ESPTOOLPY_OCT_FLASH`
  *
  * @return ESP_OK if success.
  */
@@ -134,6 +154,7 @@ const spi_flash_hpm_dummy_conf_t *spi_flash_hpm_get_dummy(void);
  * @return true Yes, and work under HPM with adjusting dummy. Otherwise, false.
  */
 bool spi_flash_hpm_dummy_adjust(void);
+#endif //CONFIG_SPI_FLASH_HPM_ON
 
 #if SOC_SPI_MEM_SUPPORT_WRAP
 /**
@@ -243,6 +264,7 @@ extern const spi_flash_guard_funcs_t g_flash_guard_no_os_ops;
  * @note Only called in startup. User should not call this function.
  */
 void spi_flash_rom_impl_init(void);
+
 
 
 #ifdef __cplusplus

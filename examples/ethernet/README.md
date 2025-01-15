@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
+
 # Ethernet Examples
 
 See the [README.md](../README.md) file in the upper level [examples](../) directory for more information about examples.
@@ -80,3 +83,8 @@ Please consult Espressif Technical reference manual along with datasheet for spe
 
 * The data panel between ESP32's MAC and PHY needs a fixed 50MHz clock to do synchronization, which also called RMII clock. It can either be provided by an external oscillator or generated from internal APLL. The signal integrity of RMII clock is strict, so keep the trace as short as possible!
 * If the RMII clock is generated from internal APLL, then APLL can't be used for other purpose (e.g. I2S).
+* If you observe undefined behavior (e.g. LCD glitches) of any **SPI device** which works normally when Ethernet is not connected over internal EMAC, you need to adjust EMAC DMA burst length (the DMA is shared resource between EMAC and the SPI). The same applies when you observe Ethernet frames corruption at the output of SPI Ethernet module and you use combination of internal EMAC and SPI Ethernet module as network interfaces. To configure the EMAC DMA burst length, modify internal Ethernet initialization as follows:
+
+```c
+esp32_emac_config.dma_burst_len = ETH_DMA_BURST_LEN_4; // or other appropriate value
+```

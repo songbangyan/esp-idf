@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,7 +10,6 @@
 #include "esp_image_format.h"
 #include "flash_qio_mode.h"
 #include "esp_rom_gpio.h"
-#include "esp_rom_efuse.h"
 #include "esp_rom_uart.h"
 #include "esp_rom_sys.h"
 #include "esp_rom_spiflash.h"
@@ -23,7 +22,6 @@
 #include "soc/extmem_reg.h"
 #include "soc/io_mux_reg.h"
 #include "soc/pcr_reg.h"
-#include "esp32h2/rom/efuse.h"
 #include "esp32h2/rom/ets_sys.h"
 #include "bootloader_common.h"
 #include "bootloader_init.h"
@@ -33,7 +31,6 @@
 #include "esp_private/regi2c_ctrl.h"
 #include "soc/regi2c_lp_bias.h"
 #include "soc/regi2c_bias.h"
-#include "modem/modem_lpcon_reg.h"
 #include "bootloader_console.h"
 #include "bootloader_flash_priv.h"
 #include "bootloader_soc.h"
@@ -41,9 +38,13 @@
 #include "esp_efuse.h"
 #include "hal/mmu_hal.h"
 #include "hal/cache_hal.h"
+#include "hal/lpwdt_ll.h"
 #include "soc/lp_wdt_reg.h"
+#include "soc/pmu_reg.h"
+#include "soc/lpperi_struct.h"
 #include "hal/efuse_hal.h"
-#include "modem/modem_lpcon_reg.h"
+#include "hal/regi2c_ctrl_ll.h"
+#include "hal/brownout_ll.h"
 
 static const char *TAG = "boot.esp32h2";
 
@@ -86,45 +87,31 @@ static void bootloader_super_wdt_auto_feed(void)
 
 static inline void bootloader_hardware_init(void)
 {
-    // TODO: IDF-6267
-    /* Enable analog i2c master clock */
-    SET_PERI_REG_MASK(MODEM_LPCON_CLK_CONF_REG, MODEM_LPCON_CLK_I2C_MST_EN);
+    /* Disable RF pll by default */
+    CLEAR_PERI_REG_MASK(PMU_RF_PWC_REG, PMU_XPD_RFPLL);
+    SET_PERI_REG_MASK(PMU_RF_PWC_REG, PMU_XPD_FORCE_RFPLL);
+
+    _regi2c_ctrl_ll_master_enable_clock(true); // keep ana i2c mst clock always enabled in bootloader
+    regi2c_ctrl_ll_master_configure_clock();
+
+    REGI2C_WRITE_MASK(I2C_BIAS, I2C_BIAS_DREG_0P8, 8);  // fix low temp issue, need to increase this internal voltage
+
 }
 
 static inline void bootloader_ana_reset_config(void)
 {
-    // TODO: IDF-5990 copied from C6, need update
-    // Have removed bootloader_ana_super_wdt_reset_config for now; can be evaluated later to see whether needs to add it back
-    /*
-      For origin chip & ECO1: only support swt reset;
-      For ECO2: fix brownout reset bug, support swt & brownout reset;
-      For ECO3: fix clock glitch reset bug, support all reset, include: swt & brownout & clock glitch reset.
-    */
-    uint8_t chip_version = efuse_hal_get_minor_chip_version();
-    switch (chip_version) {
-        case 0:
-        case 1:
-            //Disable BOR and GLITCH reset
-            bootloader_ana_bod_reset_config(false);
-            bootloader_ana_clock_glitch_reset_config(false);
-            break;
-        case 2:
-            //Enable BOR reset. Disable GLITCH reset
-            bootloader_ana_bod_reset_config(true);
-            bootloader_ana_clock_glitch_reset_config(false);
-            break;
-        case 3:
-        default:
-            //Enable BOR, and GLITCH reset
-            bootloader_ana_bod_reset_config(true);
-            bootloader_ana_clock_glitch_reset_config(true);
-            break;
-    }
+    //Enable super WDT reset.
+    bootloader_ana_super_wdt_reset_config(true);
+    //Enable BOD reset (mode1)
+    brownout_ll_ana_reset_enable(true);
 }
 
 esp_err_t bootloader_init(void)
 {
     esp_err_t ret = ESP_OK;
+
+    // Assign the compatible LPPERI register address in case it is used in the bootloader
+    lpperi_compatible_reg_addr_init();
 
     bootloader_hardware_init();
     bootloader_ana_reset_config();
@@ -158,9 +145,8 @@ esp_err_t bootloader_init(void)
 #if !CONFIG_APP_BUILD_TYPE_RAM
     //init cache hal
     cache_hal_init();
-    //reset mmu
+    //init mmu
     mmu_hal_init();
-
     // update flash ID
     bootloader_flash_update_id();
     // Check and run XMC startup flow
@@ -182,7 +168,7 @@ esp_err_t bootloader_init(void)
     }
 #endif // !CONFIG_APP_BUILD_TYPE_RAM
 
-    // check whether a WDT reset happend
+    // check whether a WDT reset happened
     bootloader_check_wdt_reset();
     // config WDT
     bootloader_config_wdt();

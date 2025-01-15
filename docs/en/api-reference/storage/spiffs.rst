@@ -15,15 +15,17 @@ Notes
  - It is not a real-time stack. One write operation might take much longer than another.
  - For now, it does not detect or handle bad blocks.
  - SPIFFS is able to reliably utilize only around 75% of assigned partition space.
- - When the filesystem is running out of space, the garbage collector is trying to find free space by scanning the filesystem multiple times, which can take up to several seconds per write function call, depending on required space. This is caused by the SPIFFS design and the issue has been reported multiple times (e.g. `here <https://github.com/espressif/esp-idf/issues/1737>`_) and in the official `SPIFFS github repository <https://github.com/pellepl/spiffs/issues/>`_. The issue can be partially mitigated by the `SPIFFS configuration <https://github.com/pellepl/spiffs/wiki/Configure-spiffs>`_.
- - Deleting a file does not always remove the whole file, which leaves unusable sections throughout the filesystem.
+ - When the filesystem is running out of space, the garbage collector is trying to find free space by scanning the filesystem multiple times, which can take up to several seconds per write function call, depending on required space. This is caused by the SPIFFS design and the issue has been reported multiple times (e.g., `here <https://github.com/espressif/esp-idf/issues/1737>`_) and in the official `SPIFFS github repository <https://github.com/pellepl/spiffs/issues/>`_. The issue can be partially mitigated by the `SPIFFS configuration <https://github.com/pellepl/spiffs/wiki/Configure-spiffs>`_.
+ - When the garbage collector attempts to reclaim space by scanning the entire filesystem multiple times (usually 10 times by default), during each scan, the garbage collector frees up one block if available. Therefore, if the maximum number of runs set for the garbage collector is 'n' (configured by the SPIFFS_GC_MAX_RUNS option located in `SPIFFS configuration <https://github.com/pellepl/spiffs/wiki/Configure-spiffs>`_), then n times the block size will become available for data writing. If you attempt to write data exceeding n times the block size, the write operation may fail and return an error.
  - When the chip experiences a power loss during a file system operation it could result in SPIFFS corruption. However the file system still might be recovered via ``esp_spiffs_check`` function. More details in the official SPIFFS `FAQ <https://github.com/pellepl/spiffs/wiki/FAQ>`_.
 
 Tools
 -----
 
-spiffsgen.py
-^^^^^^^^^^^^
+.. _spiffs-generator:
+
+``spiffsgen.py``
+^^^^^^^^^^^^^^^^
 
 :component_file:`spiffsgen.py<spiffs/spiffsgen.py>` is a write-only Python SPIFFS implementation used to create filesystem images from the contents of a host folder. To use ``spiffsgen.py``, open Terminal and run::
 
@@ -47,9 +49,9 @@ Aside from invoking the ``spiffsgen.py`` standalone by manually running it from 
 
     spiffs_create_partition_image(<partition> <base_dir> [FLASH_IN_PROJECT] [DEPENDS dep dep dep...])
 
-This is more convenient as the build configuration is automatically passed to the tool, ensuring that the generated image is valid for that build. An example of this is while the *image_size* is required for the standalone invocation, only the *partition* name is required when using ``spiffs_create_partition_image`` -- the image size is automatically obtained from the project's partition table.
+This is more convenient as the build configuration is automatically passed to the tool, ensuring that the generated image is valid for that build. An example of this is while the **image_size** is required for the standalone invocation, only the **partition** name is required when using ``spiffs_create_partition_image`` -- the image size is automatically obtained from the project's partition table.
 
-``spiffs_create_partition_image`` must be called from one of the component CMakeLists.txt files.
+``spiffs_create_partition_image`` must be called from one of the component ``CMakeLists.txt`` files.
 
 Optionally, users can opt to have the image automatically flashed together with the app binaries, partition tables, etc. on ``idf.py flash`` by specifying ``FLASH_IN_PROJECT``.  For example::
 
@@ -63,10 +65,10 @@ There are cases where the contents of the base directory itself is generated at 
 
     spiffs_create_partition_image(my_spiffs_partition my_folder DEPENDS dep)
 
-For an example, see :example:`storage/spiffsgen`.
+For an example, see :example:`storage/spiffsgen`. This example demonstrates how to use the SPIFFS image generation tool to automatically create an SPIFFS image from a host folder during building.
 
-mkspiffs
-^^^^^^^^
+``mkspiffs``
+^^^^^^^^^^^^
 
 Another tool for creating SPIFFS partition images is `mkspiffs <https://github.com/igrr/mkspiffs>`_. Similar to ``spiffsgen.py``, it can be used to create an image from a given folder and then flash that image using ``esptool.py``
 
@@ -85,7 +87,11 @@ To flash the image onto {IDF_TARGET_NAME} at offset 0x110000, run::
 
     python esptool.py --chip {IDF_TARGET_PATH_NAME} --port [port] --baud [baud] write_flash -z 0x110000 spiffs.bin
 
-Notes on which SPIFFS tool to use
+.. note::
+
+    You can configure the ``write_flash`` command of ``esptool.py`` to `write the spiffs data to an external SPI flash chip <https://docs.espressif.com/projects/esptool/en/latest/esptool/advanced-options.html#custom-spi-pin-configuration>`_ using the ``--spi-connection <CLK>,<Q>,<D>,<HD>,<CS>`` option. Just specify the GPIO pins assigned to the external flash, e.g., ``python esptool.py write_flash --spi-connection 6,7,8,9,11 -z 0x110000 spiffs.bin``.
+
+Notes on Which SPIFFS Tool to Use
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The two tools presented above offer very similar functionality. However, there are reasons to prefer one over the other, depending on the use case.
@@ -100,7 +106,7 @@ Use ``mkspiffs`` in the following cases:
 1. If you need to unpack SPIFFS images in addition to image generation. For now, it is not possible with ``spiffsgen.py``.
 2. If you have an environment where a Python interpreter is not available, but a host compiler is available. Otherwise, a pre-compiled ``mkspiffs`` binary can do the job. However, there is no build system integration for ``mkspiffs`` and the user has to do the corresponding work: compiling ``mkspiffs`` during build (if a pre-compiled binary is not used), creating build rules/targets for the output files, passing proper parameters to the tool, etc.
 
-See also
+See Also
 --------
 
 - :doc:`Partition Table documentation <../../api-guides/partition-tables>`

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2018-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,6 +23,19 @@ typedef enum {
     ESP_IMAGE_BOOTLOADER,
     ESP_IMAGE_APPLICATION
 } esp_image_type;
+
+/**
+ * @brief Read ota_info partition and fill array from two otadata structures.
+ *
+ * @param[in]   ota_info It is a pointer to the OTA data partition.
+ *                       The "otadata" partition (Type = "data" and SubType = "ota")
+ *                       is defined in the CSV partition table.
+ * @param[out]  two_otadata Pointer to array of OTA selection structure.
+ * @return      - ESP_OK: On success
+ *              - ESP_ERR_NOT_FOUND: Partition table does not have otadata partition
+ *              - ESP_FAIL: On failure
+ */
+esp_err_t bootloader_common_read_otadata(const esp_partition_pos_t *ota_info, esp_ota_select_entry_t *two_otadata);
 
 /**
  * @brief Calculate crc for the OTA data select.
@@ -168,12 +181,26 @@ uint32_t bootloader_common_get_chip_ver_pkg(void);
  */
 esp_err_t bootloader_common_check_chip_validity(const esp_image_header_t* img_hdr, esp_image_type type);
 
+#if !CONFIG_IDF_TARGET_ESP32
+/**
+ * @brief Check the eFuse block revision
+ *
+ * @param[in] min_rev_full The required minimum revision of the eFuse block
+ * @param[in] max_rev_full The required maximum revision of the eFuse block
+ * @return
+ *          - ESP_OK: The eFuse block revision is in the required range.
+ *          - ESP_OK: DISABLE_BLK_VERSION_MAJOR has been set in the eFuse of the SoC. No requirements shall be checked at this time.
+ *          - ESP_FAIL: The eFuse block revision of this chip does not match the requirement of the current image.
+ */
+esp_err_t bootloader_common_check_efuse_blk_validity(uint32_t min_rev_full, uint32_t max_rev_full);
+#endif  // !CONFIG_IDF_TARGET_ESP32
+
 /**
  * @brief Configure VDDSDIO, call this API to rise VDDSDIO to 1.9V when VDDSDIO regulator is enabled as 1.8V mode.
  */
 void bootloader_common_vddsdio_configure(void);
 
-#if defined( CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP ) || defined( CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC )
+#if CONFIG_BOOTLOADER_RESERVE_RTC_MEM
 /**
  * @brief Returns partition from rtc_retain_mem
  *
@@ -224,6 +251,21 @@ void bootloader_common_reset_rtc_retain_mem(void);
 uint16_t bootloader_common_get_rtc_retain_mem_reboot_counter(void);
 
 /**
+ * @brief Returns True if Factory reset has happened
+ *
+ * Reset the status after reading it.
+ *
+ * @return True: Factory reset has happened
+ *         False: No Factory reset
+ */
+bool bootloader_common_get_rtc_retain_mem_factory_reset_state(void);
+
+/**
+ * @brief Sets Factory reset status
+ */
+void bootloader_common_set_rtc_retain_mem_factory_reset_state(void);
+
+/**
  * @brief Returns rtc_retain_mem
  *
  * Note: This function operates the RTC FAST memory which available only for PRO_CPU.
@@ -233,7 +275,7 @@ uint16_t bootloader_common_get_rtc_retain_mem_reboot_counter(void);
  */
 rtc_retain_mem_t* bootloader_common_get_rtc_retain_mem(void);
 
-#endif
+#endif // CONFIG_BOOTLOADER_RESERVE_RTC_MEM
 
 #ifdef __cplusplus
 }

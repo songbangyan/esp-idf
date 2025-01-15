@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2016-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2016-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,11 +15,9 @@
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 #include "esp_intr_alloc.h"
-#include "driver/rtc_io.h"
-#include "driver/touch_pad.h"
 #include "esp_private/rtc_ctrl.h"
-#include "driver/gpio.h"
-#include "hal/touch_sensor_types.h"
+#include "esp_private/gpio.h"
+#include "hal/touch_sensor_legacy_types.h"
 #include "hal/touch_sensor_hal.h"
 
 static const char *TOUCH_TAG = "TOUCH_SENSOR";
@@ -55,11 +53,11 @@ esp_err_t touch_pad_isr_deregister(intr_handler_t fn, void *arg)
 
 esp_err_t touch_pad_set_voltage(touch_high_volt_t refh, touch_low_volt_t refl, touch_volt_atten_t atten)
 {
-    TOUCH_CHECK(((refh < TOUCH_HVOLT_MAX) && (refh >= (int )TOUCH_HVOLT_KEEP)), "touch refh error",
+    TOUCH_CHECK(((refh < TOUCH_HVOLT_MAX) && (refh >= (int)TOUCH_HVOLT_KEEP)), "touch refh error",
                 ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK(((refl < TOUCH_LVOLT_MAX) && (refh >= (int )TOUCH_LVOLT_KEEP)), "touch refl error",
+    TOUCH_CHECK(((refl < TOUCH_LVOLT_MAX) && (refh >= (int)TOUCH_LVOLT_KEEP)), "touch refl error",
                 ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK(((atten < TOUCH_HVOLT_ATTEN_MAX) && (refh >= (int )TOUCH_HVOLT_ATTEN_KEEP)), "touch atten error",
+    TOUCH_CHECK(((atten < TOUCH_HVOLT_ATTEN_MAX) && (refh >= (int)TOUCH_HVOLT_ATTEN_KEEP)), "touch atten error",
                 ESP_ERR_INVALID_ARG);
 
     const touch_hal_volt_t volt = {
@@ -122,11 +120,7 @@ esp_err_t touch_pad_io_init(touch_pad_t touch_num)
 {
     TOUCH_CHANNEL_CHECK(touch_num);
     gpio_num_t gpio_num = TOUCH_GET_IO_NUM(touch_num);
-    rtc_gpio_init(gpio_num);
-    rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED);
-    rtc_gpio_pulldown_dis(gpio_num);
-    rtc_gpio_pullup_dis(gpio_num);
-    return ESP_OK;
+    return gpio_config_as_analog(gpio_num);
 }
 
 esp_err_t touch_pad_fsm_start(void)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,6 +24,7 @@
 #include "esp_private/system_internal.h"
 #include "esp_private/spi_flash_os.h"
 #include "esp_private/esp_clk.h"
+#include "esp_private/esp_gpio_reserve.h"
 #if CONFIG_IDF_TARGET_ESP32
 #include "esp32/rom/cache.h"
 #include "esp32/rom/spi_flash.h"
@@ -36,12 +37,12 @@
 #include "esp32s3/opi_flash_private.h"
 #elif CONFIG_IDF_TARGET_ESP32C3
 #include "esp32c3/rom/cache.h"
-#elif CONFIG_IDF_TARGET_ESP32H4
-#include "esp32h4/rom/cache.h"
 #elif CONFIG_IDF_TARGET_ESP32C2
 #include "esp32c2/rom/cache.h"
 #elif CONFIG_IDF_TARGET_ESP32C6
 #include "esp32c6/rom/cache.h"
+#elif CONFIG_IDF_TARGET_ESP32C61
+#include "esp32c61/rom/cache.h"
 #endif
 #include "esp_rom_spiflash.h"
 #include "esp_flash_partitions.h"
@@ -53,8 +54,13 @@
 #include "bootloader_flash_config.h"
 #include "esp_compiler.h"
 #include "esp_rom_efuse.h"
+#include "soc/chip_revision.h"
+#include "hal/efuse_hal.h"
 #if CONFIG_SPIRAM
 #include "esp_private/esp_psram_io.h"
+#endif
+#if SOC_MEMSPI_CLOCK_IS_INDEPENDENT
+#include "hal/cache_hal.h"
 #endif
 
 /* bytes erased by SPIEraseBlock() ROM function */
@@ -72,28 +78,6 @@
 #define MAX_READ_CHUNK 16384
 
 static const char *TAG __attribute__((unused)) = "spi_flash";
-
-#if CONFIG_SPI_FLASH_ENABLE_COUNTERS
-static spi_flash_counters_t s_flash_stats;
-
-#define COUNTER_START()     uint32_t ts_begin = esp_cpu_get_cycle_count()
-#define COUNTER_STOP(counter)  \
-    do{ \
-        s_flash_stats.counter.count++; \
-        s_flash_stats.counter.time += (esp_cpu_get_cycle_count() - ts_begin) / (esp_clk_cpu_freq() / 1000000); \
-    } while(0)
-
-#define COUNTER_ADD_BYTES(counter, size) \
-    do { \
-        s_flash_stats.counter.bytes += size; \
-    } while (0)
-
-#else
-#define COUNTER_START()
-#define COUNTER_STOP(counter)
-#define COUNTER_ADD_BYTES(counter, size)
-
-#endif //CONFIG_SPI_FLASH_ENABLE_COUNTERS
 
 const DRAM_ATTR spi_flash_guard_funcs_t g_flash_guard_default_ops = {
     .start                  = spi_flash_disable_interrupts_caches_and_other_cpu,
@@ -170,49 +154,37 @@ void IRAM_ATTR esp_mspi_pin_init(void)
 #endif
 }
 
+void esp_mspi_pin_reserve(void)
+{
+    uint64_t reserve_pin_mask = 0;
+    uint8_t mspi_io;
+    for (esp_mspi_io_t i = 0; i < ESP_MSPI_IO_MAX; i++) {
+#if SOC_SPI_MEM_SUPPORT_OPI_MODE
+        if (!bootloader_flash_is_octal_mode_enabled()
+            && i >=  ESP_MSPI_IO_DQS && i <= ESP_MSPI_IO_D7) {
+            continue;
+        }
+#endif
+        mspi_io = esp_mspi_get_io(i);
+        if (mspi_io < 64) {     // 'reserve_pin_mask' have 64 bits length
+            reserve_pin_mask |= BIT64(mspi_io);
+        }
+    }
+    esp_gpio_reserve(reserve_pin_mask);
+}
+
 esp_err_t IRAM_ATTR spi_flash_init_chip_state(void)
 {
 #if SOC_SPI_MEM_SUPPORT_OPI_MODE
     if (bootloader_flash_is_octal_mode_enabled()) {
         return esp_opiflash_init(rom_spiflash_legacy_data->chip.device_id);
-    } else
-#endif
-    {
-    #if CONFIG_IDF_TARGET_ESP32S3
-        // Currently, only esp32s3 allows high performance mode.
-        return spi_flash_enable_high_performance_mode();
-    #else
-        return ESP_OK;
-    #endif // CONFIG_IDF_TARGET_ESP32S3
     }
+#endif
+#if CONFIG_SPI_FLASH_HPM_ON
+        return spi_flash_enable_high_performance_mode();
+#endif // CONFIG_SPI_FLASH_HPM_ON
+    return ESP_OK;
 }
-
-#if CONFIG_SPI_FLASH_ENABLE_COUNTERS
-
-static inline void dump_counter(spi_flash_counter_t *counter, const char *name)
-{
-    ESP_LOGI(TAG, "%s  count=%8d  time=%8dus  bytes=%8d\n", name,
-             counter->count, counter->time, counter->bytes);
-}
-
-const spi_flash_counters_t *spi_flash_get_counters(void)
-{
-    return &s_flash_stats;
-}
-
-void spi_flash_reset_counters(void)
-{
-    memset(&s_flash_stats, 0, sizeof(s_flash_stats));
-}
-
-void spi_flash_dump_counters(void)
-{
-    dump_counter(&s_flash_stats.read,  "read ");
-    dump_counter(&s_flash_stats.write, "write");
-    dump_counter(&s_flash_stats.erase, "erase");
-}
-
-#endif //CONFIG_SPI_FLASH_ENABLE_COUNTERS
 
 void IRAM_ATTR spi_flash_set_rom_required_regs(void)
 {
@@ -245,18 +217,18 @@ void IRAM_ATTR spi_flash_set_vendor_required_regs(void)
 #endif
 
 static const uint8_t s_mspi_io_num_default[] = {
-    SPI_CLK_GPIO_NUM,
-    SPI_Q_GPIO_NUM,
-    SPI_D_GPIO_NUM,
-    SPI_CS0_GPIO_NUM,
-    SPI_HD_GPIO_NUM,
-    SPI_WP_GPIO_NUM,
+    MSPI_IOMUX_PIN_NUM_CLK,
+    MSPI_IOMUX_PIN_NUM_MISO,
+    MSPI_IOMUX_PIN_NUM_MOSI,
+    MSPI_IOMUX_PIN_NUM_CS0,
+    MSPI_IOMUX_PIN_NUM_HD,
+    MSPI_IOMUX_PIN_NUM_WP,
 #if SOC_SPI_MEM_SUPPORT_OPI_MODE
-    SPI_DQS_GPIO_NUM,
-    SPI_D4_GPIO_NUM,
-    SPI_D5_GPIO_NUM,
-    SPI_D6_GPIO_NUM,
-    SPI_D7_GPIO_NUM
+    MSPI_IOMUX_PIN_NUM_DQS,
+    MSPI_IOMUX_PIN_NUM_D4,
+    MSPI_IOMUX_PIN_NUM_D5,
+    MSPI_IOMUX_PIN_NUM_D6,
+    MSPI_IOMUX_PIN_NUM_D7
 #endif // SOC_SPI_MEM_SUPPORT_OPI_MODE
 };
 
@@ -328,3 +300,22 @@ uint8_t esp_mspi_get_io(esp_mspi_io_t io)
     return s_mspi_io_num_default[io];
 #endif // SOC_SPI_MEM_SUPPORT_CONFIG_GPIO_BY_EFUSE
 }
+
+#if !CONFIG_IDF_TARGET_ESP32P4 || !CONFIG_APP_BUILD_TYPE_RAM  // IDF-10019
+esp_err_t IRAM_ATTR esp_mspi_32bit_address_flash_feature_check(void)
+{
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2
+    ESP_EARLY_LOGE(TAG, "32bit address (flash over 16MB) has high risk on this chip");
+    return ESP_ERR_NOT_SUPPORTED;
+#elif CONFIG_IDF_TARGET_ESP32P4
+    // IDF-10019
+    unsigned chip_version = efuse_hal_chip_revision();
+    if (unlikely(!ESP_CHIP_REV_ABOVE(chip_version, 1))) {
+        ESP_EARLY_LOGE(TAG, "32bit address (flash over 16MB) has high risk on ESP32P4 ECO0");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+
+    return ESP_OK;
+}
+#endif // !CONFIG_IDF_TARGET_ESP32P4 || !CONFIG_APP_BUILD_TYPE_RAM

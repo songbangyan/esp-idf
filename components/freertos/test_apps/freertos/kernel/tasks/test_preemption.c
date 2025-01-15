@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 
 #include <esp_types.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -30,7 +31,6 @@ static volatile bool flag;
 #define MAX_YIELD_COUNT 17000
 #endif // CONFIG_FREERTOS_SMP
 
-
 /* Task:
    - Waits for 'trigger' variable to be set
    - Reads the cycle count on this CPU
@@ -42,7 +42,7 @@ static void task_send_to_queue(void *param)
     QueueHandle_t queue = (QueueHandle_t) param;
     uint32_t ccount;
 
-    while(!trigger) {}
+    while (!trigger) {}
 
     ccount = esp_cpu_get_cycle_count();
     flag = true;
@@ -52,7 +52,7 @@ static void task_send_to_queue(void *param)
 
        The task runs until terminated by the main task.
     */
-    while(1) {}
+    while (1) {}
 }
 
 TEST_CASE("Yield from lower priority task, same CPU", "[freertos]")
@@ -72,12 +72,12 @@ TEST_CASE("Yield from lower priority task, same CPU", "[freertos]")
         trigger = true;
 
         uint32_t yield_ccount, now_ccount, delta;
-        TEST_ASSERT( xQueueReceive(queue, &yield_ccount, 100 / portTICK_PERIOD_MS) );
+        TEST_ASSERT(xQueueReceive(queue, &yield_ccount, 100 / portTICK_PERIOD_MS));
         now_ccount = esp_cpu_get_cycle_count();
-        TEST_ASSERT( flag );
+        TEST_ASSERT(flag);
 
         delta = now_ccount - yield_ccount;
-        printf("Yielding from lower priority task took %u cycles\n", delta);
+        printf("Yielding from lower priority task took %"PRIu32" cycles\n", delta);
         TEST_ASSERT(delta < MAX_YIELD_COUNT);
 
         vTaskDelete(sender_task);
@@ -85,8 +85,7 @@ TEST_CASE("Yield from lower priority task, same CPU", "[freertos]")
     }
 }
 
-
-#if (portNUM_PROCESSORS == 2) && !CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH
+#if (CONFIG_FREERTOS_NUMBER_OF_CORES == 2) && !CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH
 TEST_CASE("Yield from lower priority task, other CPU", "[freertos]")
 {
     uint32_t trigger_ccount, yield_ccount, now_ccount, delta;
@@ -109,12 +108,12 @@ TEST_CASE("Yield from lower priority task, other CPU", "[freertos]")
 
         // yield_ccount is not useful in this test as it's the other core's CCOUNT
         // so we use trigger_ccount instead
-        TEST_ASSERT( xQueueReceive(queue, &yield_ccount, 100 / portTICK_PERIOD_MS) );
+        TEST_ASSERT(xQueueReceive(queue, &yield_ccount, 100 / portTICK_PERIOD_MS));
         now_ccount = esp_cpu_get_cycle_count();
-        TEST_ASSERT( flag );
+        TEST_ASSERT(flag);
 
         delta = now_ccount - trigger_ccount;
-        printf("Yielding from task on other core took %u cycles\n", delta);
+        printf("Yielding from task on other core took %"PRIu32" cycles\n", delta);
         TEST_ASSERT(delta < MAX_YIELD_COUNT);
 
         vQueueDelete(queue);

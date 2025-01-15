@@ -45,11 +45,12 @@ static uint8_t own_addr_type = BLE_OWN_ADDR_RANDOM;
 static uint8_t own_addr_type;
 #endif
 
-void ble_store_config_init(void);
-
-#if MYNEWT_VAL(BLE_POWER_CONTROL)
-static struct ble_gap_event_listener power_control_event_listener;
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+static uint16_t cids[MYNEWT_VAL(BLE_EATT_CHAN_NUM)];
+static uint16_t bearers;
 #endif
+
+void ble_store_config_init(void);
 
 /**
  * Logs information about a connection to the console.
@@ -93,8 +94,9 @@ ext_bleprph_advertise(void)
     int rc;
 
     /* First check if any instance is already active */
-    if(ble_gap_adv_active())
+    if(ble_gap_ext_adv_active(instance)) {
         return;
+    }
 
     /* use defaults for non-set params */
     memset (&params, 0, sizeof(params));
@@ -216,40 +218,6 @@ static void bleprph_power_control(uint16_t conn_handle)
 }
 #endif
 
-
-#if MYNEWT_VAL(BLE_POWER_CONTROL)
-static int
-bleprph_gap_power_event(struct ble_gap_event *event, void *arg)
-{
-
-    switch(event->type) {
-    case BLE_GAP_EVENT_TRANSMIT_POWER:
-	MODLOG_DFLT(INFO, "Transmit power event : status=%d conn_handle=%d reason=%d "
-                          "phy=%d power_level=%x power_level_flag=%d delta=%d",
-		    event->transmit_power.status,
-		    event->transmit_power.conn_handle,
-		    event->transmit_power.reason,
-		    event->transmit_power.phy,
-		    event->transmit_power.transmit_power_level,
-		    event->transmit_power.transmit_power_level_flag,
-		    event->transmit_power.delta);
-	return 0;
-
-    case BLE_GAP_EVENT_PATHLOSS_THRESHOLD:
-	MODLOG_DFLT(INFO, "Pathloss threshold event : conn_handle=%d current path loss=%d "
-                          "zone_entered =%d",
-		    event->pathloss_threshold.conn_handle,
-		    event->pathloss_threshold.current_path_loss,
-		    event->pathloss_threshold.zone_entered);
-	return 0;
-
-    default:
-	return 0;
-    }
-}
-#endif
-
-
 /**
  * The nimble host executes this callback when a GAP event occurs.  The
  * application associates a GAP event callback with each connection that forms.
@@ -272,19 +240,19 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
     int rc;
 
     switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed. */
         MODLOG_DFLT(INFO, "connection %s; status=%d ",
-                    event->connect.status == 0 ? "established" : "failed",
-                    event->connect.status);
-        if (event->connect.status == 0) {
-            rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+                    event->link_estab.status == 0 ? "established" : "failed",
+                    event->link_estab.status);
+        if (event->link_estab.status == 0) {
+            rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
             bleprph_print_conn_desc(&desc);
         }
         MODLOG_DFLT(INFO, "\n");
 
-        if (event->connect.status != 0) {
+        if (event->link_estab.status != 0) {
             /* Connection failed; resume advertising. */
 #if CONFIG_EXAMPLE_EXTENDED_ADV
             ext_bleprph_advertise();
@@ -294,10 +262,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         }
 
 #if MYNEWT_VAL(BLE_POWER_CONTROL)
-	bleprph_power_control(event->connect.conn_handle);
-
-	ble_gap_event_listener_register(&power_control_event_listener,
-                                        bleprph_gap_power_event, NULL);
+	bleprph_power_control(event->link_estab.conn_handle);
 #endif
         return 0;
 
@@ -389,7 +354,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         return BLE_GAP_REPEAT_PAIRING_RETRY;
 
     case BLE_GAP_EVENT_PASSKEY_ACTION:
-        ESP_LOGI(tag, "PASSKEY_ACTION_EVENT started \n");
+        ESP_LOGI(tag, "PASSKEY_ACTION_EVENT started");
         struct ble_sm_io pkey = {0};
         int key = 0;
 
@@ -398,7 +363,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
             pkey.passkey = 123456; // This is the passkey to be entered on peer
             ESP_LOGI(tag, "Enter passkey %" PRIu32 "on the peer side", pkey.passkey);
             rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(tag, "ble_sm_inject_io result: %d\n", rc);
+            ESP_LOGI(tag, "ble_sm_inject_io result: %d", rc);
         } else if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
             ESP_LOGI(tag, "Passkey on device's display: %" PRIu32 , event->passkey.params.numcmp);
             ESP_LOGI(tag, "Accept or reject the passkey through console in this format -> key Y or key N");
@@ -410,7 +375,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
                 ESP_LOGE(tag, "Timeout! Rejecting the key");
             }
             rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(tag, "ble_sm_inject_io result: %d\n", rc);
+            ESP_LOGI(tag, "ble_sm_inject_io result: %d", rc);
         } else if (event->passkey.params.action == BLE_SM_IOACT_OOB) {
             static uint8_t tem_oob[16] = {0};
             pkey.action = event->passkey.params.action;
@@ -418,7 +383,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
                 pkey.oob[i] = tem_oob[i];
             }
             rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(tag, "ble_sm_inject_io result: %d\n", rc);
+            ESP_LOGI(tag, "ble_sm_inject_io result: %d", rc);
         } else if (event->passkey.params.action == BLE_SM_IOACT_INPUT) {
             ESP_LOGI(tag, "Enter the passkey through console in this format-> key 123456");
             pkey.action = event->passkey.params.action;
@@ -429,10 +394,76 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
                 ESP_LOGE(tag, "Timeout! Passing 0 as the key");
             }
             rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(tag, "ble_sm_inject_io result: %d\n", rc);
+            ESP_LOGI(tag, "ble_sm_inject_io result: %d", rc);
         }
         return 0;
 
+    case BLE_GAP_EVENT_AUTHORIZE:
+        MODLOG_DFLT(INFO, "authorize event: conn_handle=%d attr_handle=%d is_read=%d",
+                    event->authorize.conn_handle,
+                    event->authorize.attr_handle,
+                    event->authorize.is_read);
+
+        /* The default behaviour for the event is to reject authorize request */
+        event->authorize.out_response = BLE_GAP_AUTHORIZE_REJECT;
+        return 0;
+
+#if MYNEWT_VAL(BLE_POWER_CONTROL)
+    case BLE_GAP_EVENT_TRANSMIT_POWER:
+        MODLOG_DFLT(INFO, "Transmit power event : status=%d conn_handle=%d reason=%d "
+                           "phy=%d power_level=%x power_level_flag=%d delta=%d",
+                     event->transmit_power.status,
+                     event->transmit_power.conn_handle,
+                     event->transmit_power.reason,
+                     event->transmit_power.phy,
+                     event->transmit_power.transmit_power_level,
+                     event->transmit_power.transmit_power_level_flag,
+                     event->transmit_power.delta);
+        return 0;
+
+    case BLE_GAP_EVENT_PATHLOSS_THRESHOLD:
+        MODLOG_DFLT(INFO, "Pathloss threshold event : conn_handle=%d current path loss=%d "
+                           "zone_entered =%d",
+                     event->pathloss_threshold.conn_handle,
+                     event->pathloss_threshold.current_path_loss,
+                     event->pathloss_threshold.zone_entered);
+        return 0;
+#endif
+
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+    case BLE_GAP_EVENT_EATT:
+        MODLOG_DFLT(INFO, "EATT %s : conn_handle=%d cid=%d",
+                event->eatt.status ? "disconnected" : "connected",
+                event->eatt.conn_handle,
+                event->eatt.cid);
+	if (event->eatt.status) {
+		/* Abort if disconnected */
+		return 0;
+	}
+	cids[bearers] = event->eatt.cid;
+	bearers += 1;
+	if (bearers != MYNEWT_VAL(BLE_EATT_CHAN_NUM)) {
+		/* Wait until all EATT bearers are connected before proceeding */
+		return 0;
+	}
+	/* Set the default bearer to use for further procedures */
+	rc = ble_att_set_default_bearer_using_cid(event->eatt.conn_handle, cids[0]);
+	if (rc != 0) {
+		MODLOG_DFLT(INFO, "Cannot set default EATT bearer, rc = %d\n", rc);
+		return rc;
+	}
+
+	return 0;
+#endif
+
+#if MYNEWT_VAL(BLE_CONN_SUBRATING)
+    case BLE_GAP_EVENT_SUBRATE_CHANGE:
+        MODLOG_DFLT(INFO, "Subrate change event : conn_handle=%d status=%d factor=%d",
+                    event->subrate_change.conn_handle,
+                    event->subrate_change.status,
+                    event->subrate_change.subrate_factor);
+        return 0;
+#endif
     }
 
     return 0;
@@ -538,6 +569,11 @@ app_main(void)
     ble_hs_cfg.sm_io_cap = CONFIG_EXAMPLE_IO_TYPE;
 #ifdef CONFIG_EXAMPLE_BONDING
     ble_hs_cfg.sm_bonding = 1;
+    /* Enable the appropriate bit masks to make sure the keys
+     * that are needed are exchanged
+     */
+    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
 #endif
 #ifdef CONFIG_EXAMPLE_MITM
     ble_hs_cfg.sm_mitm = 1;
@@ -547,14 +583,11 @@ app_main(void)
 #else
     ble_hs_cfg.sm_sc = 0;
 #endif
-#ifdef CONFIG_EXAMPLE_BONDING
-    /* Enable the appropriate bit masks to make sure the keys
-     * that are needed are exchanged
-     */
-    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
-    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+#ifdef CONFIG_EXAMPLE_RESOLVE_PEER_ADDR
+    /* Stores the IRK */
+    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ID;
 #endif
-
 
     rc = gatt_svr_init();
     assert(rc == 0);
@@ -573,4 +606,11 @@ app_main(void)
     if (rc != ESP_OK) {
         ESP_LOGE(tag, "scli_init() failed");
     }
+
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+    bearers = 0;
+    for (int i = 0; i < MYNEWT_VAL(BLE_EATT_CHAN_NUM); i++) {
+        cids[i] = 0;
+    }
+#endif
 }

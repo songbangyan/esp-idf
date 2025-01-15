@@ -27,6 +27,8 @@
 
 static const char *TAG = "security2";
 
+ESP_EVENT_DEFINE_BASE(PROTOCOMM_SECURITY_SESSION_EVENT);
+
 #define SALT_LEN                    (16)
 #define PUBLIC_KEY_LEN              (384)
 #define CLIENT_PROOF_LEN            (64)
@@ -81,11 +83,17 @@ static esp_err_t handle_session_command0(session_t *cur_session,
 
     if (in->sc0->client_pubkey.len != PUBLIC_KEY_LEN) {
         ESP_LOGE(TAG, "Invalid public key length");
+        if (esp_event_post(PROTOCOMM_SECURITY_SESSION_EVENT, PROTOCOMM_SECURITY_SESSION_INVALID_SECURITY_PARAMS, NULL, 0, portMAX_DELAY) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to post secure session invalid security params event");
+        }
         return ESP_ERR_INVALID_ARG;
     }
 
     if (in->sc0->client_username.len <= 0) {
         ESP_LOGE(TAG, "Invalid username");
+        if (esp_event_post(PROTOCOMM_SECURITY_SESSION_EVENT, PROTOCOMM_SECURITY_SESSION_INVALID_SECURITY_PARAMS, NULL, 0, portMAX_DELAY) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to post secure session invalid security params event");
+        }
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -101,15 +109,9 @@ static esp_err_t handle_session_command0(session_t *cur_session,
     hexdump("Client Public Key", (char *) in->sc0->client_pubkey.data, PUBLIC_KEY_LEN);
 
     /* Initialize mu srp context */
-    cur_session->srp_hd = calloc(1, sizeof(esp_srp_handle_t));
-    if (!cur_session->srp_hd) {
-        ESP_LOGE(TAG, "Failed to allocate security context!");
-        return ESP_ERR_NO_MEM;
-    }
-
-    if (esp_srp_init(cur_session->srp_hd, ESP_NG_3072) != ESP_OK) {
+    cur_session->srp_hd = esp_srp_init(ESP_NG_3072);
+    if (cur_session->srp_hd == NULL) {
         ESP_LOGE(TAG, "Failed to initialise security context!");
-        free(cur_session->srp_hd);
         return ESP_FAIL;
     }
 
@@ -123,14 +125,15 @@ static esp_err_t handle_session_command0(session_t *cur_session,
     ESP_LOGI(TAG, "Using salt and verifier to generate public key...");
 
     if (sv->salt != NULL && sv->salt_len != 0 && sv->verifier != NULL && sv->verifier_len != 0) {
-        if (esp_srp_set_salt_verifier(cur_session->srp_hd, cur_session->salt, cur_session->salt_len, cur_session->verifier, cur_session->verifier_len) != ESP_OK) {
+        if (esp_srp_set_salt_verifier(cur_session->srp_hd, cur_session->salt,
+                cur_session->salt_len, cur_session->verifier, cur_session->verifier_len) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to set salt and verifier!");
-            free(cur_session->srp_hd);
+            esp_srp_free(cur_session->srp_hd);
             return ESP_FAIL;
         }
         if (esp_srp_srv_pubkey_from_salt_verifier(cur_session->srp_hd, &device_pubkey, &device_pubkey_len) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to device public key!");
-            free(cur_session->srp_hd);
+            esp_srp_free(cur_session->srp_hd);
             return ESP_FAIL;
         }
     }
@@ -139,7 +142,7 @@ static esp_err_t handle_session_command0(session_t *cur_session,
     if (esp_srp_get_session_key(cur_session->srp_hd, (char *) in->sc0->client_pubkey.data, PUBLIC_KEY_LEN,
                                 &cur_session->session_key, &cur_session->session_key_len) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to generate device session key!");
-        free(cur_session->srp_hd);
+        esp_srp_free(cur_session->srp_hd);
         return ESP_FAIL;
     }
     hexdump("Session Key", cur_session->session_key, cur_session->session_key_len);
@@ -148,7 +151,7 @@ static esp_err_t handle_session_command0(session_t *cur_session,
     S2SessionResp0 *out_resp = (S2SessionResp0 *) malloc(sizeof(S2SessionResp0));
     if (!out || !out_resp) {
         ESP_LOGE(TAG, "Error allocating memory for response0");
-        free(cur_session->srp_hd);
+        esp_srp_free(cur_session->srp_hd);
         free(out);
         free(out_resp);
         return ESP_ERR_NO_MEM;
@@ -177,7 +180,7 @@ static esp_err_t handle_session_command0(session_t *cur_session,
     cur_session->username = malloc(cur_session->username_len);
     if (!cur_session->username) {
         ESP_LOGE(TAG, "Failed to allocate memory!");
-        free(cur_session->srp_hd);
+        esp_srp_free(cur_session->srp_hd);
         return ESP_ERR_NO_MEM;
     }
     memcpy(cur_session->username, in->sc0->client_username.data, in->sc0->client_username.len);
@@ -214,6 +217,9 @@ static esp_err_t handle_session_command1(session_t *cur_session,
     if (esp_srp_exchange_proofs(cur_session->srp_hd, cur_session->username, cur_session->username_len, (char * ) in->sc1->client_proof.data, device_proof) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to authenticate client proof!");
         free(device_proof);
+        if (esp_event_post(PROTOCOMM_SECURITY_SESSION_EVENT, PROTOCOMM_SECURITY_SESSION_CREDENTIALS_MISMATCH, NULL, 0, portMAX_DELAY) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to post credential mismatch event");
+        }
         return ESP_FAIL;
     }
     hexdump("Device proof", device_proof, CLIENT_PROOF_LEN);
@@ -265,6 +271,9 @@ static esp_err_t handle_session_command1(session_t *cur_session,
     resp->sec2 = out;
 
     cur_session->state = SESSION_STATE_DONE;
+    if (esp_event_post(PROTOCOMM_SECURITY_SESSION_EVENT, PROTOCOMM_SECURITY_SESSION_SETUP_OK, NULL, 0, portMAX_DELAY) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to post secure session setup success event");
+    }
     ESP_LOGD(TAG, "Secure session established successfully");
     return ESP_OK;
 }
@@ -351,7 +360,6 @@ static esp_err_t sec2_close_session(protocomm_security_handle_t handle, uint32_t
 
     if (cur_session->srp_hd) {
         esp_srp_free(cur_session->srp_hd);
-        free(cur_session->srp_hd);
     }
 
     memset(cur_session, 0, sizeof(session_t));

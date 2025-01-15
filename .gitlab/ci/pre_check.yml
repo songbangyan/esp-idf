@@ -3,45 +3,7 @@
   image: $ESP_ENV_IMAGE
   tags:
     - host_test
-  dependencies: []
-
-.check_pre_commit_template:
-  extends:
-    - .pre_check_template
-    - .before_script_minimal
-  image: $PRE_COMMIT_IMAGE
-
-check_pre_commit_master_release:
-  extends:
-    - .check_pre_commit_template
-    - .rules:protected
-  script:
-    - git diff-tree --no-commit-id --name-only -r $PIPELINE_COMMIT_SHA | xargs pre-commit run --files
-
-check_pre_commit_MR:
-  extends:
-    - .check_pre_commit_template
-    - .rules:dev
-  script:
-    - python ${CI_PROJECT_DIR}/tools/ci/ci_get_mr_info.py files ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} | xargs pre-commit run --files
-
-check_MR_style_dangerjs:
-  extends:
-    - .pre_check_template
-  image: node:14.18.0-alpine3.14
-  variables:
-    DANGER_GITLAB_API_TOKEN: ${ESPCI_TOKEN}
-    DANGER_GITLAB_HOST: ${GITLAB_HTTP_SERVER}
-    DANGER_GITLAB_API_BASE_URL: ${GITLAB_HTTP_SERVER}/api/v4
-  before_script:
-    - echo "Skip all before scripts"
-  script:
-    - set +e
-    - hash danger 2>/dev/null && echo "use cache" || yarn global add danger@11.2.3 --silent --skip-integrity-check --no-progress --cache-folder .yarn --global-folder .yarn-cache
-    - set -e
-    - danger ci --dangerfile=".gitlab/dangerfile.js" --failOnErrors -v
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  dependencies: # set dependencies to null to avoid missing artifacts issue
 
 check_version:
   # Don't run this for feature/bugfix branches, so that it is possible to modify
@@ -49,33 +11,29 @@ check_version:
   extends:
     - .pre_check_template
     - .rules:protected
+  tags: [ brew, github_sync ]
+  variables:
+    # need a full clone to get the latest tag
+    # the --shallow-since=$(git log -1 --format=%as $LATEST_GIT_TAG) option is not accurate
+    GIT_STRATEGY: fetch
+    SUBMODULES_TO_FETCH: "none"
+    GIT_DEPTH: 0
   script:
     - export IDF_PATH=$PWD
     - tools/ci/check_idf_version.sh
 
-check_rom_api_header:
+check_api_usage:
   extends: .pre_check_template
   script:
-    - tools/ci/check_examples_rom_header.sh
+    - python -m pip install ast-grep-cli # use ast-grep to describe customized lint rules
+    - ast-grep scan
     - tools/ci/check_api_violation.sh
-
-test_check_kconfigs:
-  extends: .pre_check_template
-  artifacts:
-    when: on_failure
-    paths:
-      - components/*/Kconfig*.new
-      - examples/*/*/*/Kconfig*.new
-      - examples/*/*/*/*/Kconfig*.new
-      - tools/*/Kconfig*.new
-      - tools/*/*/Kconfig*.new
-      - tools/*/*/*/Kconfig*.new
-    expire_in: 1 week
-  script:
-    - python ${IDF_PATH}/tools/ci/test_check_kconfigs.py
+    - tools/ci/check_examples_extra_component_dirs.sh
 
 check_blobs:
-  extends: .pre_check_template
+  extends:
+    - .pre_check_template
+    - .rules:build:check
   variables:
     SUBMODULES_TO_FETCH: "components/esp_wifi/lib;components/esp_phy/lib;components/esp_coex/lib"
   script:
@@ -83,41 +41,29 @@ check_blobs:
     - IDF_TARGET=esp32 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
     - IDF_TARGET=esp32s2 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
     - IDF_TARGET=esp32s3 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c2 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
     - IDF_TARGET=esp32c3 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c6 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c5 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c61 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+    - IDF_TARGET=esp32_host $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
     # Check if Coexistence library header files match between IDF and the version used when compiling the libraries
     - IDF_TARGET=esp32 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
     - IDF_TARGET=esp32s2 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
     - IDF_TARGET=esp32s3 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c2 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
     - IDF_TARGET=esp32c3 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c6 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
+    - IDF_TARGET=esp32h2 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c5 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
+    - IDF_TARGET=esp32c61 $IDF_PATH/components/esp_coex/test_md5/test_md5.sh
     # Check if Wi-Fi, PHY, BT blobs contain references to specific symbols
     - bash $IDF_PATH/tools/ci/check_blobs.sh
-
-check_fuzzer_compilation:
-   extends: .pre_check_template
-   image: $AFL_FUZZER_TEST_IMAGE
-   script:
-     - cd ${IDF_PATH}/components/lwip/test_afl_host
-     - make MODE=dhcp_server
-     - make MODE=dhcp_client
-     - make MODE=dns
-
-check_public_headers:
-  extends:
-    - .pre_check_template
-    - .rules:build
-  script:
-    - IDF_TARGET=esp32 python tools/ci/check_public_headers.py --jobs 4 --prefix xtensa-esp32-elf-
-    - IDF_TARGET=esp32s2 python tools/ci/check_public_headers.py --jobs 4 --prefix xtensa-esp32s2-elf-
-    - IDF_TARGET=esp32s3 python tools/ci/check_public_headers.py --jobs 4 --prefix xtensa-esp32s3-elf-
-    - IDF_TARGET=esp32c3 python tools/ci/check_public_headers.py --jobs 4 --prefix riscv32-esp-elf-
-    - IDF_TARGET=esp32c2 python tools/ci/check_public_headers.py --jobs 4 --prefix riscv32-esp-elf-
-    - IDF_TARGET=esp32c6 python tools/ci/check_public_headers.py --jobs 4 --prefix riscv32-esp-elf-
-    - IDF_TARGET=esp32h2 python tools/ci/check_public_headers.py --jobs 4 --prefix riscv32-esp-elf-
 
 check_chip_support_components:
   extends:
     - .pre_check_template
-    - .rules:build
+    - .rules:build:check
   artifacts:
     when: on_failure
     paths:
@@ -126,13 +72,13 @@ check_chip_support_components:
     expire_in: 1 week
   script:
     - python tools/ci/check_soc_headers_leak.py
-    - find ${IDF_PATH}/components/soc/*/include/soc/ -name "*_struct.h" -print0 | xargs -0 -n1 ./tools/ci/check_soc_struct_headers.py
+    - find ${IDF_PATH}/components/soc/**/include/soc/ -name "*_struct.h" -print0 | xargs -0 -n1 ./tools/ci/check_soc_struct_headers.py
     - tools/ci/check_esp_memory_utils_headers.sh
 
 check_esp_err_to_name:
   extends:
     - .pre_check_template
-    - .rules:build
+    - .rules:build:check
   artifacts:
     when: on_failure
     paths:
@@ -152,40 +98,124 @@ check_esp_system:
 
 # For release tag pipelines only, make sure the tag was created with 'git tag -a' so it will update
 # the version returned by 'git describe'
+# Don't forget to update the env var `LATEST_GIT_TAG` in .gitlab/ci/common.yml
 check_version_tag:
   extends:
     - .pre_check_template
     - .rules:tag:release
+  tags: [ brew, github_sync ]
+  variables:
+    # need a full clone to get the latest tag
+    # the --shallow-since=$(git log -1 --format=%as $LATEST_GIT_TAG) option is not accurate
+    GIT_STRATEGY: fetch
+    SUBMODULES_TO_FETCH: "none"
+    GIT_DEPTH: 0
   script:
     - (git cat-file -t $CI_COMMIT_REF_NAME | grep tag) || (echo "ESP-IDF versions must be annotated tags." && exit 1)
-
-check_artifacts_expire_time:
-  extends: .pre_check_template
-  script:
-    # check if we have set expire time for all artifacts
-    - python tools/ci/check_artifacts_expire_time.py
-
-check_commit_msg:
-  extends: .pre_check_template
-  script:
-    - git status
-    - git log -n10 --oneline ${PIPELINE_COMMIT_SHA}
-    # commit start with "WIP: " need to be squashed before merge
-    - 'git log --pretty=%s origin/master..${PIPELINE_COMMIT_SHA} -- | grep -i "^WIP:" && exit 1 || exit 0'
 
 check_test_scripts_build_test_rules:
   extends:
     - .pre_check_template
-    - .before_script_build_jobs
+    - .before_script:build
+  variables:
+    PYTEST_IGNORE_COLLECT_IMPORT_ERROR: "1"
   script:
-    # required pytest related packages
+    # requires basic pytest dependencies
     - run_cmd bash install.sh --enable-pytest
     - python tools/ci/check_build_test_rules.py check-test-scripts examples/ tools/test_apps components
 
 check_configure_ci_environment_parsing:
   extends:
     - .pre_check_template
-    - .before_script_build_jobs
+    - .before_script:build
+    - .rules:build
   script:
     - cd tools/ci
     - python -m unittest ci_build_apps.py
+
+pipeline_variables:
+  extends:
+    - .pre_check_template
+    - .before_script:fetch:git_diff
+  tags: [fast_run, shiny]
+  script:
+    # MODIFIED_FILES is a list of files that changed, could be used everywhere
+    - MODIFIED_FILES=$(echo "$GIT_DIFF_OUTPUT" | xargs)
+    - echo "MODIFIED_FILES=$MODIFIED_FILES" >> pipeline.env
+    - echo "REPORT_EXIT_CODE=0" >> pipeline.env
+    # MR_MODIFIED_FILES and MR_MODIFIED_COMPONENTS are semicolon separated lists that is used in MR only
+    # for non MR pipeline, these are empty lists
+    - |
+      if [ $IS_MR_PIPELINE == "0" ]; then
+        echo "MR_MODIFIED_FILES=\"\"" >> pipeline.env
+        echo "MR_MODIFIED_COMPONENTS=\"\"" >> pipeline.env
+      else
+        MR_MODIFIED_FILES=$(echo "$GIT_DIFF_OUTPUT" | tr '\n' ';')
+        echo "MR_MODIFIED_FILES=\"$MR_MODIFIED_FILES\"" >> pipeline.env
+
+        MR_MODIFIED_COMPONENTS=$(run_cmd python tools/ci/ci_get_mr_info.py components --modified-files $MODIFIED_FILES | tr '\n' ';')
+        echo "MR_MODIFIED_COMPONENTS=\"$MR_MODIFIED_COMPONENTS\"" >> pipeline.env
+      fi
+    - |
+      if echo "$CI_MERGE_REQUEST_LABELS" | egrep "(^|,)BUILD_AND_TEST_ALL_APPS(,|$)"; then
+        echo "BUILD_AND_TEST_ALL_APPS=1" >> pipeline.env
+      fi
+    # run full pipeline if testing constraint branch
+    - |
+      if [ -n "$CI_PYTHON_CONSTRAINT_BRANCH" ]; then
+        echo "BUILD_AND_TEST_ALL_APPS=1" >> pipeline.env
+      fi
+    - python tools/ci/ci_process_description.py
+    - cat pipeline.env
+    - python tools/ci/artifacts_handler.py upload --type modified_files_and_components_report
+  artifacts:
+    reports:
+      dotenv: pipeline.env
+    paths:
+      - pipeline.env
+    expire_in: 1 week
+    when: always
+
+baseline_manifest_sha:
+  extends:
+    - .pre_check_template
+    - .rules:dev-push
+  tags: [fast_run, shiny]
+  script:
+    - |
+      # merged results pipelines, by default
+      # diff between target-branch-head and merged-result-head
+      if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" ]; then
+        git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_SHA --depth=1
+        git checkout FETCH_HEAD
+        idf-build-apps dump-manifest-sha \
+          --manifest-files $(find . -name ".build-test-rules.yml" | xargs) \
+          --output .manifest_sha
+      # merge request pipelines, when the mr got conflicts
+      # diff between diff-base-sha and merge-request-head
+      elif [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
+        git fetch origin $CI_MERGE_REQUEST_DIFF_BASE_SHA --depth=1
+        git checkout FETCH_HEAD
+        idf-build-apps dump-manifest-sha \
+          --manifest-files $(find . -name ".build-test-rules.yml" | xargs) \
+          --output .manifest_sha
+      # other pipelines, like the protected branches pipelines
+      # not triggered in this job
+      fi
+  artifacts:
+    paths:
+      - .manifest_sha
+    expire_in: 1 week
+    when: always
+
+redundant_pass_job:
+  stage: pre_check
+  tags: [shiny, fast_run]
+  image: $ESP_ENV_IMAGE
+  dependencies: null
+  before_script: []
+  cache: []
+  extends: []
+  script:
+    - echo "This job is redundant to ensure the 'retry_failed_jobs' job can exist and not be skipped"
+  when: always

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,7 @@
 #include "lwip/ip_addr.h"
 #include "lwip/arch.h"
 #include "lwip/err.h"
+#include "lwip/dns.h"
 #include "lwip/pbuf.h"
 #include "netif/dhcp_state.h"
 
@@ -43,11 +44,25 @@ const ip6_addr_t *lwip_hook_nd6_get_gw(struct netif *netif, const ip6_addr_t *de
 #define LWIP_HOOK_ND6_GET_GW lwip_hook_nd6_get_gw
 #endif /* CONFIG_LWIP_HOOK_ND6_GET_GATEWAY... */
 
+#if defined(CONFIG_LWIP_HOOK_IP6_SELECT_SRC_ADDR_CUSTOM) || defined(CONFIG_LWIP_HOOK_IP6_SELECT_SRC_ADDR_DEFAULT)
+const ip_addr_t *lwip_hook_ip6_select_source_address(struct netif *netif, const ip6_addr_t *dest);
+
+#define LWIP_HOOK_IP6_SELECT_SRC_ADDR lwip_hook_ip6_select_source_address
+#endif /* CONFIG_LWIP_HOOK_IP6_SELECT_SRC_ADDR... */
+
 #if defined(CONFIG_LWIP_HOOK_NETCONN_EXT_RESOLVE_CUSTOM) || defined(CONFIG_LWIP_HOOK_NETCONN_EXT_RESOLVE_DEFAULT)
 int lwip_hook_netconn_external_resolve(const char *name, ip_addr_t *addr, u8_t addrtype, err_t *err);
 
 #define LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE lwip_hook_netconn_external_resolve
 #endif /* CONFIG_LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE... */
+
+#if defined(CONFIG_LWIP_HOOK_DNS_EXT_RESOLVE_CUSTOM)
+int lwip_hook_dns_external_resolve(const char *name, ip_addr_t *addr, dns_found_callback found, void *callback_arg,
+                                   u8_t addrtype, err_t *err);
+
+#define LWIP_HOOK_DNS_EXTERNAL_RESOLVE lwip_hook_dns_external_resolve
+#endif /* CONFIG_LWIP_HOOK_DNS_EXT_RESOLVE_CUSTOM */
+
 
 #if defined(CONFIG_LWIP_HOOK_IP6_INPUT_CUSTOM) || defined(CONFIG_LWIP_HOOK_IP6_INPUT_DEFAULT)
 int lwip_hook_ip6_input(struct pbuf *p, struct netif *inp);
@@ -55,6 +70,7 @@ int lwip_hook_ip6_input(struct pbuf *p, struct netif *inp);
 #define LWIP_HOOK_IP6_INPUT lwip_hook_ip6_input
 #endif /* CONFIG_LWIP_HOOK_IP6_INPUT_CUSTIOM... */
 
+#ifdef CONFIG_LWIP_IPV4
 struct netif *
 ip4_route_src_hook(const ip4_addr_t *src,const ip4_addr_t *dest);
 
@@ -68,6 +84,7 @@ void dhcp_append_extra_opts(struct netif *netif, uint8_t state, struct dhcp_msg 
 int dhcp_set_vendor_class_identifier(uint8_t len, const char * str);
 int dhcp_get_vendor_specific_information(uint8_t len, char * str);
 void dhcp_free_vendor_class_identifier(void);
+#endif /* CONFIG_LWIP_IPV4 */
 
 #ifdef __cplusplus
 }

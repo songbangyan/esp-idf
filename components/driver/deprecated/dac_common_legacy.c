@@ -1,14 +1,13 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include <string.h>
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
-#include "driver/rtc_io.h"
+#include "esp_private/gpio.h"
 #include "driver/dac_types_legacy.h"
 #include "soc/dac_periph.h"
 #include "hal/gpio_types.h"
@@ -37,10 +36,7 @@ static esp_err_t dac_rtc_pad_init(dac_channel_t channel)
 
     gpio_num_t gpio_num = 0;
     dac_pad_get_io_num(channel, &gpio_num);
-    rtc_gpio_init(gpio_num);
-    rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED);
-    rtc_gpio_pullup_dis(gpio_num);
-    rtc_gpio_pulldown_dis(gpio_num);
+    gpio_config_as_analog(gpio_num);
 
     return ESP_OK;
 }
@@ -129,6 +125,7 @@ esp_err_t dac_cw_generator_config(dac_cw_config_t *cw)
     return ESP_OK;
 }
 
+#if !CONFIG_DAC_SKIP_LEGACY_CONFLICT_CHECK
 /**
  * @brief This function will be called during start up, to check that this legacy DAC driver is not running along with the new driver
  */
@@ -144,3 +141,4 @@ static void check_dac_legacy_driver_conflict(void)
     }
     ESP_EARLY_LOGW(TAG, "legacy driver is deprecated, please migrate to `driver/dac_oneshot.h`, `driver/dac_cosine.h` or `driver/dac_continuous.h` instead");
 }
+#endif //CONFIG_DAC_SKIP_LEGACY_CONFLICT_CHECK

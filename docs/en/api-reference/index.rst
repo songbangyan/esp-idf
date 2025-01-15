@@ -1,6 +1,7 @@
 *************
 API Reference
 *************
+
 :link_to_translation:`zh_CN:[中文]`
 
 .. toctree::
@@ -12,7 +13,7 @@ API Reference
    error-codes
    network/index
    peripherals/index
-   kconfig
    provisioning/index
    storage/index
    system/index
+   kconfig-reference

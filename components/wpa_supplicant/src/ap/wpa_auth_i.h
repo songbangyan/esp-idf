@@ -47,6 +47,7 @@ struct wpa_state_machine {
 	Boolean AuthenticationRequest;
 	Boolean ReAuthenticationRequest;
 	Boolean Disconnect;
+	u16 disconnect_reason; /* specific reason code to use with Disconnect */
 	int TimeoutCtr;
 	int GTimeoutCtr;
 	Boolean TimeoutEvt;
@@ -90,6 +91,7 @@ struct wpa_state_machine {
 	unsigned int pmk_r1_name_valid:1;
 #endif /* CONFIG_IEEE80211R */
 	unsigned int is_wnmsleep:1;
+	unsigned int pmkid_set:1;
 
 	u8 req_replay_counter[WPA_REPLAY_COUNTER_LEN];
 	int req_replay_counter_used;

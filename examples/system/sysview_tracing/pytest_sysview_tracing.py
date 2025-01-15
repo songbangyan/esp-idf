@@ -22,7 +22,7 @@ def test_examples_sysview_tracing(dut: IdfDut) -> None:
         dut.expect(re.compile(rb'example: Task\[0x3[0-9A-Fa-f]+\]: received event \d+'), timeout=30)
 
     dut.gdb.write('mon reset halt')
-    dut.gdb.write('flushregs')
+    dut.gdb.write('maintenance flush register-cache')
     dut.gdb.write('b app_main')
 
     dut.gdb.write('commands', non_blocking=True)
@@ -34,7 +34,7 @@ def test_examples_sysview_tracing(dut: IdfDut) -> None:
 
     dut.gdb.write('c', non_blocking=True)
     time.sleep(1)  # to avoid EOF file error
-    with open(dut.gdb._logfile) as fr:  # pylint: disable=protected-access
+    with open(dut.gdb._logfile, encoding='utf-8') as fr:  # pylint: disable=protected-access
         gdb_pexpect_proc = pexpect.fdpexpect.fdspawn(fr.fileno())
         gdb_pexpect_proc.expect('Thread 2 "main" hit Breakpoint 1, app_main ()')
 

@@ -141,12 +141,12 @@
 
     {IDF_TARGET_NAME} 支持 USB 外设，无需外部 USB 至 UART 桥，即可烧录二进制文件。
 
-    {IDF_TARGET_USB_PIN_DM:default="尚未更新！", esp32c3="GPIO18", esp32s3="GPIO19", esp32s2="GPIO19", esp32c6="GPIO12"}
-    {IDF_TARGET_USB_PIN_DP:default="尚未更新！", esp32c3="GPIO19", esp32s3="GPIO20", esp32s2="GPIO20", esp32c6="GPIO13"}
+    {IDF_TARGET_USB_PIN_DM:default="尚未更新！", esp32c3="GPIO18", esp32s3="GPIO19", esp32s2="GPIO19", esp32c6="GPIO12", esp32h2="GPIO26", esp32p4="GPIO24/26"}
+    {IDF_TARGET_USB_PIN_DP:default="尚未更新！", esp32c3="GPIO19", esp32s3="GPIO20", esp32s2="GPIO20", esp32c6="GPIO13", esp32h2="GPIO27", esp32p4="GPIO24/26"}
 
     {IDF_TARGET_NAME} 上的 USB 使用 **{IDF_TARGET_USB_PIN_DP}** 作为 **D+**， **{IDF_TARGET_USB_PIN_DM}** 作为 **D-**。
 
-    .. only:: SOC_USB_SERIAL_JTAG_SUPPORTED and not esp32s3
+    .. only:: SOC_USB_SERIAL_JTAG_SUPPORTED and not esp32s3 and not esp32p4
 
         .. note:: {IDF_TARGET_NAME} 仅支持 *USB CDC and JTAG*。
 
@@ -177,17 +177,39 @@
 
 以上驱动仅供参考，请查看开发板用户指南，了解开发板具体使用的 USB 至 UART 桥芯片。一般情况下，当 {IDF_TARGET_NAME} 开发板与 PC 连接时，对应驱动程序应该已经被打包在操作系统中，并已经自动安装。
 
-对于使用 USB 至 UART 桥下载的设备，您可以运行以下命令，包括定义波特率的可选参数。
+对于使用 USB 至 UART 桥下载的设备，可以运行以下命令，包括定义波特率的可选参数。
 
 .. code-block:: bash
 
     idf.py -p PORT [-b BAUD] flash
 
-如需改变烧录器的波特率，请用需要的波特率代替 ``BAUD``。默认的波特率为 ``460800``。
+将 ``PORT`` 替换为 {IDF_TARGET_NAME} 开发板的串口名称。``-b`` 为可选参数，默认的波特率为 ``460800``。如需改变烧录器的波特率，请用需要的波特率代替 ``BAUD``。
+
+要查看串口名称，Windows 用户请参考 `check-port-on-windows`_，Linux 与 macOS 用户请参考 `check-port-on-linux-and-macos`_。
+
+例如，Windows 平台上串口名称为 ``COM3``，所需波特率为 ``115200``，可使用如下命令烧录开发板：
+
+.. code-block:: bash
+
+    idf.py -p COM3 -b 115200 flash
+
+Linux 平台上串口名称为 ``/dev/ttyUSB0``，所需波特率为 ``115200``，可使用如下命令烧录开发板：
+
+.. code-block:: bash
+
+    idf.py -p /dev/ttyUSB0 -b 115200 flash
+
+macOS 平台上串口名称为 ``/dev/cu.usbserial-1401``，所需波特率为 ``115200``，可使用如下命令烧录开发板：
+
+.. code-block:: bash
+
+    idf.py -p /dev/cu.usbserial-1401 -b 115200 flash
 
 .. note::
 
     如果设备不支持自动下载模式，则需要手动进入下载模式。请按住 ``BOOT`` 按钮，同时按一下 ``RESET`` 按钮。之后，松开 ``BOOT`` 按钮。
+
+.. _check-port-on-windows:
 
 在 Windows 上查看端口
 ---------------------
@@ -210,6 +232,8 @@
 
     Windows 设备管理器中 ESP-WROVER-KIT 的两个 USB 串行端口
 
+.. _check-port-on-linux-and-macos:
+
 在 Linux 和 macOS 上查看端口
 -----------------------------
 
@@ -229,10 +253,10 @@ macOS::
 
 .. _linux-dialout-group:
 
-在 Linux 中添加用户到 ``dialout``
------------------------------------
+在 Linux 中添加用户到 ``dialout`` 或 ``uucp`` 组
+--------------------------------------------------
 
-当前登录用户应当可以通过 USB 对串口进行读写操作。在多数 Linux 版本中，您都可以通过以下命令，将用户添加到 ``dialout`` 组，从而获许读写权限::
+当前登录用户应当可以通过 USB 对串口进行读写操作。在多数 Linux 版本中，都可以通过以下命令，将用户添加到 ``dialout`` 组，从而获许读写权限::
 
     sudo usermod -a -G dialout $USER
 
@@ -258,7 +282,7 @@ macOS::
 Windows 和 Linux 操作系统
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-在本示例中，我们将使用 `PuTTY SSH Client <https://www.putty.org/>`_， `PuTTY SSH Client <https://www.putty.org/>`_ 既可用于 Windows 也可用于 Linux。您也可以使用其他串口程序并设置如下的通信参数。
+在本示例中，我们将使用 `PuTTY SSH Client <https://www.putty.org/>`_，`PuTTY SSH Client <https://www.putty.org/>`_ 既可用于 Windows 也可用于 Linux。也可以使用其他串口程序并设置如下的通信参数。
 
 运行终端，配置在上述步骤中确认的串口：波特率 = 115200（如有需要，请更改为使用芯片的默认波特率），数据位 = 8，停止位 = 1，奇偶校验 = N。以下截屏分别展示了如何在 Windows 和 Linux 中配置串口和上述通信参数（如 115200-8-1-N）。注意，这里一定要选择在上述步骤中确认的串口进行配置。
 
@@ -276,39 +300,54 @@ Windows 和 Linux 操作系统
 
     在 Linux 操作系统中使用 PuTTY 设置串口通信参数
 
-然后，请检查 {IDF_TARGET_NAME} 是否有打印日志。如有，请在终端打开串口进行查看。这里的日志内容取决于加载到 {IDF_TARGET_NAME} 的应用程序，请参考 `输出示例`_。
+然后，请检查 {IDF_TARGET_NAME} 是否有打印日志。如有，请在终端打开串口进行查看。这里的日志内容取决于加载到 {IDF_TARGET_NAME} 的应用程序，请参考 `输出示例`_。如果没有看到输出日志，请参考 `故障排除`_。
 
 .. 注解::
 
-   请在验证完串口通信正常后，关闭串口终端。如果您让终端一直保持打开的状态，之后上传固件时将无法访问串口。
+   请在验证完串口通信正常后，关闭串口终端。如果终端一直保持打开的状态，之后上传固件时将无法访问串口。
 
 macOS 操作系统
 ^^^^^^^^^^^^^^^^^
 
-macOS 提供了 **屏幕** 命令，因此您不用安装串口终端程序。
+macOS 提供了 **屏幕** 命令，因此无需安装串口终端程序。
 
 - 参考 `在 Linux 和 macOS 上查看端口`_，运行以下命令::
 
     ls /dev/cu.*
 
-- 您会看到类似如下输出::
+- 会看到类似如下输出::
 
     /dev/cu.Bluetooth-Incoming-Port /dev/cu.SLAB_USBtoUART      /dev/cu.SLAB_USBtoUART7
 
-- 根据您连接到电脑上的开发板类型和数量，输出结果会有所不同。请选择开发板的设备名称，并运行以下命令（如有需要，请将“115200”更改为使用芯片的默认波特率）::
+- 根据连接到电脑上的开发板类型和数量，输出结果会有所不同。请选择开发板的设备名称，并运行以下命令（如有需要，请将“115200”更改为使用芯片的默认波特率）::
 
     screen /dev/cu.device_name 115200
 
 将 ``device_name`` 替换为运行 ``ls /dev/cu.*`` 后出现的设备串口号。
 
-- 您需要的正是 **屏幕** 显示的日志。日志内容取决于加载到 {IDF_TARGET_NAME} 的应用程序，请参考 `输出示例`_。请使用 Ctrl-A + \\ 键退出 **屏幕** 会话。
+- **屏幕** 显示的日志即为所需内容。日志内容取决于加载到 {IDF_TARGET_NAME} 的应用程序，请参考 `输出示例`_。如果没有看到输出日志，请参考 `故障排除`_。请使用 ``Ctrl-A + K`` 键退出当前 **屏幕** 会话。
 
 .. 注解::
 
-   请在验证完串口通信正常后，关闭 **屏幕** 会话。如果直接关闭终端窗口而没有关闭 **屏幕**，之后上传固件时将无法访问串口。
+   请在验证完串口通信正常后，关闭 **当前屏幕会话**。如果直接关闭终端窗口而没有关闭 **屏幕**，之后上传固件时将无法访问串口。
+
+故障排除
+^^^^^^^^^^^^^^^
+
+如果没有日志输出，请检查以下原因：
+
+- {IDF_TARGET_NAME} 的供电是否正常
+- 启动终端程序后，是否重置开发板
+- 使用 `在 Windows 上查看端口`_ 与 `在 Linux 和 macOS 上查看端口`_ 中描述的方法，检查所选串口是否正确
+- 其他程序是否正在使用该串口
+- 串口终端程序中的串口设置是否适用于该应用程序
+- 应用程序是否会输出日志。具体来说，如果在 ``Component config`` > ``Log`` > ``Log Level`` > ``Default log verbosity (Info)`` 中设置为 ``No output``，则不会打印出任何日志。你可以在 ``menuconfig`` 中更改该设置。
+- 是否禁用了日志输出（使用 :example:`hello world 示例 <get-started/hello_world>` 进行测试）
 
 输出示例
 ^^^^^^^^^^^
+
+{IDF_TARGET_STRAP_GPIO:default="[NEEDS TO BE UPDATED]", esp32="GPIO0", esp32s2="GPIO0", esp32s3="GPIO0", esp32c2="GPIO9", esp32c3="GPIO9", esp32c6="GPIO9", esp32h2="GPIO9", esp32p4="GPIO35"}
 
 以下是一个日志示例。如果没看到任何输出，请尝试重置开发板。
 
@@ -334,12 +373,12 @@ macOS 提供了 **屏幕** 命令，因此您不用安装串口终端程序。
     I (45) boot: compile time 18:48:10
     ...
 
-如果打印出的日志是可读的（而不是乱码），则表示串口连接正常。此时，您可以继续进行安装，并最终将应用程序上载到 {IDF_TARGET_NAME}。
+如果打印出的日志是可读的（而不是乱码），则表示串口连接正常。此时，可以继续进行安装，并最终将应用程序上载到 {IDF_TARGET_NAME}。
 
 .. 注解::
 
-   在某些串口接线方式下，在 {IDF_TARGET_NAME} 启动并开始打印串口日志前，需要在终端程序中禁用串口 RTS ＆ DTR 管脚。该问题仅存在于将 RTS ＆ DTR 管脚直接连接到 EN ＆ GPIO0 管脚上的情况，绝大多数开发板（包括乐鑫所有的开发板）都没有这个问题。更多详细信息，请参考 `esptool 文档`_。
+   在某些串口接线方式下，在 {IDF_TARGET_NAME} 启动并开始打印串口日志前，需要在终端程序中禁用串口 RTS ＆ DTR 管脚。该问题仅存在于将 RTS ＆ DTR 管脚直接连接到 EN ＆ {IDF_TARGET_STRAP_GPIO} 管脚上的情况，绝大多数开发板（包括乐鑫所有的开发板）都没有这个问题。更多详细信息，请参考 `esptool 文档`_。
 
-如您在安装 {IDF_TARGET_NAME} 硬件开发的软件环境时，从 :ref:`get-started-connect` 跳转到了这里，请从 :ref:`get-started-configure` 继续阅读。
+如在安装 {IDF_TARGET_NAME} 硬件开发的软件环境时，从 :ref:`get-started-connect` 跳转到了这里，请从 :ref:`get-started-configure` 继续阅读。
 
 .. _esptool 文档: https://docs.espressif.com/projects/esptool/en/latest/advanced-topics/boot-mode-selection.html#automatic-bootloader

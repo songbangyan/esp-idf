@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #pragma once
 
 #include "esp_bit_defs.h"
@@ -22,7 +21,6 @@
 #define ANA_I2C_SAR_FORCE_PD BIT(18)
 #define ANA_I2C_BBPLL_M      BIT(17) /* Clear to enable BBPLL */
 
-
 #define ANA_CONFIG2_REG  0x6004E848
 #define ANA_CONFIG2_M    BIT(18)
 
@@ -30,7 +28,7 @@
 
 /**
  * Restore regi2c analog calibration related configuration registers.
- * This is a workaround, and is fixed on later chips
+ * This is a workaround for calibration error when waking up from light sleep
  */
 #define REGI2C_ANA_CALI_PD_WORKAROUND    1
 #define REGI2C_ANA_CALI_BYTE_NUM         8

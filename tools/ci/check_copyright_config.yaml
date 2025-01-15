@@ -39,6 +39,10 @@ DEFAULT:
     # SPDX-FileCopyrightText: {years} Espressif Systems (Shanghai) CO LTD
     # SPDX-License-Identifier: {license}
 
+  new_notice_bsasm: |  # notice for new bsasm files
+    # SPDX-FileCopyrightText: {years} Espressif Systems (Shanghai) CO LTD
+    # SPDX-License-Identifier: {license}
+
   # comment lines matching:
   # SPDX-FileCopyrightText: year[-year] Espressif Systems
   # or
@@ -104,6 +108,29 @@ ethernet_component:
     - Apache-2.0
     - MIT           # To allow contributed drivers
 
+linux_component:
+  include:
+    - 'components/linux/fls.c'
+  allowed_licenses:
+    - Apache-2.0
+    - BSD-4-Clause-UC
+
+rt_component:
+  include:
+    - 'components/rt/**'
+  allowed_licenses:
+    - Apache-2.0
+    - MIT           #FreeRTOS-Plux-POSIX sources and port files
+
+rt_component_tests:
+  include:
+    - 'components/rt/test_apps/**'
+  allowed_licenses:
+    - Apache-2.0
+    - Unlicense
+    - CC0-1.0
+  license_for_new_files: Unlicense OR CC0-1.0
+
 systemview:
   include:
     - 'components/app_trace/sys_view'
@@ -121,7 +148,7 @@ spiffs:
 
 sdmmc:
   include:
-    - 'components/driver/sdmmc/include/driver/'
+    - 'components/esp_driver_sdmmc/include/driver/'
     - 'components/sdmmc/'
   allowed_licenses:
     - Apache-2.0
@@ -136,10 +163,24 @@ argtable3:
 
 md5_hash:
   include:
-    - 'components/esp_rom/include/**/rom/md5_hash.h'
+    - 'components/esp_rom/*/include/**/rom/md5_hash.h'
   allowed_licenses:
     - BSD-3-Clause
     - Apache-2.0
+
+# OpenOCD project is licensed under GPLv2.0, which is incompatible with Apache-2.0
+# The source files built by the OpenOCD stub flasher, need to be dual-licensed for the upstreaming.
+# MIT is chosen as the dual license, ensuring compatibility with GPLv2.0.
+app_trace:
+  include:
+    - components/app_trace/app_trace.c
+    - components/app_trace/app_trace_membufs_proto.c
+    - components/app_trace/app_trace_util.c
+    - components/app_trace/port/riscv/port.c
+    - components/app_trace/port/xtensa/port.c
+  allowed_licenses:
+    - Apache-2.0
+    - MIT
 
 xtensa:
   include:
@@ -156,6 +197,15 @@ tinyusb:
     - MIT           # Example derived from TinyUSB code by HaThach
     - Unlicense
     - CC0-1.0
+
+# Portions of the USB stack in ROM are derived from Zephyr project,
+# with files licensed under a mix of Apache and BSD-3-Clause licenses.
+esp_rom_usb:
+  include:
+    - 'components/esp_rom/*/include/*/rom/usb/'
+  allowed_licenses:
+    - Apache-2.0
+    - BSD-3-Clause
 
 protocol_examples_common_component:
   include:
@@ -186,6 +236,7 @@ ignore:
     - components/http_parser/
     - components/wpa_supplicant/src/
     - '!components/wpa_supplicant/esp_supplicant/'
+    - components/wpa_supplicant/esp_supplicant/src/crypto/fastpbkdf2*
     - components/bt/host/bluedroid/
     - '!components/bt/host/bluedroid/api/'
     - '!components/bt/host/bluedroid/btc/'
@@ -195,3 +246,4 @@ ignore:
     - components/protocomm/python/
     - components/wifi_provisioning/proto-c/
     - components/wifi_provisioning/python/
+    - tools/templates/

@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <sys/param.h>
+#include "mbedtls/error.h"
 #include "esp_mbedtls_dynamic_impl.h"
 
 int __real_mbedtls_ssl_write(mbedtls_ssl_context *ssl, unsigned char *buf, size_t len);
@@ -42,28 +43,48 @@ static int rx_done(mbedtls_ssl_context *ssl)
     return 0;
 }
 
-static void ssl_update_checksum_start( mbedtls_ssl_context *ssl,
+static int ssl_update_checksum_start( mbedtls_ssl_context *ssl,
                                        const unsigned char *buf, size_t len )
 {
+    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
 #if defined(MBEDTLS_SHA256_C)
-    mbedtls_sha256_update( &ssl->handshake->fin_sha256, buf, len );
+    ret = mbedtls_md_update( &ssl->handshake->fin_sha256, buf, len );
 #endif
 #if defined(MBEDTLS_SHA512_C)
-    mbedtls_sha512_update( &ssl->handshake->fin_sha384, buf, len );
+    ret = mbedtls_md_update( &ssl->handshake->fin_sha384, buf, len );
 #endif
+    return ret;
 }
 
-static void ssl_handshake_params_init( mbedtls_ssl_handshake_params *handshake )
+static int ssl_handshake_params_init( mbedtls_ssl_handshake_params *handshake )
 {
     memset( handshake, 0, sizeof( mbedtls_ssl_handshake_params ) );
 
 #if defined(MBEDTLS_SHA256_C)
-    mbedtls_sha256_init(   &handshake->fin_sha256    );
-    mbedtls_sha256_starts( &handshake->fin_sha256, 0 );
+    mbedtls_md_init( &handshake->fin_sha256 );
+    int ret = mbedtls_md_setup( &handshake->fin_sha256,
+                    mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                    0 );
+    if (ret != 0) {
+        return ret;
+    }
+    ret = mbedtls_md_starts( &handshake->fin_sha256 );
+    if (ret != 0) {
+        return ret;
+    }
 #endif
 #if defined(MBEDTLS_SHA512_C)
-    mbedtls_sha512_init(   &handshake->fin_sha384    );
-    mbedtls_sha512_starts( &handshake->fin_sha384, 1 );
+    mbedtls_md_init( &handshake->fin_sha384 );
+    ret = mbedtls_md_setup( &handshake->fin_sha384,
+                    mbedtls_md_info_from_type(MBEDTLS_MD_SHA384),
+                    0 );
+    if (ret != 0) {
+        return ret;
+    }
+    ret = mbedtls_md_starts( &handshake->fin_sha384 );
+    if (ret != 0) {
+        return ret;
+    }
 #endif
 
     handshake->update_checksum = ssl_update_checksum_start;
@@ -94,6 +115,8 @@ static void ssl_handshake_params_init( mbedtls_ssl_handshake_params *handshake )
     !defined(MBEDTLS_SSL_KEEP_PEER_CERTIFICATE)
     mbedtls_pk_init( &handshake->peer_pubkey );
 #endif
+
+    return 0;
 }
 
 static int ssl_handshake_init( mbedtls_ssl_context *ssl )
@@ -152,7 +175,10 @@ static int ssl_handshake_init( mbedtls_ssl_context *ssl )
     /* Initialize structures */
     mbedtls_ssl_session_init( ssl->session_negotiate );
     mbedtls_ssl_transform_init( ssl->transform_negotiate );
-    ssl_handshake_params_init( ssl->handshake );
+    int ret = ssl_handshake_params_init( ssl->handshake );
+    if (ret != 0) {
+        return ret;
+    }
 
 /*
  * curve_list is translated to IANA TLS group identifiers here because
@@ -274,6 +300,8 @@ static int ssl_handshake_init( mbedtls_ssl_context *ssl )
 int __wrap_mbedtls_ssl_setup(mbedtls_ssl_context *ssl, const mbedtls_ssl_config *conf)
 {
     ssl->conf = conf;
+    ssl->tls_version = ssl->conf->max_tls_version;
+
     CHECK_OK(ssl_handshake_init(ssl));
 
     mbedtls_free(ssl->MBEDTLS_PRIVATE(out_buf));

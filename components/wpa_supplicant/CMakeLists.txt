@@ -1,3 +1,20 @@
+idf_build_get_property(target IDF_TARGET)
+
+if(${target} STREQUAL "linux")
+    return() # This component is not supported by the POSIX/Linux simulator
+else()
+    set(linker_fragments linker.lf)
+endif()
+
+if( NOT CONFIG_ESP_WIFI_ENABLED
+    AND NOT CONFIG_ESP_HOST_WIFI_ENABLED
+    AND NOT CMAKE_BUILD_EARLY_EXPANSION )
+    # This component provides only "esp_supplicant" headers if WiFi not enabled
+    # (implementation supported optionally in a managed component esp_wifi_remote)
+    idf_component_register(INCLUDE_DIRS esp_supplicant/include)
+    return()
+endif()
+
 set(srcs "port/os_xtensa.c"
     "port/eloop.c"
     "src/ap/ap_config.c"
@@ -61,7 +78,8 @@ set(srcs "port/os_xtensa.c"
     "src/wps/wps_dev_attr.c"
     "src/wps/wps_enrollee.c")
 
-set(esp_srcs "esp_supplicant/src/esp_wpa2.c"
+set(esp_srcs "esp_supplicant/src/esp_eap_client.c"
+    "esp_supplicant/src/esp_wpa2_api_port.c"
     "esp_supplicant/src/esp_wpa_main.c"
     "esp_supplicant/src/esp_wpas_glue.c"
     "esp_supplicant/src/esp_common.c"
@@ -96,6 +114,7 @@ endif()
 
 if(CONFIG_ESP_WIFI_MBEDTLS_CRYPTO)
     set(crypto_src
+    "esp_supplicant/src/crypto/fastpbkdf2.c"
     "esp_supplicant/src/crypto/crypto_mbedtls.c"
     "esp_supplicant/src/crypto/crypto_mbedtls-bignum.c"
     "esp_supplicant/src/crypto/crypto_mbedtls-rsa.c"
@@ -155,8 +174,11 @@ endif()
 if(CONFIG_ESP_WIFI_11KV_SUPPORT OR CONFIG_ESP_WIFI_11R_SUPPORT)
     set(roaming_src
     "src/common/ieee802_11_common.c")
-    if(CONFIG_ESP_WIFI_11KV_SUPPORT)
-        set(roaming_src ${roaming_src} "src/common/rrm.c" "src/common/wnm_sta.c")
+    if(CONFIG_ESP_WIFI_RRM_SUPPORT)
+        set(roaming_src ${roaming_src} "src/common/rrm.c")
+    endif()
+    if(CONFIG_ESP_WIFI_WNM_SUPPORT)
+        set(roaming_src ${roaming_src} "src/common/wnm_sta.c")
     endif()
     if(CONFIG_ESP_WIFI_11R_SUPPORT)
         set(roaming_src ${roaming_src} "src/rsn_supp/wpa_ft.c")
@@ -170,7 +192,7 @@ if(CONFIG_ESP_WIFI_ENABLE_SAE_PK)
     "src/common/sae_pk.c")
 endif()
 
-if(CONFIG_ESP_WIFI_11KV_SUPPORT OR CONFIG_ESP_WIFI_11R_SUPPORT OR CONFIG_ESP_WIFI_ENABLE_SAE_PK)
+if(CONFIG_ESP_WIFI_11KV_SUPPORT OR CONFIG_ESP_WIFI_11R_SUPPORT)
     set(srcs ${srcs}
     "src/common/bss.c"
     "src/common/scan.c"
@@ -185,6 +207,7 @@ endif()
 
 if(CONFIG_ESP_WIFI_DPP_SUPPORT)
     set(dpp_src "src/common/dpp.c"
+    "src/common/dpp_crypto.c"
     "esp_supplicant/src/esp_dpp.c")
 else()
     set(dpp_src "")
@@ -209,9 +232,15 @@ idf_component_register(SRCS "${srcs}" "${esp_srcs}" "${tls_src}" "${roaming_src}
                             "${crypto_src}" "${mbo_src}" "${dpp_src}" "${wps_registrar_src}"
                     INCLUDE_DIRS include port/include esp_supplicant/include
                     PRIV_INCLUDE_DIRS src src/utils esp_supplicant/src src/crypto
+                                      ../esp_wifi/wifi_apps/roaming_app/include
+                    LDFRAGMENTS   ${linker_fragments}
                     PRIV_REQUIRES mbedtls esp_timer esp_wifi)
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-strict-aliasing -Wno-write-strings -Werror)
+if(CONFIG_COMPILER_STATIC_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU") # TODO IDF-10090
+    target_compile_options(${COMPONENT_LIB} PRIVATE "-fno-analyzer")
+endif()
+
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     __ets__
     ESP_SUPPLICANT
@@ -229,6 +258,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     CONFIG_IEEE80211W
     CONFIG_SHA256
     CONFIG_NO_RADIUS
+    CONFIG_FAST_PBKDF2
     )
 
 if(CONFIG_ESP_WIFI_ENABLE_WPA3_SAE)
@@ -262,7 +292,13 @@ if(CONFIG_ESP_WIFI_DPP_SUPPORT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_DPP)
 endif()
 if(CONFIG_ESP_WIFI_11KV_SUPPORT)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_SUPPLICANT_TASK CONFIG_WNM CONFIG_RRM CONFIG_IEEE80211KV)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_WNM CONFIG_RRM CONFIG_IEEE80211KV)
+endif()
+if(CONFIG_ESP_WIFI_RRM_SUPPORT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_RRM)
+endif()
+if(CONFIG_ESP_WIFI_WNM_SUPPORT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_WNM)
 endif()
 if(CONFIG_ESP_WIFI_11R_SUPPORT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_IEEE80211R)
@@ -284,6 +320,9 @@ if(CONFIG_ESP_WIFI_WPS_SOFTAP_REGISTRAR)
 endif()
 if(CONFIG_ESP_WIFI_ENABLE_WPA3_OWE_STA)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_OWE_STA)
+endif()
+if(CONFIG_ESP_WIFI_EAP_TLS1_3)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_TLSV13)
 endif()
 set_property(TARGET ${COMPONENT_LIB} APPEND PROPERTY LINK_INTERFACE_MULTIPLICITY 3)
 

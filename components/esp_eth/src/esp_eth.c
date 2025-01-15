@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -58,6 +58,7 @@ typedef struct {
     SemaphoreHandle_t transmit_mutex;
 #endif // CONFIG_ETH_TRANSMIT_MUTEX
     esp_err_t (*stack_input)(esp_eth_handle_t eth_handle, uint8_t *buffer, uint32_t length, void *priv);
+    esp_err_t (*stack_input_info)(esp_eth_handle_t eth_handle, uint8_t *buffer, uint32_t length, void *priv, void *info);
     esp_err_t (*on_lowlevel_init_done)(esp_eth_handle_t eth_handle);
     esp_err_t (*on_lowlevel_deinit_done)(esp_eth_handle_t eth_handle);
     esp_err_t (*customized_read_phy_reg)(esp_eth_handle_t eth_handle, uint32_t phy_addr, uint32_t phy_reg, uint32_t *reg_value);
@@ -102,9 +103,28 @@ static esp_err_t eth_stack_input(esp_eth_mediator_t *eth, uint8_t *buffer, uint3
     esp_eth_driver_t *eth_driver = __containerof(eth, esp_eth_driver_t, mediator);
     if (eth_driver->stack_input) {
         return eth_driver->stack_input((esp_eth_handle_t)eth_driver, buffer, length, eth_driver->priv);
+    // try to pass traffic using extended `stack_input_info`. It's for compatibility reasons since older MAC drivers may
+    // still use `stack_input` but higher level API registered extended version.
+    } else if (eth_driver->stack_input_info) {
+        return eth_driver->stack_input_info((esp_eth_handle_t)eth_driver, buffer, length, eth_driver->priv, NULL);
     }
     // No stack input path has been installed, just drop the incoming packets
-    free(buffer);
+    free(buffer); // IDF-11444
+    return ESP_OK;
+}
+
+static esp_err_t eth_stack_input_info(esp_eth_mediator_t *eth, uint8_t *buffer, uint32_t length, void *info)
+{
+    esp_eth_driver_t *eth_driver = __containerof(eth, esp_eth_driver_t, mediator);
+    if (eth_driver->stack_input_info) {
+        return eth_driver->stack_input_info((esp_eth_handle_t)eth_driver, buffer, length, eth_driver->priv, info);
+    // try using simple `stack_input`. It's for compatibility reasons since higher level API may still register original `stack_input`.
+    // Additional frame info is silently lost of course.
+    } else if (eth_driver->stack_input) {
+        return eth_driver->stack_input((esp_eth_handle_t)eth_driver, buffer, length, eth_driver->priv);
+    }
+    // No stack input path has been installed, just drop the incoming packets
+    free(buffer); // IDF-11444
     return ESP_OK;
 }
 
@@ -209,6 +229,7 @@ esp_err_t esp_eth_driver_install(const esp_eth_config_t *config, esp_eth_handle_
     eth_driver->duplex = ETH_DUPLEX_HALF;
     eth_driver->speed = ETH_SPEED_10M;
     eth_driver->stack_input = config->stack_input;
+    eth_driver->stack_input_info = config->stack_input_info;
     eth_driver->on_lowlevel_init_done = config->on_lowlevel_init_done;
     eth_driver->on_lowlevel_deinit_done = config->on_lowlevel_deinit_done;
     eth_driver->check_link_period_ms = config->check_link_period_ms;
@@ -217,6 +238,7 @@ esp_err_t esp_eth_driver_install(const esp_eth_config_t *config, esp_eth_handle_
     eth_driver->mediator.phy_reg_read = eth_phy_reg_read;
     eth_driver->mediator.phy_reg_write = eth_phy_reg_write;
     eth_driver->mediator.stack_input = eth_stack_input;
+    eth_driver->mediator.stack_input_info = eth_stack_input_info;
     eth_driver->mediator.on_state_changed = eth_on_state_changed;
     // set mediator for both mac and phy object, so that mac and phy are connected to each other via mediator
     mac->set_mediator(mac, &eth_driver->mediator);
@@ -303,7 +325,7 @@ esp_err_t esp_eth_stop(esp_eth_handle_t hdl)
     esp_err_t ret = ESP_OK;
     esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
     ESP_GOTO_ON_FALSE(eth_driver, ESP_ERR_INVALID_ARG, err, TAG, "ethernet driver handle can't be null");
-    esp_eth_mac_t *mac = eth_driver->mac;
+    esp_eth_phy_t *phy = eth_driver->phy;
     // check if driver has started
     esp_eth_fsm_t expected_fsm = ESP_ETH_FSM_START;
     ESP_GOTO_ON_FALSE(atomic_compare_exchange_strong(&eth_driver->fsm, &expected_fsm, ESP_ETH_FSM_STOP),
@@ -312,10 +334,8 @@ esp_err_t esp_eth_stop(esp_eth_handle_t hdl)
 
     eth_link_t expected_link = ETH_LINK_UP;
     if (atomic_compare_exchange_strong(&eth_driver->link, &expected_link, ETH_LINK_DOWN)){
-        // MAC is stopped by setting link down
-        ESP_GOTO_ON_ERROR(mac->set_link(mac, ETH_LINK_DOWN), err, TAG, "ethernet mac set link failed");
-        ESP_GOTO_ON_ERROR(esp_event_post(ETH_EVENT, ETHERNET_EVENT_DISCONNECTED, &eth_driver, sizeof(esp_eth_driver_t *), 0), err,
-                            TAG, "send ETHERNET_EVENT_DISCONNECTED event failed");
+        // MAC is stopped by setting link down at PHY layer
+        ESP_GOTO_ON_ERROR(phy->set_link(phy, ETH_LINK_DOWN), err, TAG, "ethernet phy reset link failed");
     }
 
     ESP_GOTO_ON_ERROR(esp_event_post(ETH_EVENT, ETHERNET_EVENT_STOP, &eth_driver, sizeof(esp_eth_driver_t *), 0),
@@ -333,7 +353,23 @@ esp_err_t esp_eth_update_input_path(
     esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
     ESP_GOTO_ON_FALSE(eth_driver, ESP_ERR_INVALID_ARG, err, TAG, "ethernet driver handle can't be null");
     eth_driver->priv = priv;
+    eth_driver->stack_input_info = NULL;
     eth_driver->stack_input = stack_input;
+err:
+    return ret;
+}
+
+esp_err_t esp_eth_update_input_path_info(
+    esp_eth_handle_t hdl,
+    esp_err_t (*stack_input_info)(esp_eth_handle_t hdl, uint8_t *buffer, uint32_t length, void *priv, void *info),
+    void *priv)
+{
+    esp_err_t ret = ESP_OK;
+    esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
+    ESP_GOTO_ON_FALSE(eth_driver, ESP_ERR_INVALID_ARG, err, TAG, "ethernet driver handle can't be null");
+    eth_driver->priv = priv;
+    eth_driver->stack_input = NULL;
+    eth_driver->stack_input_info = stack_input_info;
 err:
     return ret;
 }
@@ -367,14 +403,14 @@ err:
     return ret;
 }
 
-esp_err_t esp_eth_transmit_vargs(esp_eth_handle_t hdl, uint32_t argc, ...)
+esp_err_t esp_eth_transmit_ctrl_vargs(esp_eth_handle_t hdl, void *ctrl, uint32_t argc, ...)
 {
     esp_err_t ret = ESP_OK;
     esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
 
-    if (atomic_load(&eth_driver->fsm) != ESP_ETH_FSM_START) {
+    if (atomic_load(&eth_driver->link) != ETH_LINK_UP) {
         ret = ESP_ERR_INVALID_STATE;
-        ESP_LOGD(TAG, "Ethernet is not started");
+        ESP_LOGD(TAG, "Ethernet link is not up, can't transmit");
         goto err;
     }
 
@@ -386,7 +422,7 @@ esp_err_t esp_eth_transmit_vargs(esp_eth_handle_t hdl, uint32_t argc, ...)
     }
 #endif // CONFIG_ETH_TRANSMIT_MUTEX
     va_start(args, argc);
-    ret = mac->transmit_vargs(mac, argc, args);
+    ret = mac->transmit_ctrl_vargs(mac, ctrl, argc, args);
 #if CONFIG_ETH_TRANSMIT_MUTEX
     xSemaphoreGive(eth_driver->transmit_mutex);
 #endif // CONFIG_ETH_TRANSMIT_MUTEX
@@ -466,7 +502,26 @@ esp_err_t esp_eth_ioctl(esp_eth_handle_t hdl, esp_eth_io_cmd_t cmd, void *data)
     case ETH_CMD_S_PHY_LOOPBACK:
         ESP_GOTO_ON_FALSE(data, ESP_ERR_INVALID_ARG, err, TAG, "can't set loopback to null");
         ESP_GOTO_ON_ERROR(phy->loopback(phy, *(bool *)data), err, TAG, "configuration of phy loopback mode failed");
-
+        break;
+    case ETH_CMD_READ_PHY_REG: {
+        uint32_t phy_addr;
+        ESP_GOTO_ON_FALSE(data, ESP_ERR_INVALID_ARG, err, TAG, "invalid register read/write info");
+        esp_eth_phy_reg_rw_data_t *phy_r_data = (esp_eth_phy_reg_rw_data_t *)data;
+        ESP_GOTO_ON_FALSE(phy_r_data->reg_value_p, ESP_ERR_INVALID_ARG, err, TAG, "can't read registers to null");
+        ESP_GOTO_ON_ERROR(phy->get_addr(phy, &phy_addr), err, TAG, "get phy address failed");
+        ESP_GOTO_ON_ERROR(eth_driver->mediator.phy_reg_read(&eth_driver->mediator,
+                          phy_addr, phy_r_data->reg_addr, phy_r_data->reg_value_p), err, TAG, "failed to read PHY register");
+        }
+        break;
+    case ETH_CMD_WRITE_PHY_REG: {
+        uint32_t phy_addr;
+        ESP_GOTO_ON_FALSE(data, ESP_ERR_INVALID_ARG, err, TAG, "invalid register read/write info");
+        esp_eth_phy_reg_rw_data_t *phy_w_data = (esp_eth_phy_reg_rw_data_t *)data;
+        ESP_GOTO_ON_FALSE(phy_w_data->reg_value_p, ESP_ERR_INVALID_ARG, err, TAG, "can't write registers from null");
+        ESP_GOTO_ON_ERROR(phy->get_addr(phy, &phy_addr), err, TAG, "get phy address failed");
+        ESP_GOTO_ON_ERROR(eth_driver->mediator.phy_reg_write(&eth_driver->mediator,
+                          phy_addr, phy_w_data->reg_addr, *(phy_w_data->reg_value_p)), err, TAG, "failed to write PHY register");
+        }
         break;
     default:
         if (phy->custom_ioctl != NULL && cmd >= ETH_CMD_CUSTOM_PHY_CMDS) {
@@ -480,6 +535,24 @@ esp_err_t esp_eth_ioctl(esp_eth_handle_t hdl, esp_eth_io_cmd_t cmd, void *data)
     }
 err:
     return ret;
+}
+
+esp_err_t esp_eth_get_phy_instance(esp_eth_handle_t hdl, esp_eth_phy_t **phy)
+{
+    esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
+    ESP_RETURN_ON_FALSE(eth_driver, ESP_ERR_INVALID_ARG, TAG, "ethernet driver handle can't be null");
+    ESP_RETURN_ON_FALSE(phy != NULL, ESP_ERR_INVALID_ARG, TAG, "can't store PHY instance to null");
+    *phy = eth_driver->phy;
+    return ESP_OK;
+}
+
+esp_err_t esp_eth_get_mac_instance(esp_eth_handle_t hdl, esp_eth_mac_t **mac)
+{
+    esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
+    ESP_RETURN_ON_FALSE(eth_driver, ESP_ERR_INVALID_ARG, TAG, "ethernet driver handle can't be null");
+    ESP_RETURN_ON_FALSE(mac != NULL, ESP_ERR_INVALID_ARG, TAG, "can't store MAC instance to null");
+    *mac = eth_driver->mac;
+    return ESP_OK;
 }
 
 esp_err_t esp_eth_increase_reference(esp_eth_handle_t hdl)

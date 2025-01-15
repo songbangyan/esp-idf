@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,9 +21,15 @@
 #include <sys/time.h>
 #include <sys/termios.h>
 #include <sys/poll.h>
+#ifdef __clang__ // TODO LLVM-330
 #include <sys/dirent.h>
+#else
+#include <dirent.h>
+#endif
 #include <string.h>
 #include "sdkconfig.h"
+
+#include "esp_vfs_ops.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,27 +52,23 @@ extern "C" {
 /**
  * Default value of flags member in esp_vfs_t structure.
  */
-#define ESP_VFS_FLAG_DEFAULT        0
+#define ESP_VFS_FLAG_DEFAULT (1 << 0)
 
 /**
  * Flag which indicates that FS needs extra context pointer in syscalls.
  */
-#define ESP_VFS_FLAG_CONTEXT_PTR    1
-
-/*
- * @brief VFS identificator used for esp_vfs_register_with_id()
- */
-typedef int esp_vfs_id_t;
+#define ESP_VFS_FLAG_CONTEXT_PTR (1 << 1)
 
 /**
- * @brief VFS semaphore type for select()
- *
+ * Flag which indicates that FS is located on read-only partition.
  */
-typedef struct
-{
-    bool is_sem_local;      /*!< type of "sem" is SemaphoreHandle_t when true, defined by socket driver otherwise */
-    void *sem;              /*!< semaphore instance */
-} esp_vfs_select_sem_t;
+#define ESP_VFS_FLAG_READONLY_FS (1 << 2)
+
+/**
+ * Flag which indicates that VFS structure should be freed upon unregistering.
+ * @note Free if false, do not free if true
+ */
+#define ESP_VFS_FLAG_STATIC (1 << 3)
 
 /**
  * @brief VFS definition structure
@@ -91,7 +93,7 @@ typedef struct
  */
 typedef struct
 {
-    int flags;      /*!< ESP_VFS_FLAG_CONTEXT_PTR or ESP_VFS_FLAG_DEFAULT */
+    int flags;      /*!< ESP_VFS_FLAG_CONTEXT_PTR and/or ESP_VFS_FLAG_READONLY_FS or ESP_VFS_FLAG_DEFAULT */
     union {
         ssize_t (*write_p)(void* p, int fd, const void * data, size_t size);                         /*!< Write with context pointer */
         ssize_t (*write)(int fd, const void * data, size_t size);                                    /*!< Write without context pointer */
@@ -250,6 +252,8 @@ typedef struct
 #endif // CONFIG_VFS_SUPPORT_SELECT || defined __DOXYGEN__
 } esp_vfs_t;
 
+
+
 /**
  * Register a virtual filesystem for given path prefix.
  *
@@ -274,7 +278,6 @@ typedef struct
  *          registered.
  */
 esp_err_t esp_vfs_register(const char* base_path, const esp_vfs_t* vfs, void* ctx);
-
 
 /**
  * Special case function for registering a VFS that uses a method other than
@@ -331,7 +334,8 @@ esp_err_t esp_vfs_unregister_with_id(esp_vfs_id_t vfs_id);
 
 /**
  * Special function for registering another file descriptor for a VFS registered
- * by esp_vfs_register_with_id.
+ * by esp_vfs_register_with_id. This function should only be used to register
+ * permanent file descriptors (socket fd) that are not removed after being closed.
  *
  * @param vfs_id VFS identificator returned by esp_vfs_register_with_id.
  * @param fd The registered file descriptor will be written to this address.
@@ -462,6 +466,42 @@ ssize_t esp_vfs_pread(int fd, void *dst, size_t size, off_t offset);
  *                   set accordingly.
  */
 ssize_t esp_vfs_pwrite(int fd, const void *src, size_t size, off_t offset);
+
+/**
+ *
+ * @brief Dump the existing VFS FDs data to FILE* fp
+ *
+ * Dump the FDs in the format:
+ @verbatim
+         <VFS Path Prefix>-<FD seen by App>-<FD seen by driver>
+
+    where:
+     VFS Path Prefix   : file prefix used in the esp_vfs_register call
+     FD seen by App    : file descriptor returned by the vfs to the application for the path prefix
+     FD seen by driver : file descriptor used by the driver for the same file prefix.
+
+ @endverbatim
+ *
+ * @param fp         File descriptor where data will be dumped
+ */
+void esp_vfs_dump_fds(FILE *fp);
+
+/**
+ * @brief Dump all registered FSs to the provided FILE*
+ *
+ * Dump the FSs in the format:
+ @verbatim
+        <index>:<VFS Path Prefix> -> <VFS entry ptr>
+
+    where:
+        index           : internal index in the table of registered FSs (the same as returned when registering fd with id)
+        VFS Path Prefix : file prefix used in the esp_vfs_register call or "NULL"
+        VFS entry ptr   : pointer to the esp_vfs_fs_ops_t struct used internally when resolving the calls
+ @endverbatim
+ *
+ * @param fp File descriptor where data will be dumped
+ */
+void esp_vfs_dump_registered_paths(FILE *fp);
 
 #ifdef __cplusplus
 } // extern "C"

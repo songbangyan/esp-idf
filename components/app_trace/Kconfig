@@ -14,6 +14,7 @@ menu "Application Level Tracing"
 
         config APPTRACE_DEST_NONE
             bool "None"
+
     endchoice
 
     config APPTRACE_DEST_UART
@@ -60,7 +61,7 @@ menu "Application Level Tracing"
     endchoice
 
     config APPTRACE_UART_TX_GPIO
-        int "UART TX on GPIO#"
+        int "UART TX on GPIO<num>"
         depends on APPTRACE_DEST_UART_NOUSB
         range 0 46
         default 12 if IDF_TARGET_ESP32
@@ -70,7 +71,7 @@ menu "Application Level Tracing"
             This GPIO is used for UART TX pin.
 
     config APPTRACE_UART_RX_GPIO
-        int "UART RX on GPIO#"
+        int "UART RX on GPIO<num>"
         depends on APPTRACE_DEST_UART_NOUSB
         range 0 46
         default 13 if IDF_TARGET_ESP32
@@ -213,7 +214,7 @@ menu "Application Level Tracing"
             depends on APPTRACE_SV_ENABLE
             default APPTRACE_SV_DEST_JTAG
             help
-                SystemView witt transfer data trough defined interface.
+                SystemView will transfer data through the defined interface.
 
             config APPTRACE_SV_DEST_JTAG
                 bool "Data destination JTAG"
@@ -231,7 +232,7 @@ menu "Application Level Tracing"
 
         choice APPTRACE_SV_CPU
             prompt "CPU to trace"
-            depends on APPTRACE_SV_DEST_UART && !FREERTOS_UNICORE
+            depends on APPTRACE_SV_DEST_UART && !ESP_SYSTEM_SINGLE_CORE_MODE
             default APPTRACE_SV_DEST_CPU_0
             help
                 Define the CPU to trace by SystemView.
@@ -252,8 +253,8 @@ menu "Application Level Tracing"
         choice APPTRACE_SV_TS_SOURCE
             prompt "Timer to use as timestamp source"
             depends on APPTRACE_SV_ENABLE
-            default APPTRACE_SV_TS_SOURCE_CCOUNT if FREERTOS_UNICORE && !PM_ENABLE && !IDF_TARGET_ESP32C3
-            default APPTRACE_SV_TS_SOURCE_GPTIMER if !FREERTOS_UNICORE && !PM_ENABLE && !IDF_TARGET_ESP32C3
+            default APPTRACE_SV_TS_SOURCE_CCOUNT if ESP_SYSTEM_SINGLE_CORE_MODE && !PM_ENABLE && !IDF_TARGET_ESP32C3
+            default APPTRACE_SV_TS_SOURCE_GPTIMER if !ESP_SYSTEM_SINGLE_CORE_MODE && !PM_ENABLE && !IDF_TARGET_ESP32C3
             default APPTRACE_SV_TS_SOURCE_ESP_TIMER if PM_ENABLE || IDF_TARGET_ESP32C3
             help
                 SystemView needs to use a hardware timer as the source of timestamps
@@ -261,7 +262,7 @@ menu "Application Level Tracing"
 
             config APPTRACE_SV_TS_SOURCE_CCOUNT
                 bool "CPU cycle counter (CCOUNT)"
-                depends on FREERTOS_UNICORE && !PM_ENABLE && !IDF_TARGET_ESP32C3
+                depends on ESP_SYSTEM_SINGLE_CORE_MODE && !PM_ENABLE && !IDF_TARGET_ESP32C3
 
             config APPTRACE_SV_TS_SOURCE_GPTIMER
                 bool "General Purpose Timer (Timer Group)"
@@ -388,5 +389,12 @@ menu "Application Level Tracing"
         default n
         help
             Enables support for GCOV data transfer to host.
+
+    config APPTRACE_GCOV_DUMP_TASK_STACK_SIZE
+        int "Gcov dump task stack size"
+        depends on APPTRACE_GCOV_ENABLE
+        default 2048
+        help
+            Configures stack size of Gcov dump task
 
 endmenu

@@ -1,16 +1,8 @@
-// Copyright 2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 /*******************************************************************************
  * NOTICE
@@ -23,13 +15,46 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include "soc/hwcrypto_reg.h"
+#include "soc/crypto_dma_reg.h"
 #include "soc/dport_reg.h"
 
 typedef enum {
     CRYPTO_DMA_AES= 0,
     CRYPTO_DMA_SHA,
 } crypto_dma_mode_t;
+
+/**
+ * @brief Enable the bus clock for crypto DMA peripheral module
+ *
+ * @param enable true to enable the module, false to disable the module
+ */
+static inline void crypto_dma_ll_enable_bus_clock(bool enable)
+{
+    if (enable) {
+        SET_PERI_REG_MASK(DPORT_PERIP_CLK_EN1_REG, DPORT_CRYPTO_DMA_CLK_EN);
+    } else {
+        CLEAR_PERI_REG_MASK(DPORT_PERIP_CLK_EN1_REG, DPORT_CRYPTO_DMA_CLK_EN);
+    }
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define crypto_dma_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; crypto_dma_ll_enable_bus_clock(__VA_ARGS__)
+
+/**
+ * @brief Reset the crypto DMA peripheral module
+ */
+static inline void crypto_dma_ll_reset_register(void)
+{
+    SET_PERI_REG_MASK(DPORT_PERIP_RST_EN1_REG, DPORT_CRYPTO_DMA_RST);
+    CLEAR_PERI_REG_MASK(DPORT_PERIP_RST_EN1_REG, DPORT_CRYPTO_DMA_RST);
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define crypto_dma_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; crypto_dma_ll_reset_register(__VA_ARGS__)
 
 /**
  * @brief Resets the DMA

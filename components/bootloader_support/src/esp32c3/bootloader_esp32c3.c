@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,11 +10,9 @@
 #include "esp_image_format.h"
 #include "flash_qio_mode.h"
 #include "esp_rom_gpio.h"
-#include "esp_rom_efuse.h"
 #include "esp_rom_uart.h"
 #include "esp_rom_sys.h"
 #include "esp_rom_spiflash.h"
-#include "soc/efuse_reg.h"
 #include "soc/gpio_sig_map.h"
 #include "soc/io_mux_reg.h"
 #include "soc/assist_debug_reg.h"
@@ -26,7 +24,6 @@
 #include "soc/io_mux_reg.h"
 #include "soc/system_reg.h"
 #include "soc/chip_revision.h"
-#include "esp32c3/rom/efuse.h"
 #include "esp32c3/rom/ets_sys.h"
 #include "bootloader_common.h"
 #include "bootloader_init.h"
@@ -44,6 +41,8 @@
 #include "hal/mmu_hal.h"
 #include "hal/cache_hal.h"
 #include "hal/efuse_hal.h"
+#include "hal/rwdt_ll.h"
+#include "hal/brownout_ll.h"
 
 static const char *TAG = "boot.esp32c3";
 
@@ -96,30 +95,30 @@ static inline void bootloader_hardware_init(void)
 
 static inline void bootloader_ana_reset_config(void)
 {
+    //Enable super WDT reset.
+    bootloader_ana_super_wdt_reset_config(true);
+
     /*
-      For origin chip & ECO1: only support swt reset;
-      For ECO2: fix brownout reset bug, support swt & brownout reset;
-      For ECO3: fix clock glitch reset bug, support all reset, include: swt & brownout & clock glitch reset.
+      For origin chip & ECO1: brownout & clock glitch reset not available
+      For ECO2: fix brownout reset bug
+      For ECO3: fix clock glitch reset bug
     */
     switch (efuse_hal_chip_revision()) {
         case 0:
         case 1:
-            //Enable WDT reset. Disable BOR and GLITCH reset
-            bootloader_ana_super_wdt_reset_config(true);
-            bootloader_ana_bod_reset_config(false);
+            //Disable BOD and GLITCH reset
+            brownout_ll_ana_reset_enable(false);
             bootloader_ana_clock_glitch_reset_config(false);
             break;
         case 2:
-            //Enable WDT and BOR reset. Disable GLITCH reset
-            bootloader_ana_super_wdt_reset_config(true);
-            bootloader_ana_bod_reset_config(true);
+            //Enable BOD reset. Disable GLITCH reset
+            brownout_ll_ana_reset_enable(true);
             bootloader_ana_clock_glitch_reset_config(false);
             break;
         case 3:
         default:
-            //Enable WDT, BOR, and GLITCH reset
-            bootloader_ana_super_wdt_reset_config(true);
-            bootloader_ana_bod_reset_config(true);
+            //Enable BOD, and GLITCH reset
+            brownout_ll_ana_reset_enable(true);
             bootloader_ana_clock_glitch_reset_config(true);
             break;
     }
@@ -161,7 +160,7 @@ esp_err_t bootloader_init(void)
 #if !CONFIG_APP_BUILD_TYPE_RAM
     //init cache hal
     cache_hal_init();
-    //reset mmu
+    //init mmu
     mmu_hal_init();
     // update flash ID
     bootloader_flash_update_id();
@@ -182,9 +181,9 @@ esp_err_t bootloader_init(void)
     if ((ret = bootloader_init_spi_flash()) != ESP_OK) {
         return ret;
     }
-#endif // !CONFIG_APP_BUILD_TYPE_RAM
+#endif  //#if !CONFIG_APP_BUILD_TYPE_RAM
 
-    // check whether a WDT reset happend
+    // check whether a WDT reset happened
     bootloader_check_wdt_reset();
     // config WDT
     bootloader_config_wdt();

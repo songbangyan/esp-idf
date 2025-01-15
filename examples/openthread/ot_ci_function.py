@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Unlicense OR CC0-1.0
 # !/usr/bin/env python3
 # this file defines some functions for testing cli and br under pytest framework
-
+import os
 import re
 import socket
 import struct
@@ -12,6 +12,7 @@ from typing import Tuple
 
 import netifaces
 import pexpect
+import yaml
 from pytest_embedded_idf.dut import IdfDut
 
 
@@ -23,6 +24,26 @@ class thread_parameter:
         self.channel = channel
         self.exaddr = exaddr
         self.bbr = bbr
+        self.networkname = ''
+        self.panid = ''
+        self.extpanid = ''
+        self.networkkey = ''
+        self.pskc = ''
+
+    def setnetworkname(self, networkname:str) -> None:
+        self.networkname = networkname
+
+    def setpanid(self, panid:str) -> None:
+        self.panid = panid
+
+    def setextpanid(self, extpanid:str) -> None:
+        self.extpanid = extpanid
+
+    def setnetworkkey(self, networkkey:str) -> None:
+        self.networkkey = networkkey
+
+    def setpskc(self, pskc:str) -> None:
+        self.pskc = pskc
 
 
 class wifi_parameter:
@@ -34,93 +55,116 @@ class wifi_parameter:
 
 
 def joinThreadNetwork(dut:IdfDut, thread:thread_parameter) -> None:
-    if thread.dataset != '':
+    if thread.dataset:
         command = 'dataset set active ' + thread.dataset
-        dut.write(command)
+        execute_command(dut, command)
         dut.expect('Done', timeout=5)
     else:
-        dut.write('dataset init new')
+        execute_command(dut, 'dataset init new')
         dut.expect('Done', timeout=5)
-        dut.write('dataset commit active')
+    if thread.channel:
+        command = 'dataset channel ' + thread.channel
+        execute_command(dut, command)
         dut.expect('Done', timeout=5)
-    if thread.channel != '':
-        command = 'channel ' + thread.channel
-        dut.write(command)
-        dut.expect('Done', timeout=5)
-    if thread.exaddr != '':
+    if thread.exaddr:
         command = 'extaddr ' + thread.exaddr
-        dut.write(command)
+        execute_command(dut, command)
         dut.expect('Done', timeout=5)
-    if thread.bbr:
-        dut.write('bbr enable')
+    if thread.networkname:
+        command = 'dataset networkname ' + thread.networkname
+        execute_command(dut, command)
         dut.expect('Done', timeout=5)
-    dut.write('ifconfig up')
+    if thread.panid:
+        command = 'dataset panid ' + thread.panid
+        execute_command(dut, command)
+        dut.expect('Done', timeout=5)
+    if thread.extpanid:
+        command = 'dataset extpanid ' + thread.extpanid
+        execute_command(dut, command)
+        dut.expect('Done', timeout=5)
+    if thread.networkkey:
+        command = 'dataset networkkey ' + thread.networkkey
+        execute_command(dut, command)
+        dut.expect('Done', timeout=5)
+    if thread.pskc:
+        command = 'dataset pskc ' + thread.pskc
+        execute_command(dut, command)
+        dut.expect('Done', timeout=5)
+    execute_command(dut, 'dataset commit active')
     dut.expect('Done', timeout=5)
-    dut.write('thread start')
-    dut.expect('Role detached ->', timeout=20)
-    if thread.deviceRole == 'leader':
-        assert getDeviceRole(dut) == 'leader'
-    elif thread.deviceRole == 'router':
-        if getDeviceRole(dut) != 'router':
-            changeDeviceRole(dut, 'router')
-            wait(dut, 10)
-            assert getDeviceRole(dut) == 'router'
-    else:
-        assert False
+    if thread.bbr:
+        execute_command(dut, 'bbr enable')
+        dut.expect('Done', timeout=5)
+    if thread.deviceRole == 'router':
+        execute_command(dut, 'routerselectionjitter 1')
+        dut.expect('Done', timeout=5)
+    execute_command(dut, 'ifconfig up')
+    dut.expect('Done', timeout=5)
+    execute_command(dut, 'thread start')
+    assert wait_for_join(dut, thread.deviceRole)
+
+
+def wait_for_join(dut:IdfDut, role:str) -> bool:
+    for _ in range(1, 30):
+        if getDeviceRole(dut) == role:
+            wait(dut, 5)
+            return True
+        wait(dut, 1)
+    return False
 
 
 def joinWiFiNetwork(dut:IdfDut, wifi:wifi_parameter) -> Tuple[str, int]:
     clean_buffer(dut)
     ip_address = ''
-    information = ''
     for order in range(1, wifi.retry_times):
-        dut.write('wifi connect -s ' + str(wifi.ssid) + ' -p ' + str(wifi.psk))
-        tmp = dut.expect(pexpect.TIMEOUT, timeout=10)
+        command = 'wifi connect -s ' + str(wifi.ssid) + ' -p ' + str(wifi.psk)
+        tmp = get_ouput_string(dut, command, 10)
         if 'sta ip' in str(tmp):
             ip_address = re.findall(r'sta ip: (\w+.\w+.\w+.\w+),', str(tmp))[0]
-        information = dut.expect(r'wifi sta (\w+ \w+ \w+)\W', timeout=20)[1].decode()
-        if information == 'is connected successfully':
-            break
-    assert information == 'is connected successfully'
-    return ip_address, order
+        wait(dut, 2)
+        execute_command(dut, 'wifi state')
+        if dut.expect('connected', timeout=5):
+            return ip_address, order
+    raise Exception(f'{dut} connect wifi {str(wifi.ssid)} with password {str(wifi.psk)} fail')
 
 
 def getDeviceRole(dut:IdfDut) -> str:
-    clean_buffer(dut)
-    dut.write('state')
-    role = dut.expect(r'state\W+(\w+)\W+Done', timeout=5)[1].decode()
+    wait(dut, 1)
+    execute_command(dut, 'state')
+    role = dut.expect(r'\W+(\w+)\W+Done', timeout=5)[1].decode()
     print(role)
     return str(role)
 
 
 def changeDeviceRole(dut:IdfDut, role:str) -> None:
     command = 'state ' + role
-    dut.write(command)
+    execute_command(dut, command)
 
 
 def getDataset(dut:IdfDut) -> str:
-    clean_buffer(dut)
-    dut.write('dataset active -x')
-    dut_data = dut.expect(r'\n(\w{212})\r', timeout=5)[1].decode()
+    execute_command(dut, 'dataset active -x')
+    dut_data = dut.expect(r'\n(\w+)\r', timeout=5)[1].decode()
     return str(dut_data)
 
 
+def init_thread(dut:IdfDut) -> None:
+    dut.expect('>', timeout=10)
+    wait(dut, 3)
+    reset_thread(dut)
+
+
 def reset_thread(dut:IdfDut) -> None:
-    dut.write(' ')
-    dut.write('state')
-    clean_buffer(dut)
-    wait(dut, 1)
-    dut.write('factoryreset')
+    execute_command(dut, 'factoryreset')
     dut.expect('OpenThread attached to netif', timeout=20)
-    dut.write(' ')
-    dut.write('state')
+    dut.expect('>', timeout=10)
+    wait(dut, 3)
+    clean_buffer(dut)
 
 
 # get the mleid address of the thread
 def get_mleid_addr(dut:IdfDut) -> str:
     dut_adress = ''
-    clean_buffer(dut)
-    dut.write('ipaddr mleid')
+    execute_command(dut, 'ipaddr mleid')
     dut_adress = dut.expect(r'\n((?:\w+:){7}\w+)\r', timeout=5)[1].decode()
     return dut_adress
 
@@ -128,8 +172,7 @@ def get_mleid_addr(dut:IdfDut) -> str:
 # get the rloc address of the thread
 def get_rloc_addr(dut:IdfDut) -> str:
     dut_adress = ''
-    clean_buffer(dut)
-    dut.write('ipaddr rloc')
+    execute_command(dut, 'ipaddr rloc')
     dut_adress = dut.expect(r'\n((?:\w+:){7}\w+)\r', timeout=5)[1].decode()
     return dut_adress
 
@@ -137,8 +180,7 @@ def get_rloc_addr(dut:IdfDut) -> str:
 # get the linklocal address of the thread
 def get_linklocal_addr(dut:IdfDut) -> str:
     dut_adress = ''
-    clean_buffer(dut)
-    dut.write('ipaddr linklocal')
+    execute_command(dut, 'ipaddr linklocal')
     dut_adress = dut.expect(r'\n((?:\w+:){7}\w+)\r', timeout=5)[1].decode()
     return dut_adress
 
@@ -147,10 +189,8 @@ def get_linklocal_addr(dut:IdfDut) -> str:
 def get_global_unicast_addr(dut:IdfDut, br:IdfDut) -> str:
     dut_adress = ''
     clean_buffer(br)
-    br.write('br omrprefix')
-    omrprefix = br.expect(r'\n((?:\w+:){4}):/\d+\r', timeout=5)[1].decode()
-    clean_buffer(dut)
-    dut.write('ipaddr')
+    omrprefix = get_omrprefix(br)
+    execute_command(dut, 'ipaddr')
     dut_adress = dut.expect(r'(%s(?:\w+:){3}\w+)\r' % str(omrprefix), timeout=5)[1].decode()
     return dut_adress
 
@@ -158,7 +198,7 @@ def get_global_unicast_addr(dut:IdfDut, br:IdfDut) -> str:
 # ping of thread
 def ot_ping(dut:IdfDut, target:str, times:int) -> Tuple[int, int]:
     command = 'ping ' + str(target) + ' 0 ' + str(times)
-    dut.write(command)
+    execute_command(dut, command)
     transmitted = dut.expect(r'(\d+) packets transmitted', timeout=30)[1].decode()
     tx_count = int(transmitted)
     received = dut.expect(r'(\d+) packets received', timeout=30)[1].decode()
@@ -218,9 +258,30 @@ def init_interface_ipv6_address() -> None:
 
 
 def get_host_interface_name() -> str:
-    interfaces = netifaces.interfaces()
-    interface_name = [s for s in interfaces if 'wl' in s][0]
-    return str(interface_name)
+    home_dir = os.path.expanduser('~')
+    config_path = os.path.join(home_dir, 'config', 'env_config.yml')
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as file:
+                config = yaml.safe_load(file)
+            interface_name = config.get('interface_name')
+            if interface_name:
+                if interface_name == 'eth0':
+                    print(
+                        f"Warning: 'eth0' is not recommended as a valid network interface. "
+                        f"Please check and update the 'interface_name' in the configuration file: "
+                        f'{config_path}'
+                    )
+                else:
+                    return str(interface_name)
+            else:
+                print("Warning: Configuration file found but 'interface_name' is not defined.")
+    except Exception as e:
+        print(f'Error: Failed to read or parse {config_path}. Details: {e}')
+    if 'eth1' in netifaces.interfaces():
+        return 'eth1'
+
+    raise Exception('Warning: No valid network interface detected. Please check your configuration.')
 
 
 def clean_buffer(dut:IdfDut) -> None:
@@ -231,8 +292,7 @@ def clean_buffer(dut:IdfDut) -> None:
 def check_if_host_receive_ra(br:IdfDut) -> bool:
     interface_name = get_host_interface_name()
     clean_buffer(br)
-    br.write('br omrprefix')
-    omrprefix = br.expect(r'\n((?:\w+:){4}):/\d+\r', timeout=5)[1].decode()
+    omrprefix = get_omrprefix(br)
     command = 'ip -6 route | grep ' + str(interface_name)
     out_str = subprocess.getoutput(command)
     print('br omrprefix: ', str(omrprefix))
@@ -254,9 +314,7 @@ thread_ipv6_group = 'ff04:0:0:0:0:0:0:125'
 
 
 def check_ipmaddr(dut:IdfDut) -> bool:
-    clean_buffer(dut)
-    dut.write('ipmaddr')
-    info = dut.expect(pexpect.TIMEOUT, timeout=2)
+    info = get_ouput_string(dut, 'ipmaddr', 2)
     if thread_ipv6_group in str(info):
         return True
     return False
@@ -264,24 +322,16 @@ def check_ipmaddr(dut:IdfDut) -> bool:
 
 def thread_is_joined_group(dut:IdfDut) -> bool:
     command = 'mcast join ' + thread_ipv6_group
-    dut.write(command)
+    execute_command(dut, command)
     dut.expect('Done', timeout=5)
     order = 0
     while order < 3:
         if check_ipmaddr(dut):
             return True
-        dut.write(command)
+        execute_command(dut, command)
         wait(dut, 2)
         order = order + 1
     return False
-
-
-def host_joined_group(group:str='') -> bool:
-    interface_name = get_host_interface_name()
-    command = 'netstat -g | grep ' + str(interface_name)
-    out_str = subprocess.getoutput(command)
-    print('groups:\n', str(out_str))
-    return group in str(out_str)
 
 
 class udp_parameter:
@@ -325,6 +375,25 @@ def create_host_udp_server(myudp:udp_parameter) -> None:
         sock.close()
 
 
+def host_udp_send_message(udp_target:udp_parameter) -> None:
+    interface_name = get_host_interface_name()
+    try:
+        if udp_target.udp_type == 'INET6':
+            AF_INET = socket.AF_INET6
+        else:
+            AF_INET = socket.AF_INET
+        sock = socket.socket(AF_INET, socket.SOCK_DGRAM)
+        sock.bind(('::', 12350))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface_name.encode())
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 32)
+        print('Host is sending message')
+        sock.sendto(udp_target.udp_bytes, (udp_target.addr, udp_target.port))
+    except socket.error:
+        print('Host cannot send message')
+    finally:
+        sock.close()
+
+
 def wait(dut:IdfDut, wait_time:float) -> None:
     dut.expect(pexpect.TIMEOUT, timeout=wait_time)
 
@@ -356,12 +425,15 @@ def host_publish_service() -> None:
 
 
 def host_close_service() -> None:
-    command = "ps | grep avahi-publish-s | awk '{print $1}'"
+    command = 'ps aux | grep avahi-publish-s'
     out_bytes = subprocess.check_output(command, shell=True, timeout=5)
     out_str = out_bytes.decode('utf-8')
-    the_pid = re.findall(r'(\d+)\n', str(out_str))
-    for pid in the_pid:
+    service_info = [line for line in out_str.splitlines() if 'testxxx _testxxx._udp' in line]
+    for line in service_info:
+        print('Process:', line)
+        pid = line.split()[1]
         command = 'kill -9 ' + pid
+        print('kill ', pid)
         subprocess.call(command, shell=True, timeout=5)
         time.sleep(1)
 
@@ -401,6 +473,26 @@ def get_domain() -> str:
     role = re.findall(r'\[([\w\W]+)\.local\]', str(out_str))[0]
     print('active host is: ', role)
     return str(role)
+
+
+def flush_ipv6_addr_by_interface() -> None:
+    interface_name = get_host_interface_name()
+    print(f'flush ipv6 addr : {interface_name}')
+    command_show_addr = f'ip -6 addr show dev {interface_name}'
+    command_show_route = f'ip -6 route show dev {interface_name}'
+    addr_before = subprocess.getoutput(command_show_addr)
+    route_before = subprocess.getoutput(command_show_route)
+    print(f'Before flush, IPv6 addresses: \n{addr_before}')
+    print(f'Before flush, IPv6 routes: \n{route_before}')
+    subprocess.run(['ip', 'link', 'set', interface_name, 'down'])
+    subprocess.run(['ip', '-6', 'addr', 'flush', 'dev', interface_name])
+    subprocess.run(['ip', '-6', 'route', 'flush', 'dev', interface_name])
+    subprocess.run(['ip', 'link', 'set', interface_name, 'up'])
+    time.sleep(5)
+    addr_after = subprocess.getoutput(command_show_addr)
+    route_after = subprocess.getoutput(command_show_route)
+    print(f'After flush, IPv6 addresses: \n{addr_after}')
+    print(f'After flush, IPv6 routes: \n{route_after}')
 
 
 class tcp_parameter:
@@ -448,12 +540,11 @@ def create_host_tcp_server(mytcp:tcp_parameter) -> None:
 
 def get_ipv6_from_ipv4(ipv4_address:str, br:IdfDut) -> str:
     clean_buffer(br)
-    br.write('br nat64prefix')
-    omrprefix = br.expect(r'\n((?:\w+:){6}):/\d+', timeout=5)[1].decode()
+    nat64prefix = get_nat64prefix(br)
     ipv4_find = re.findall(r'\d+', ipv4_address)
     ipv6_16_1 = decimal_to_hex(ipv4_find[0]) + decimal_to_hex(ipv4_find[1])
     ipv6_16_2 = decimal_to_hex(ipv4_find[2]) + decimal_to_hex(ipv4_find[3])
-    ipv6_get_from_ipv4 = omrprefix + ':' + ipv6_16_1 + ':' + ipv6_16_2
+    ipv6_get_from_ipv4 = nat64prefix + ':' + ipv6_16_1 + ':' + ipv6_16_2
     return str(ipv6_get_from_ipv4)
 
 
@@ -461,3 +552,33 @@ def decimal_to_hex(decimal_str:str) -> str:
     decimal_int = int(decimal_str)
     hex_str = hex(decimal_int)[2:]
     return hex_str
+
+
+def get_omrprefix(br:IdfDut) -> str:
+    execute_command(br, 'br omrprefix')
+    omrprefix = br.expect(r'Local: ((?:\w+:){4}):/\d+\r', timeout=5)[1].decode()
+    return str(omrprefix)
+
+
+def get_onlinkprefix(br:IdfDut) -> str:
+    execute_command(br, 'br onlinkprefix')
+    onlinkprefix = br.expect(r'Local: ((?:\w+:){4}):/\d+\r', timeout=5)[1].decode()
+    return str(onlinkprefix)
+
+
+def get_nat64prefix(br:IdfDut) -> str:
+    execute_command(br, 'br nat64prefix')
+    nat64prefix = br.expect(r'Local: ((?:\w+:){6}):/\d+', timeout=5)[1].decode()
+    return str(nat64prefix)
+
+
+def execute_command(dut:IdfDut, command:str) -> None:
+    clean_buffer(dut)
+    dut.write(command)
+
+
+def get_ouput_string(dut:IdfDut, command:str, wait_time:int) -> str:
+    execute_command(dut, command)
+    tmp = dut.expect(pexpect.TIMEOUT, timeout=wait_time)
+    clean_buffer(dut)
+    return str(tmp)

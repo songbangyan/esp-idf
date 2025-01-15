@@ -1,3 +1,3 @@
 idf_component_register(SRCS "app_main.c"
+                    PRIV_REQUIRES mqtt esp_netif
                     INCLUDE_DIRS ".")
-target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-format")

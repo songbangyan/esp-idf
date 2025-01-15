@@ -1,5 +1,5 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C6 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- |
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- |
 
 # OpenThread Border Router Example
 
@@ -7,23 +7,30 @@
 
 This example demonstrates an [OpenThread border router](https://openthread.io/guides/border-router).
 
+The ESP Thread Border Router SDK provides extra components and examples for putting the ESP Thread Border Router solution into production:
+
+* [ESP Thread Border Router Docs](https://docs.espressif.com/projects/esp-thread-br)
+* [ESP Thread Border Router Repo](https://github.com/espressif/esp-thread-br)
+
 ## How to use example
 
 ### Hardware Required
 #### **Wi-Fi based Thread Border Router**
-The following SoCs are required to run this example:
+By default, two SoCs are required to run this example:
 * An ESP32 series Wi-Fi SoC (ESP32, ESP32-C, ESP32-S, etc) loaded with this ot_br example.
-* An ESP32-H4 802.15.4 SoC loaded with [ot_rcp](../ot_rcp) example.
-* Another ESP32-H4 SoC loaded with [ot_cli](../ot_cli) example.
+* An IEEE 802.15.4 SoC (ESP32-H2) loaded with [ot_rcp](../ot_rcp) example.
+* Another IEEE 802.15.4 SoC (ESP32-H2) loaded with [ot_cli](../ot_cli) example.
 
-Connect the two SoCs via UART, below is an example setup with ESP32 DevKitC and ESP32-H4 DevKitC:
-![thread_br](image/thread-border-router-esp32-esp32h4.jpg)
+Connect the two SoCs via UART, below is an example setup with ESP32 DevKitC and ESP32-H2 DevKitC:
+![thread_br](image/thread-border-router-esp32-esp32h2.jpg)
 
-ESP32 pin | ESP32-H4 pin
+ESP32 pin | ESP32-H2 pin
 ----------|-------------
    GND    |      G
    GPIO4  |      TX
    GPIO5  |      RX
+
+The example could also run on a single SoC which supports both Wi-Fi and Thread (e.g., ESP32-C6), but since there is only one RF path in ESP32-C6, which means Wi-Fi and Thread can't receive simultaneously, it has a significant impact on performance. Hence the two SoCs solution is recommended.
 
 #### **Ethernet based Thread Border Router**
 Similar to the previous Wi-Fi based Thread Border Route setup, but a device with Ethernet interface is required, such as [ESP32-Ethernet-Kit](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/hw-reference/esp32/get-started-ethernet-kit.html)
@@ -33,11 +40,19 @@ Similar to the previous Wi-Fi based Thread Border Route setup, but a device with
 ```
 idf.py menuconfig
 ```
+OpenThread Command Line is enabled with UART as the default interface. Additionally, USB JTAG is also supported and can be activated through the menuconfig:
+
+```
+Component config → ESP System Settings → Channel for console output → USB Serial/JTAG Controller
+```
+
+In order to run the example on single SoC which supports both Wi-Fi and Thread, the option `CONFIG_ESP_COEX_SW_COEXIST_ENABLE` and option `CONFIG_OPENTHREAD_RADIO_NATIVE` should be enabled. The two options are enabled by default for ESP32-C6 target.
+
 Two ways are provided to setup the Thread Border Router in this example:
 
 - Auto Start
 Enable `OPENTHREAD_BR_AUTO_START`, configure the `CONFIG_EXAMPLE_WIFI_SSID` and `CONFIG_EXAMPLE_WIFI_PASSWORD` with your access point's ssid and psk.
-The device will connect to Wi-Fi and form a Thread network automatically after bootup.
+The device will connect to Wi-Fi and form a Thread network automatically after boot up.
 
 - Manual mode
 Disable `OPENTHREAD_BR_AUTO_START` and enable `OPENTHREAD_CLI_ESP_EXTENSION`. `wifi` command will be added for connecting the device to the Wi-Fi network.

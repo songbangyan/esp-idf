@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,11 @@
 #include "esp_image_format.h"
 #include "bootloader_config.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 /**
  * @brief Load partition table.
  *
@@ -16,7 +21,7 @@
  * OTA data partition, factory app partition, and test app partition.
  *
  * @param[out] bs Bootloader state structure used to save read data.
- * @return        Return true if the partition table was succesfully loaded and MD5 checksum is valid.
+ * @return        Return true if the partition table was successfully loaded and MD5 checksum is valid.
  */
 bool bootloader_utility_load_partition_table(bootloader_state_t* bs);
 
@@ -34,6 +39,13 @@ bool bootloader_utility_load_partition_table(bootloader_state_t* bs);
 int bootloader_utility_get_selected_boot_partition(const bootloader_state_t *bs);
 
 /**
+ * @brief Load and verify the TEE image from the selected partition
+ *
+ * @param bs Bootloader state structure
+ */
+void bootloader_utility_load_tee_image(const bootloader_state_t *bs);
+
+/**
  * @brief Load the selected partition and start application.
  *
  * Start from partition 'start_index', if not bootable then work backwards to FACTORY_INDEX
@@ -45,14 +57,19 @@ int bootloader_utility_get_selected_boot_partition(const bootloader_state_t *bs)
  * @param[in] bs Bootloader state structure.
  * @param[in] start_index The index from which the search for images begins.
  */
-__attribute__((noreturn)) void bootloader_utility_load_boot_image(const bootloader_state_t *bs, int start_index);
+__attribute__((__noreturn__)) void bootloader_utility_load_boot_image(const bootloader_state_t *bs, int start_index);
 
 #ifdef CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP
 /**
  * @brief Load that application which was worked before we go to the deep sleep.
  *
+ * If chip supports the RTC memory:
  * Checks the reboot reason if it is the deep sleep and has a valid partition in the RTC memory
  * then try to load the application which was worked before we go to the deep sleep.
+ *
+ * If chip does not support the RTC memory:
+ * Checks the reboot reason if it is the deep sleep then the partition table is read
+ * to select and load an application which was worked before we go to the deep sleep.
  *
  */
 void bootloader_utility_load_boot_image_from_deep_sleep(void);
@@ -65,7 +82,7 @@ void bootloader_utility_load_boot_image_from_deep_sleep(void);
  *
  * It is not recommended to call this function from an app (if called, the app will abort).
  */
-__attribute__((noreturn)) void bootloader_reset(void);
+__attribute__((__noreturn__)) void bootloader_reset(void);
 
 /**
  * @brief Do any cleanup before exiting the bootloader, before starting the app or resetting
@@ -120,3 +137,7 @@ void bootloader_debug_buffer(const void *buffer, size_t length, const char *labe
  * @return ESP_OK if secure boot digest is generated successfully.
  */
 esp_err_t bootloader_sha256_flash_contents(uint32_t flash_offset, uint32_t len, uint8_t *digest);
+
+#ifdef __cplusplus
+}
+#endif

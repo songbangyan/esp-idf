@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -144,9 +144,9 @@ static esp_err_t secure_boot_v2_check(bool *need_fix)
 #endif
 #endif // CONFIG_SECURE_BOOT
 
-#if CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
+#if (CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME || CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME) && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
 
-static void rsa_check_signature_on_update_check(void)
+static void check_signature_on_update_check(void)
 {
     // We rely on the keys used to sign this app to verify the next app on OTA, so make sure there is at
     // least one to avoid a stuck firmware
@@ -164,7 +164,7 @@ static void rsa_check_signature_on_update_check(void)
     }
 #endif
 }
-#endif // CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
+#endif // (CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME || CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME) && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
 
 void esp_secure_boot_init_checks(void)
 {
@@ -184,9 +184,9 @@ void esp_secure_boot_init_checks(void)
 #endif // CONFIG_SECURE_BOOT
 
 
-#if CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
-    rsa_check_signature_on_update_check();
-#endif // CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
+#if (CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME || CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME) && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
+    check_signature_on_update_check();
+#endif // (CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME || CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME) && CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
 
 }
 
@@ -298,38 +298,47 @@ bool esp_secure_boot_cfg_verify_release_mode(void)
     }
 #endif
 
-#if SOC_EFUSE_HARD_DIS_JTAG
-    secure = esp_efuse_read_field_bit(ESP_EFUSE_HARD_DIS_JTAG);
-    result &= secure;
-    if (!secure) {
-        ESP_LOGW(TAG, "Not disabled JTAG (set HARD_DIS_JTAG->1)");
-    }
-#endif
-
+    bool soft_dis_jtag_complete = false;
 #if SOC_EFUSE_SOFT_DIS_JTAG
     size_t soft_dis_jtag_cnt_val = 0;
     esp_efuse_read_field_cnt(ESP_EFUSE_SOFT_DIS_JTAG, &soft_dis_jtag_cnt_val);
-    if (soft_dis_jtag_cnt_val != ESP_EFUSE_SOFT_DIS_JTAG[0]->bit_count) {
-        result &= secure;
-        ESP_LOGW(TAG, "Not disabled JTAG in the soft way (set SOFT_DIS_JTAG->max)");
+    soft_dis_jtag_complete = (soft_dis_jtag_cnt_val == ESP_EFUSE_SOFT_DIS_JTAG[0]->bit_count);
+    if (soft_dis_jtag_complete) {
+        bool hmac_key_found = false;
+            hmac_key_found = esp_efuse_find_purpose(ESP_EFUSE_KEY_PURPOSE_HMAC_DOWN_JTAG, NULL);
+            hmac_key_found |= esp_efuse_find_purpose(ESP_EFUSE_KEY_PURPOSE_HMAC_DOWN_ALL, NULL);
+        if (!hmac_key_found) {
+            ESP_LOGW(TAG, "SOFT_DIS_JTAG is set but HMAC key with respective purpose not found");
+            soft_dis_jtag_complete = false;
+        }
     }
+#endif
+
+    if (!soft_dis_jtag_complete) {
+#if SOC_EFUSE_HARD_DIS_JTAG
+        secure = esp_efuse_read_field_bit(ESP_EFUSE_HARD_DIS_JTAG);
+        result &= secure;
+        if (!secure) {
+            ESP_LOGW(TAG, "Not disabled JTAG (set HARD_DIS_JTAG->1)");
+        }
 #endif
 
 #if SOC_EFUSE_DIS_PAD_JTAG
-    secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_PAD_JTAG);
-    result &= secure;
-    if (!secure) {
-        ESP_LOGW(TAG, "Not disabled JTAG PADs (set DIS_PAD_JTAG->1)");
-    }
+        secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_PAD_JTAG);
+        result &= secure;
+        if (!secure) {
+            ESP_LOGW(TAG, "Not disabled JTAG PADs (set DIS_PAD_JTAG->1)");
+        }
 #endif
 
 #if SOC_EFUSE_DIS_USB_JTAG
-    secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_USB_JTAG);
-    result &= secure;
-    if (!secure) {
-        ESP_LOGW(TAG, "Not disabled USB JTAG (set DIS_USB_JTAG->1)");
-    }
+        secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_USB_JTAG);
+        result &= secure;
+        if (!secure) {
+            ESP_LOGW(TAG, "Not disabled USB JTAG (set DIS_USB_JTAG->1)");
+        }
 #endif
+    }
 
 #ifdef CONFIG_SECURE_BOOT_ENABLE_AGGRESSIVE_KEY_REVOKE
     secure = esp_efuse_read_field_bit(ESP_EFUSE_SECURE_BOOT_AGGRESSIVE_REVOKE);

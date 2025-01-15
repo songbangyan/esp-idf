@@ -1,5 +1,6 @@
 Unit Testing in {IDF_TARGET_NAME}
 =================================
+
 :link_to_translation:`zh_CN:[中文]`
 
 ESP-IDF provides the following methods to test software.
@@ -141,7 +142,7 @@ Once you need one of the tests to be compiled on a specified target, just modify
       #endif //!TEMPORARY_DISABLED_FOR_TARGETS(ESP64)
       #endif //SOC_SDIO_SLAVE_SUPPORTED
 
-2. For test code that you are 100% for sure that will not be supported (e.g. no peripheral at all), use ``DISABLED_FOR_TARGETS``; for test code that should be disabled temporarily, or due to lack of runners, etc., use ``TEMPORARY_DISABLED_FOR_TARGETS``.
+2. For test code that you are 100% for sure that will not be supported (e.g., no peripheral at all), use ``DISABLED_FOR_TARGETS``; for test code that should be disabled temporarily, or due to lack of runners, etc., use ``TEMPORARY_DISABLED_FOR_TARGETS``.
 
 Some old ways of disabling unit tests for targets, that have obvious disadvantages, are deprecated:
 
@@ -183,6 +184,11 @@ Use menuconfig to set the serial port for flashing. For more information, see :i
 
 Running Unit Tests
 ------------------
+
+.. note::
+
+    We also provide the pytest-based framework `pytest-embedded <https://github.com/espressif/pytest-embedded>`_ to help make running unit-tests more convenient and efficient. If you need to run tests in CI or run multiple tests in a row we recommend checking out this project. For more information see `Pytest-embedded Docs <https://docs.espressif.com/projects/pytest-embedded/en/latest/>`_ and :doc:`/contribute/esp-idf-tests-with-pytest`.
+
 
 After flashing reset the {IDF_TARGET_NAME} and it will boot the unit test app.
 
@@ -243,13 +249,20 @@ Similar to multi-device test cases, multi-stage test cases will also print sub-m
 
 First time you execute this case, input ``1`` to run first stage (trigger deepsleep). After DUT is rebooted and able to run test cases, select this case again and input ``2`` to run the second stage. The case only passes if the last stage passes and all previous stages trigger reset.
 
+Project Structure and Automated Workflows
+-----------------------------------------
+
+A good starting point on how to structure and test an application is the `Github ESP Test Template <https://github.com/espressif/gh-esp-test-template>`_ project. It shows how to set up and run tests both in simulation and on real hardware, using GitHub CI workflows.
+
+For more complex projects, tests would typically be split into several test-apps, testing each component separately. In these cases, you can use the tool `IDF Build Apps <https://github.com/espressif/idf-build-apps>`_ to automate finding and building all test-apps in your project.
+
 
 .. _cache-compensated-timer:
 
 Timing Code with Cache Compensated Timer
 ----------------------------------------
 
-Instructions and data stored in external memory (e.g. SPI Flash and SPI RAM) are accessed through the CPU's unified instruction and data cache. When code or data is in cache, access is very fast (i.e., a cache hit).
+Instructions and data stored in external memory (e.g., SPI Flash and SPI RAM) are accessed through the CPU's unified instruction and data cache. When code or data is in cache, access is very fast (i.e., a cache hit).
 
 However, if the instruction or data is not in cache, it needs to be fetched from external memory (i.e., a cache miss). Access to external memory is significantly slower, as the CPU must execute stall cycles whilst waiting for the instruction or data to be retrieved from external memory. This can cause the overall code execution speed to vary depending on the number of cache hits or misses.
 
@@ -290,7 +303,7 @@ One of the biggest problems regarding unit testing on embedded systems are the s
 
 When testing a particular component, (i.e., the component under test), mocking allows the dependencies of the component under test to be substituted (i.e., mocked) entirely in software. Through mocking, hardware details are emulated and specified at run time, but only if necessary. To allow mocking, ESP-IDF integrates the `CMock <https://www.throwtheswitch.org/cmock>`_ mocking framework as a component. With the addition of some CMake functions in the ESP-IDF build system, it is possible to conveniently mock the entirety (or a part) of an IDF component.
 
-Ideally, all components that the component under test is dependent on should be mocked, thus allowing the test environment complete control over all interactions with the component under test. However, if mocking all dependent components becomes too complex or too tedious (e.g. because you need to mock too many function calls) you have the following options:
+Ideally, all components that the component under test is dependent on should be mocked, thus allowing the test environment complete control over all interactions with the component under test. However, if mocking all dependent components becomes too complex or too tedious (e.g., because you need to mock too many function calls) you have the following options:
 
 .. list::
     - Include more "real" IDF code in the tests. This may work but increases the dependency on the "real" code's behavior. Furthermore, once a test fails, you may not know if the failure is in your actual code under test or the "real" IDF code.
@@ -362,3 +375,8 @@ The unit test needs to inform the cmake build system to mock dependent component
 Both methods will override existing components in ESP-IDF with the component mock. The latter is particularly convenient if you use component mocks that are already supplied by IDF.
 
 Users can refer to the ``esp_event`` host-based unit test and its :component_file:`esp_event/host_test/esp_event_unit_test/CMakeLists.txt` as an example of a component mock.
+
+Application Examples
+--------------------
+
+:example:`system/unit_test` demonstrates how to use the Unity library to add unit tests to custom components in an {IDF_TARGET_NAME} development environment, showcasing features such as assertions, test registration, and the use of UNITY_BEGIN() and UNITY_END() macros.

@@ -91,7 +91,8 @@ typedef UINT16 tBTA_SYS_HW_MODULE;
 #define BTA_ID_GATTC        31           /* GATT Client */
 #define BTA_ID_GATTS        32           /* GATT Client */
 #define BTA_ID_SDP          33           /* SDP Client */
-#define BTA_ID_BLUETOOTH_MAX   34        /* last BT profile */
+#define BTA_ID_GOEPC        34           /* GOEP Client */
+#define BTA_ID_BLUETOOTH_MAX   35        /* last BT profile */
 
 /* GENERIC */
 #define BTA_ID_PRM          38
@@ -142,8 +143,8 @@ typedef void (tBTA_SYS_CONN_CBACK)(tBTA_SYS_CONN_STATUS status, UINT8 id, UINT8 
 typedef void (tBTA_SYS_SSR_CFG_CBACK)(UINT8 id, UINT8 app_id, UINT16 latency, UINT16 tout);
 
 #if (BTA_EIR_CANNED_UUID_LIST != TRUE)
-/* eir callback for adding/removeing UUID */
-typedef void (tBTA_SYS_EIR_CBACK)(UINT16 uuid16, BOOLEAN adding);
+/* eir callback for adding/removing UUID */
+typedef void (tBTA_SYS_EIR_CBACK)(tBT_UUID uuid, BOOLEAN adding);
 #endif
 
 /* registration structure */
@@ -263,12 +264,20 @@ extern void bta_sys_notify_collision (BD_ADDR_PTR p_bda);
 
 #if (BTA_EIR_CANNED_UUID_LIST != TRUE)
 extern void bta_sys_eir_register(tBTA_SYS_EIR_CBACK *p_cback);
-extern void bta_sys_add_uuid(UINT16 uuid16);
+extern void bta_sys_add_uuid(UINT16 uuid);
+extern void bta_sys_add_uuid_32(UINT32 uuid32);
+extern void bta_sys_add_uuid_128(UINT8 *uuid128);
 extern void bta_sys_remove_uuid(UINT16 uuid16);
+extern void bta_sys_remove_uuid_32(UINT32 uuid32);
+extern void bta_sys_remove_uuid_128(UINT8 *uuid128);
 #else
 #define bta_sys_eir_register(ut)
 #define bta_sys_add_uuid(ut)
+#define bta_sys_add_uuid_32(ut)
+#define bta_sys_add_uuid_128(ut)
 #define bta_sys_remove_uuid(ut)
+#define bta_sys_remove_uuid_32(ut)
+#define bta_sys_remove_uuid_128(ut)
 #endif
 
 extern void bta_sys_set_policy (UINT8 id, UINT8 policy, BD_ADDR peer_addr);

@@ -1,3 +1,7 @@
+set(priv_req mbedtls lwip esp_timer)
+set(priv_inc_dir "src/util" "src/port/esp32")
+set(requires http_parser esp_event)
+
 idf_component_register(SRCS "src/httpd_main.c"
                             "src/httpd_parse.c"
                             "src/httpd_sess.c"
@@ -6,6 +10,6 @@ idf_component_register(SRCS "src/httpd_main.c"
                             "src/httpd_ws.c"
                             "src/util/ctrl_sock.c"
                     INCLUDE_DIRS "include"
-                    PRIV_INCLUDE_DIRS "src/port/esp32" "src/util"
-                    REQUIRES esp_event http_parser # for http_parser.h
-                    PRIV_REQUIRES lwip mbedtls esp_timer)
+                    PRIV_INCLUDE_DIRS ${priv_inc_dir}
+                    REQUIRES ${requires}
+                    PRIV_REQUIRES ${priv_req})

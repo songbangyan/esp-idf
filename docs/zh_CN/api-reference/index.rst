@@ -1,6 +1,7 @@
 ********
 API 参考
 ********
+
 :link_to_translation:`en:[English]`
 
 .. toctree::
@@ -12,7 +13,7 @@ API 参考
    error-codes
    network/index
    peripherals/index
-   kconfig
    provisioning/index
    storage/index
    system/index
+   kconfig-reference

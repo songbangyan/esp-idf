@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2017-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2017-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,6 +12,7 @@
 #include "sdkconfig.h"
 #ifdef CONFIG_ESP_TLS_USING_MBEDTLS
 #include "mbedtls/ssl.h"
+#include "mbedtls/x509_crt.h"
 #ifdef CONFIG_ESP_TLS_SERVER_SESSION_TICKETS
 #include "mbedtls/ssl_ticket.h"
 #include "mbedtls/entropy.h"
@@ -70,6 +71,25 @@ typedef struct tls_keep_alive_cfg {
     int keep_alive_interval;              /*!< Keep-alive interval time (second) */
     int keep_alive_count;                 /*!< Keep-alive packet retry send count */
 } tls_keep_alive_cfg_t;
+
+/*
+* @brief ESP-TLS Address families
+*/
+typedef enum esp_tls_addr_family {
+    ESP_TLS_AF_UNSPEC = 0,                /**< Unspecified address family. */
+    ESP_TLS_AF_INET,                      /**< IPv4 address family. */
+    ESP_TLS_AF_INET6,                     /**< IPv6 address family. */
+} esp_tls_addr_family_t;
+
+/*
+* @brief ESP-TLS TLS Protocol version
+*/
+typedef enum {
+   ESP_TLS_VER_ANY = 0,         /* No preference */
+   ESP_TLS_VER_TLS_1_2 = 0x1,   /* (D)TLS 1.2 */
+   ESP_TLS_VER_TLS_1_3 = 0x2,   /* (D)TLS 1.3 */
+   ESP_TLS_VER_TLS_MAX,         /* to indicate max */
+} esp_tls_proto_ver_t;
 
 /**
  * @brief      ESP-TLS configuration parameters
@@ -141,12 +161,16 @@ typedef struct esp_tls_cfg {
     unsigned int clientkey_password_len;    /*!< String length of the password pointed to by
                                                  clientkey_password */
 
+    bool use_ecdsa_peripheral;              /*!< Use the ECDSA peripheral for the private key operations */
+
+    uint8_t ecdsa_key_efuse_blk;            /*!< The efuse block where the ECDSA key is stored */
+
     bool non_block;                         /*!< Configure non-blocking mode. If set to true the
                                                  underneath socket will be configured in non
                                                  blocking mode after tls session is established */
 
     bool use_secure_element;                /*!< Enable this option to use secure element or
-                                                 atecc608a chip ( Integrated with ESP32-WROOM-32SE ) */
+                                                 atecc608a chip */
 
     int timeout_ms;                         /*!< Network timeout in milliseconds.
                                                  Note: If this value is not set, by default the timeout is
@@ -163,9 +187,11 @@ typedef struct esp_tls_cfg {
 
     tls_keep_alive_cfg_t *keep_alive_cfg;   /*!< Enable TCP keep-alive timeout for SSL connection */
 
+#if defined(CONFIG_ESP_TLS_PSK_VERIFICATION)
     const psk_hint_key_t* psk_hint_key;     /*!< Pointer to PSK hint and key. if not NULL (and certificates are NULL)
                                                  then PSK authentication is enabled with configured setup.
                                                  Important note: the pointer must be valid for connection */
+#endif /* CONFIG_ESP_TLS_PSK_VERIFICATION */
 
     esp_err_t (*crt_bundle_attach)(void *conf);
                                             /*!< Function pointer to esp_crt_bundle_attach. Enables the use of certification
@@ -182,9 +208,13 @@ typedef struct esp_tls_cfg {
 #ifdef CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
     esp_tls_client_session_t *client_session; /*! Pointer for the client session ticket context. */
 #endif /* CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS */
+
+    esp_tls_addr_family_t addr_family;      /*!< The address family to use when connecting to a host. */
+    const int *ciphersuites_list;           /*!< Pointer to a zero-terminated array of IANA identifiers of TLS ciphersuites.
+                                                Please check the list validity by esp_tls_get_ciphersuites_list() API */
+    esp_tls_proto_ver_t tls_version;        /*!< TLS protocol version of the connection, e.g., TLS 1.2, TLS 1.3 (default - no preference) */
 } esp_tls_cfg_t;
 
-#ifdef CONFIG_ESP_TLS_SERVER
 #if defined(CONFIG_ESP_TLS_SERVER_SESSION_TICKETS)
 /**
  * @brief Data structures necessary to support TLS session tickets according to RFC5077
@@ -199,7 +229,7 @@ typedef struct esp_tls_server_session_ticket_ctx {
 } esp_tls_server_session_ticket_ctx_t;
 #endif
 
-
+#if defined(CONFIG_ESP_TLS_SERVER_CERT_SELECT_HOOK)
 /**
  * @brief tls handshake callback
  * Can be used to configure per-handshake attributes for the TLS connection.
@@ -210,7 +240,15 @@ typedef struct esp_tls_server_session_ticket_ctx {
  *         or a specific MBEDTLS_ERR_XXX code, which will cause the handhsake to abort
  */
 typedef mbedtls_ssl_hs_cb_t esp_tls_handshake_callback;
+#else
+// When CONFIG_ESP_TLS_SERVER_CERT_SELECT_HOOK is not defined,
+// the following typedef is only kept for compatibility reasons, not to be used.
+typedef void* esp_tls_handshake_callback;
+#endif
 
+/**
+ * @brief ESP-TLS Server configuration parameters
+ */
 typedef struct esp_tls_cfg_server {
     const char **alpn_protos;                   /*!< Application protocols required for HTTP2.
                                                      If HTTP2/ALPN support is required, a list
@@ -262,8 +300,12 @@ typedef struct esp_tls_cfg_server {
     unsigned int serverkey_password_len;        /*!< String length of the password pointed to by
                                                      serverkey_password */
 
+    bool use_ecdsa_peripheral;                  /*!< Use ECDSA peripheral to use private key */
+
+    uint8_t ecdsa_key_efuse_blk;                /*!< The efuse block where ECDSA key is stored */
+
     bool use_secure_element;                    /*!< Enable this option to use secure element or
-                                                 atecc608a chip ( Integrated with ESP32-WROOM-32SE ) */
+                                                 atecc608a chip */
 
 
 #if defined(CONFIG_ESP_TLS_SERVER_SESSION_TICKETS)
@@ -280,6 +322,12 @@ typedef struct esp_tls_cfg_server {
     esp_tls_handshake_callback cert_select_cb;  /*!< Certificate selection callback that gets called after ClientHello is processed.
                                                      Can be used as an SNI callback, but also has access to other
                                                      TLS extensions, such as ALPN and server_certificate_type . */
+#endif
+
+#if defined(CONFIG_ESP_TLS_PSK_VERIFICATION)
+    const psk_hint_key_t* psk_hint_key;         /*!< Pointer to PSK hint and key. if not NULL (and the certificate/key is NULL)
+                                                  then PSK authentication is enabled with configured setup.
+                                                  Important note: the pointer must be valid for connection */
 #endif
 
 } esp_tls_cfg_server_t;
@@ -308,7 +356,6 @@ esp_err_t esp_tls_cfg_server_session_tickets_init(esp_tls_cfg_server_t *cfg);
  * @param cfg server configuration as esp_tls_cfg_server_t
  */
 void esp_tls_cfg_server_session_tickets_free(esp_tls_cfg_server_t *cfg);
-#endif /* ! CONFIG_ESP_TLS_SERVER */
 
 typedef struct esp_tls esp_tls_t;
 
@@ -425,7 +472,7 @@ int esp_tls_conn_http_new_async(const char *url, const esp_tls_cfg_t *cfg, esp_t
  *             - >=0  if write operation was successful, the return value is the number
  *                   of bytes actually written to the TLS/SSL connection.
  *             - <0  if write operation was not successful, because either an
- *                   error occured or an action must be taken by the calling process.
+ *                   error occurred or an action must be taken by the calling process.
  *             - ESP_TLS_ERR_SSL_WANT_READ/
  *               ESP_TLS_ERR_SSL_WANT_WRITE.
  *                  if the handshake is incomplete and waiting for data to be available for reading.
@@ -446,7 +493,7 @@ ssize_t esp_tls_conn_write(esp_tls_t *tls, const void *data, size_t datalen);
  *             -  0  if read operation was not successful. The underlying
  *                   connection was closed.
  *             - <0  if read operation was not successful, because either an
- *                   error occured or an action must be taken by the calling process.
+ *                   error occurred or an action must be taken by the calling process.
  */
 ssize_t esp_tls_conn_read(esp_tls_t *tls, void  *data, size_t datalen);
 
@@ -492,6 +539,42 @@ ssize_t esp_tls_get_bytes_avail(esp_tls_t *tls);
 esp_err_t esp_tls_get_conn_sockfd(esp_tls_t *tls, int *sockfd);
 
 /**
+ * @brief       Sets the connection socket file descriptor for the esp_tls session
+ *
+ * @param[in]   tls          handle to esp_tls context
+ *
+ * @param[in]   sockfd       sockfd value to set.
+ *
+ * @return     - ESP_OK on success and value of sockfd for the tls connection shall updated with the provided value
+ *             - ESP_ERR_INVALID_ARG if (tls == NULL || sockfd < 0)
+ */
+esp_err_t esp_tls_set_conn_sockfd(esp_tls_t *tls, int sockfd);
+
+/**
+ * @brief       Gets the connection state for the esp_tls session
+ *
+ * @param[in]   tls          handle to esp_tls context
+ *
+ * @param[out]   conn_state   pointer to the connection state value.
+ *
+ * @return     - ESP_OK on success and value of sockfd for the tls connection shall updated with the provided value
+ *             - ESP_ERR_INVALID_ARG (Invalid arguments)
+ */
+esp_err_t esp_tls_get_conn_state(esp_tls_t *tls, esp_tls_conn_state_t *conn_state);
+
+/**
+ * @brief       Sets the connection state for the esp_tls session
+ *
+ * @param[in]   tls          handle to esp_tls context
+ *
+ * @param[in]   conn_state   connection state value to set.
+ *
+ * @return     - ESP_OK on success and value of sockfd for the tls connection shall updated with the provided value
+ *             - ESP_ERR_INVALID_ARG (Invalid arguments)
+ */
+esp_err_t esp_tls_set_conn_state(esp_tls_t *tls, esp_tls_conn_state_t conn_state);
+
+/**
  * @brief       Returns the ssl context
  *
  * @param[in]   tls          handle to esp_tls context
@@ -511,7 +594,7 @@ void *esp_tls_get_ssl_context(esp_tls_t *tls);
  *
  * @return
  *             - ESP_OK             if creating global CA store was successful.
- *             - ESP_ERR_NO_MEM     if an error occured when allocating the mbedTLS resources.
+ *             - ESP_ERR_NO_MEM     if an error occurred when allocating the mbedTLS resources.
  */
 esp_err_t esp_tls_init_global_ca_store(void);
 
@@ -530,7 +613,7 @@ esp_err_t esp_tls_init_global_ca_store(void);
  *
  * @return
  *             - ESP_OK  if adding certificates was successful.
- *             - Other   if an error occured or an action must be taken by the calling process.
+ *             - Other   if an error occurred or an action must be taken by the calling process.
  */
 esp_err_t esp_tls_set_global_ca_store(const unsigned char *cacert_pem_buf, const unsigned int cacert_pem_bytes);
 
@@ -602,8 +685,52 @@ esp_err_t esp_tls_get_error_handle(esp_tls_t *tls, esp_tls_error_handle_t *error
  */
 mbedtls_x509_crt *esp_tls_get_global_ca_store(void);
 
+/**
+ * @brief Get supported TLS ciphersuites list.
+ *
+ * See https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4 for the list of ciphersuites
+ *
+ * @return  Pointer to a zero-terminated array of IANA identifiers of TLS ciphersuites.
+ *
+ */
+const int *esp_tls_get_ciphersuites_list(void);
+
+/**
+ * @brief      Initialize server side TLS/SSL connection
+ *
+ * This function should be used to initialize the server side TLS/SSL connection when the
+ * application wants to handle the TLS/SSL connection asynchronously with the help of
+ * esp_tls_server_session_continue_async() function.
+ *
+ * @param[in]  cfg      Pointer to esp_tls_cfg_server_t
+ * @param[in]  sockfd   FD of accepted connection
+ * @param[out] tls      Pointer to allocated esp_tls_t
+ *
+ * @return
+ *          - ESP_OK if successful
+ *          - ESP_ERR_INVALID_ARG if invalid arguments
+ *          - ESP_FAIL if server session setup failed
+ */
+esp_err_t esp_tls_server_session_init(esp_tls_cfg_server_t *cfg, int sockfd, esp_tls_t *tls);
+
+/**
+ * @brief      Asynchronous continue of esp_tls_server_session_init
+ *
+ * This function should be called in a loop by the user until it returns 0. If this functions returns
+ * something other than 0, ESP_TLS_ERR_SSL_WANT_READ or ESP_TLS_ERR_SSL_WANT_WRITE,
+ * the esp-tls context must not be used and should be freed using esp_tls_conn_destroy();
+ *
+ * @param[in]  tls  pointer to esp_tls_t
+ *
+ * @return
+ *          - 0  if successful
+ *          - <0 in case of error
+ *          - ESP_TLS_ERR_SSL_WANT_READ/ESP_TLS_ERR_SSL_WANT_WRITE
+ *            if the handshake is incomplete and waiting for data to be available for reading.
+ */
+int esp_tls_server_session_continue_async(esp_tls_t *tls);
+
 #endif /* CONFIG_ESP_TLS_USING_MBEDTLS */
-#ifdef CONFIG_ESP_TLS_SERVER
 /**
  * @brief      Create TLS/SSL server session
  *
@@ -629,7 +756,6 @@ int esp_tls_server_session_create(esp_tls_cfg_server_t *cfg, int sockfd, esp_tls
  * @param[in]  tls  pointer to esp_tls_t
  */
 void esp_tls_server_session_delete(esp_tls_t *tls);
-#endif /* ! CONFIG_ESP_TLS_SERVER */
 
 /**
  * @brief Creates a plain TCP connection, returning a valid socket fd on success or an error handle

@@ -9,12 +9,17 @@ ESP-IDF v5.0 已不再支持基于 Make 的工程，请参考 :ref:`从 ESP-IDF 
 更新片段文件语法
 ----------------------------
 
-请参考 :ref:`将链接器脚本片段文件语法迁移至 ESP-IDF v5.0 适应版本 <ldgen-migrate-lf-grammar>` 对 v3.x 的语法进行更新。
+ESP-IDF v5.0 中将不再支持 ESP-IDF v3.x 中链接器脚本片段文件的旧式语法。在迁移的过程中需注意以下几点：
+
+- 必须缩进，缩进不当的文件会产生解析异常；旧版本不强制缩进，但之前的文档和示例均遵循了正确的缩进语法。
+- 条件改用 ``if...elif...else`` 结构，可以参照 :ref:`之前的章节<ldgen-conditional-placements>`。
+- 映射片段和其他片段类型一样，需有名称。
+
 
 明确指定组件依赖
 -----------------------------------------
 
-在之前的 ESP-IDF 版本中，除了 :ref:`通用组件依赖项 <component-common-requirements>`，还有一些组件总是作为公共依赖项在构建中被添加至每个组件中，如：
+在之前的 ESP-IDF 版本中，除了 :ref:`通用组件依赖项 <component-common-requirements>`，还有一些组件总是作为公共依赖项，在构建时添加至每个组件中，如：
 
 * ``driver``
 * ``efuse``
@@ -72,7 +77,7 @@ ESP-IDF v5.0 修复了组件的 CMake 变量传播问题。此问题导致本应
 更新 CMake 版本
 -----------------------
 
-在 ESP-IDF v5.0 中，最低 CMake 版本已更新到 3.16，并且不再支持低于 3.16 的版本。如果您的操作系统没有安装 CMake，请运行 ``tools/idf_tools.py install cmake`` 来安装合适的版本。
+在 ESP-IDF v5.0 中，最低 CMake 版本已更新到 3.16，并且不再支持低于 3.16 的版本。如果你的操作系统没有安装 CMake，请运行 ``tools/idf_tools.py install cmake`` 来安装合适的版本。
 
 该变更会影响到使用系统提供的 CMake 以及自定义 CMake 的 ESP-IDF 用户。
 

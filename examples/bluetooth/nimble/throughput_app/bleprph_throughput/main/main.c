@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -124,7 +124,7 @@ gatts_advertise(void)
 
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
-        ESP_LOGE(tag, "Error setting advertisement data; rc=%d\n", rc);
+        ESP_LOGE(tag, "Error setting advertisement data; rc=%d", rc);
         return;
     }
 
@@ -135,7 +135,7 @@ gatts_advertise(void)
     rc = ble_gap_adv_start(gatts_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, gatts_gap_event, NULL);
     if (rc != 0) {
-        ESP_LOGE(tag, "Error enabling advertisement; rc=%d\n", rc);
+        ESP_LOGE(tag, "Error enabling advertisement; rc=%d", rc);
         return;
     }
 }
@@ -185,14 +185,14 @@ notify_task(void *arg)
 
                 /* Check if the MBUFs are available */
                 if (os_msys_num_free() >= MIN_REQUIRED_MBUF) {
-                    om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
-                    if (om == NULL) {
-                        /* Memory not available for mbuf */
-                        ESP_LOGE(tag, "No MBUFs available from pool, retry..");
-                        vTaskDelay(100 / portTICK_PERIOD_MS);
+                    do {
                         om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
-                        assert(om != NULL);
-                    }
+                        if (om == NULL) {
+                            /* Memory not available for mbuf */
+                            ESP_LOGE(tag, "No MBUFs available from pool, retry..");
+                            vTaskDelay(100 / portTICK_PERIOD_MS);
+                        }
+                    } while (om == NULL);
 
                     rc = ble_gatts_notify_custom(conn_handle, notify_handle, om);
                     if (rc != 0) {
@@ -210,6 +210,7 @@ notify_task(void *arg)
                     ESP_LOGE(tag, "Not enough OS_MBUFs available; reduce notify count ");
                     xSemaphoreGive(notify_sem);
                     notify_count -= 1;
+                    vTaskDelay(10 / portTICK_PERIOD_MS);
                 }
 
                 end_time = esp_timer_get_time();
@@ -238,29 +239,29 @@ gatts_gap_event(struct ble_gap_event *event, void *arg)
     int rc;
 
     switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed */
         ESP_LOGI(tag, "connection %s; status = %d ",
-                 event->connect.status == 0 ? "established" : "failed",
-                 event->connect.status);
+                 event->link_estab.status == 0 ? "established" : "failed",
+                 event->link_estab.status);
         rc = ble_att_set_preferred_mtu(PREFERRED_MTU_VALUE);
         if (rc != 0) {
             ESP_LOGE(tag, "Failed to set preferred MTU; rc = %d", rc);
         }
 
-        if (event->connect.status != 0) {
+        if (event->link_estab.status != 0) {
             /* Connection failed; resume advertising */
             gatts_advertise();
         }
 
-        rc = ble_hs_hci_util_set_data_len(event->connect.conn_handle,
+        rc = ble_hs_hci_util_set_data_len(event->link_estab.conn_handle,
                                           LL_PACKET_LENGTH,
                                           LL_PACKET_TIME);
         if (rc != 0) {
             ESP_LOGE(tag, "Set packet length failed");
         }
 
-        conn_handle = event->connect.conn_handle;
+        conn_handle = event->link_estab.conn_handle;
         break;
 
     case BLE_GAP_EVENT_DISCONNECT:
@@ -343,7 +344,7 @@ gatts_on_sync(void)
 static void
 gatts_on_reset(int reason)
 {
-    ESP_LOGE(tag, "Resetting state; reason=%d\n", reason);
+    ESP_LOGE(tag, "Resetting state; reason=%d", reason);
 }
 
 void gatts_host_task(void *param)

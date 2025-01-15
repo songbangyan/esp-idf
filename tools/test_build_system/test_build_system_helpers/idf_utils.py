@@ -1,14 +1,13 @@
-# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
 import typing
 from pathlib import Path
-from typing import Pattern, Union
+from typing import Union
 
 try:
     EXT_IDF_PATH = os.environ['IDF_PATH']  # type: str
@@ -60,7 +59,9 @@ def run_idf_py(*args: str,
                env: typing.Optional[EnvDict] = None,
                idf_path: typing.Optional[typing.Union[str,Path]] = None,
                workdir: typing.Optional[str] = None,
-               check: bool = True) -> subprocess.CompletedProcess:
+               check: bool = True,
+               python: typing.Optional[str] = None,
+               input_str: typing.Optional[str] = None) -> subprocess.CompletedProcess:
     """
     Run idf.py command with given arguments, raise an exception on failure
     :param args: arguments to pass to idf.py
@@ -68,19 +69,20 @@ def run_idf_py(*args: str,
     :param idf_path: path to the IDF copy to use; if not set, IDF_PATH from the 'env' argument is used
     :param workdir: directory where to run the build; if not set, the current directory is used
     :param check: check process exits with a zero exit code, if false all retvals are accepted without failing the test
+    :param python: absolute path to python interpreter
+    :param input_str: input to idf.py
     """
-    env_dict = dict(**os.environ)
-    if env is not None:
-        env_dict.update(env)
+    if not env:
+        env = dict(**os.environ)
     if not workdir:
         workdir = os.getcwd()
     # order: function argument -> value in env dictionary -> system environment
     if idf_path is None:
-        idf_path = env_dict.get('IDF_PATH')
+        idf_path = env.get('IDF_PATH')
         if not idf_path:
             raise ValueError('IDF_PATH must be set in the env array if idf_path argument is not set')
-
-    python = find_python(env_dict['PATH'])
+    if python is None:
+        python = find_python(env['PATH'])
 
     cmd = [
         python,
@@ -88,35 +90,61 @@ def run_idf_py(*args: str,
     ]
     cmd += args  # type: ignore
     logging.debug('running {} in {}'.format(' '.join(cmd), workdir))
-    return subprocess.run(
-        cmd, env=env_dict, cwd=workdir,
-        check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding='utf-8', errors='backslashreplace')
+    try:
+        return subprocess.run(
+            cmd, env=env, cwd=workdir,
+            check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding='utf-8', errors='backslashreplace', input=input_str)
+    except subprocess.CalledProcessError as e:
+        logging.error('The following idf.py command has failed: {}'.format(' '.join(cmd)))
+        logging.error('Working directory: {}'.format(workdir))
+        logging.error('Stdout: {}'.format(e.stdout))
+        logging.error('Stderr: {}'.format(e.stderr))
+        raise
 
 
-def run_cmake(*cmake_args: str, env: typing.Optional[EnvDict] = None) -> None:
+def run_cmake(*cmake_args: str,
+              env: typing.Optional[EnvDict] = None,
+              check: bool = True,
+              workdir: typing.Optional[Union[Path,str]] = None) -> subprocess.CompletedProcess:
     """
     Run cmake command with given arguments, raise an exception on failure
     :param cmake_args: arguments to pass cmake
     :param env: environment variables to run the cmake with; if not set, the default environment is used
+    :param check: check process exits with a zero exit code, if false all retvals are accepted without failing the test
+    :param workdir: directory where to run cmake; if not set, the current directory is used
     """
     if not env:
         env = dict(**os.environ)
-    workdir = (Path(os.getcwd()) / 'build')
-    workdir.mkdir(parents=True, exist_ok=True)
+
+    if workdir:
+        build_dir = Path(workdir, 'build')
+    else:
+        build_dir = (Path(os.getcwd()) / 'build')
+
+    build_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = ['cmake'] + list(cmake_args)
 
-    logging.debug('running {} in {}'.format(' '.join(cmd), workdir))
-    subprocess.check_call(
-        cmd, env=env, cwd=workdir,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    logging.debug('running {} in {}'.format(' '.join(cmd), build_dir))
+    try:
+        return subprocess.run(
+            cmd, env=env, cwd=build_dir,
+            check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding='utf-8', errors='backslashreplace')
+    except subprocess.CalledProcessError as e:
+        logging.error('The following cmake command has failed: {}'.format(' '.join(cmd)))
+        logging.error('Working directory: {}'.format(workdir))
+        logging.error('Stdout: {}'.format(e.stdout))
+        logging.error('Stderr: {}'.format(e.stderr))
+        raise
 
 
-def check_file_contains(filename: Union[str, Path], what: Union[str, Pattern]) -> None:
-    with open(filename, 'r', encoding='utf-8') as f:
-        data = f.read()
-        if isinstance(what, str):
-            assert what in data
-        else:
-            assert re.search(what, data) is not None
+def run_cmake_and_build(*cmake_args: str, env: typing.Optional[EnvDict] = None) -> None:
+    """
+    Run cmake command with given arguments and build afterwards, raise an exception on failure
+    :param cmake_args: arguments to pass cmake
+    :param env: environment variables to run the cmake with; if not set, the default environment is used
+    """
+    run_cmake(*cmake_args, env=env)
+    run_cmake('--build', '.')

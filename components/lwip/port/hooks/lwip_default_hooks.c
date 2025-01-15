@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -41,19 +41,45 @@ const ip6_addr_t *__weak lwip_hook_nd6_get_gw(struct netif *netif, const ip6_add
     LWIP_UNUSED_ARG(netif);
     LWIP_UNUSED_ARG(dest);
 
-    return 0;
+    return NULL;
+}
+#endif
+
+#ifdef CONFIG_LWIP_HOOK_IP6_SELECT_SRC_ADDR_DEFAULT
+const ip_addr_t *__weak lwip_hook_ip6_select_source_address(struct netif *netif, const ip6_addr_t *dest)
+{
+    LWIP_UNUSED_ARG(netif);
+    LWIP_UNUSED_ARG(dest);
+
+    return NULL;
 }
 #endif
 
 #ifdef CONFIG_LWIP_HOOK_IP6_INPUT_DEFAULT
+/**
+ * @brief The default IPv6 input hook checks if we already have an IPv6 address (netif->ip6_addr[0] is link local),
+ * so we drop all incoming IPv6 packets if the input netif has no LL address.
+ *
+ * LWIP accepts IPv6 multicast packets even if the ip6_addr[] for the given address wasn't set,
+ * this may cause trouble if we enable IPv6 SLAAC (LWIP_IPV6_AUTOCONFIG), but have not created any LL address.
+ * If the router sends a packet to all nodes 0xff01::1 with RDNSS servers, it would be accepted and rewrite
+ * DNS server info with IPv6 values (which won't be routable without any IPv6 address assigned)
+ */
 int __weak lwip_hook_ip6_input(struct pbuf *p, struct netif *inp)
 {
-    LWIP_UNUSED_ARG(p);
-    LWIP_UNUSED_ARG(inp);
-
+    /* Check if the first IPv6 address (link-local) is unassigned (all zeros).
+     * If the address is empty, it indicates that no link-local address has been configured,
+     * and the interface should not accept incoming IPv6 traffic. */
+    if (ip6_addr_isany(ip_2_ip6(&inp->ip6_addr[0]))) {
+        /* We don't have an LL address -> eat this packet here, so it won't get accepted on the input netif */
+        pbuf_free(p);
+        return 1;
+    }
     return 0;
 }
 #endif
+
+#ifdef CONFIG_LWIP_IPV4
 
 #ifdef LWIP_HOOK_IP4_ROUTE_SRC
 #if ESP_IP4_ROUTE
@@ -112,11 +138,11 @@ ip4_route_src_hook(const ip4_addr_t *src,const ip4_addr_t *dest)
 #if LWIP_DHCP_ENABLE_VENDOR_SPEC_IDS
 #define DHCP_OPTION_VSI             43
 #define DHCP_OPTION_VCI             60
-#define DHCP_OPTION_VSI_MAX         16
+#define DHCP_OPTION_VSI_MAX         64
 
 static u8_t vendor_class_len = 0;
 static char *vendor_class_buf = NULL;
-static u32_t dhcp_option_vsi[DHCP_OPTION_VSI_MAX] = {0};
+static u8_t dhcp_option_vsi[DHCP_OPTION_VSI_MAX];
 
 void dhcp_free_vendor_class_identifier(void)
 {
@@ -197,16 +223,10 @@ void dhcp_parse_extra_opts(struct dhcp *dhcp, uint8_t state, uint8_t option, uin
     if ((option == DHCP_OPTION_VSI) &&
              (state == DHCP_STATE_REBOOTING || state == DHCP_STATE_REBINDING ||
               state == DHCP_STATE_RENEWING  || state == DHCP_STATE_REQUESTING || state == DHCP_STATE_SELECTING)) {
-      u8_t n;
-      u32_t value;
       u16_t copy_len;
-      for (n = 0; n < DHCP_OPTION_VSI_MAX && len > 0; n++) {
-        copy_len = LWIP_MIN(len, 4);
-        LWIP_ERROR("dhcp_parse_extra_opts(): extracting VSI option failed",
-           pbuf_copy_partial(p, &value, copy_len, offset) == copy_len, return;);
-        dhcp_option_vsi[n] = lwip_htonl(value);
-        len -= copy_len;
-      }
+      copy_len = LWIP_MIN(len, sizeof(dhcp_option_vsi));
+      LWIP_ERROR("dhcp_parse_extra_opts(): extracting VSI option failed",
+         pbuf_copy_partial(p, &dhcp_option_vsi, copy_len, offset) == copy_len, return;);
     } /* DHCP_OPTION_VSI */
 #endif /* LWIP_DHCP_ENABLE_VENDOR_SPEC_IDS */
 }
@@ -270,3 +290,5 @@ void dhcp_append_extra_opts(struct netif *netif, uint8_t state, struct dhcp_msg 
 #endif /* LWIP_DHCP_ENABLE_VENDOR_SPEC_IDS */
 
 }
+
+#endif /* CONFIG_LWIP_IPV4 */

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,10 @@
 
 #include <inttypes.h>
 #include "esp_assert.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief ESP chip ID
@@ -18,12 +22,10 @@ typedef enum {
     ESP_CHIP_ID_ESP32C3 = 0x0005, /*!< chip ID: ESP32-C3 */
     ESP_CHIP_ID_ESP32S3 = 0x0009, /*!< chip ID: ESP32-S3 */
     ESP_CHIP_ID_ESP32C2 = 0x000C, /*!< chip ID: ESP32-C2 */
-#if CONFIG_IDF_TARGET_ESP32H4_BETA_VERSION_2
-    ESP_CHIP_ID_ESP32H4 = 0x000E, /*!< chip ID: ESP32-H4 Beta2*/  // ESP32H4-TODO: IDF-3475
-#elif CONFIG_IDF_TARGET_ESP32H4_BETA_VERSION_1
-    ESP_CHIP_ID_ESP32H4 = 0x000A, /*!< chip ID: ESP32-H4 Beta1 */
-#endif
     ESP_CHIP_ID_ESP32C6 = 0x000D, /*!< chip ID: ESP32-C6 */
+    ESP_CHIP_ID_ESP32H2 = 0x0010, /*!< chip ID: ESP32-H2 */
+    ESP_CHIP_ID_ESP32P4 = 0x0012, /*!< chip ID: ESP32-P4 */
+    ESP_CHIP_ID_ESP32C5 = 0x0017, /*!< chip ID: ESP32-C5 */
     ESP_CHIP_ID_INVALID = 0xFFFF /*!< Invalid chip ID (we defined it to make sure the esp_chip_id_t is 2 bytes size) */
 } __attribute__((packed)) esp_chip_id_t;
 
@@ -115,3 +117,7 @@ typedef struct {
 } esp_image_segment_header_t;
 
 #define ESP_IMAGE_MAX_SEGMENTS 16           /*!< Max count of segments in the image. */
+
+#ifdef __cplusplus
+}
+#endif

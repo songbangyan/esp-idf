@@ -20,10 +20,10 @@
             "requirement_path": "tools/requirements/requirements.pytest.txt"
         },
         {
-            "name": "ttfw",
-            "description": "Packages for CI with ttfw",
+            "name": "test-specific",
+            "description": "Packages for specific test scripts",
             "optional": true,
-            "requirement_path": "tools/requirements/requirements.ttfw.txt"
+            "requirement_path": "tools/requirements/requirements.test-specific.txt"
         },
         {
             "name": "ci",

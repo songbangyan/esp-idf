@@ -1,34 +1,20 @@
+# SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
 # internal use only for CI
 # some CI related util functions
-#
-# SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
-# SPDX-License-Identifier: Apache-2.0
-#
-import contextlib
-import io
 import logging
 import os
+import re
 import subprocess
 import sys
-from contextlib import redirect_stdout
-from dataclasses import dataclass
+import typing as t
+from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional, Set, Union
 
-try:
-    from idf_py_actions.constants import PREVIEW_TARGETS, SUPPORTED_TARGETS
-except ImportError:
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-    from idf_py_actions.constants import PREVIEW_TARGETS, SUPPORTED_TARGETS
-
-if TYPE_CHECKING:
-    from _pytest.python import Function
-
-IDF_PATH = os.path.abspath(os.getenv('IDF_PATH', os.path.join(os.path.dirname(__file__), '..', '..')))
+IDF_PATH: str = os.path.abspath(os.getenv('IDF_PATH', os.path.join(os.path.dirname(__file__), '..', '..')))
 
 
-def get_submodule_dirs(full_path: bool = False) -> List[str]:
+def get_submodule_dirs(full_path: bool = False) -> t.List[str]:
     """
     To avoid issue could be introduced by multi-os or additional dependency,
     we use python and git to get this output
@@ -86,7 +72,7 @@ def is_executable(full_path: str) -> bool:
     return os.access(full_path, os.X_OK)
 
 
-def get_git_files(path: str = IDF_PATH, full_path: bool = False) -> List[str]:
+def get_git_files(path: str = IDF_PATH, full_path: bool = False) -> t.List[str]:
     """
     Get the result of git ls-files
     :param path: path to run git ls-files
@@ -113,11 +99,10 @@ def get_git_files(path: str = IDF_PATH, full_path: bool = False) -> List[str]:
     return [os.path.join(path, f) for f in files] if full_path else files
 
 
-def is_in_directory(file_path: str, folder: str) -> bool:
-    return os.path.realpath(file_path).startswith(os.path.realpath(folder) + os.sep)
+def to_list(s: t.Any) -> t.List[t.Any]:
+    if not s:
+        return []
 
-
-def to_list(s: Any) -> List[Any]:
     if isinstance(s, (set, tuple)):
         return list(s)
 
@@ -127,213 +112,164 @@ def to_list(s: Any) -> List[Any]:
     return [s]
 
 
-####################
-# Pytest Utilities #
-####################
-@dataclass
-class PytestApp:
-    path: str
-    target: str
-    config: str
+class GitlabYmlConfig:
+    def __init__(self, root_yml_filepath: str = os.path.join(IDF_PATH, '.gitlab-ci.yml')) -> None:
+        self._config: t.Dict[str, t.Any] = {}
+        self._defaults: t.Dict[str, t.Any] = {}
 
-    def __hash__(self) -> int:
-        return hash((self.path, self.target, self.config))
+        self._load(root_yml_filepath)
 
+    def _load(self, root_yml_filepath: str) -> None:
+        # avoid unused import in other pre-commit hooks
+        import yaml
 
-@dataclass
-class PytestCase:
-    path: str
-    name: str
-    apps: Set[PytestApp]
+        all_config = dict()
+        root_yml = yaml.load(open(root_yml_filepath), Loader=yaml.FullLoader)
 
-    nightly_run: bool
+        # expanding "include"
+        for item in root_yml.pop('include', []) or []:
+            all_config.update(yaml.load(open(os.path.join(IDF_PATH, item)), Loader=yaml.FullLoader))
 
-    def __hash__(self) -> int:
-        return hash((self.path, self.name, self.apps, self.nightly_run))
+        if 'default' in all_config:
+            self._defaults = all_config.pop('default')
 
+        self._config = all_config
 
-class PytestCollectPlugin:
-    def __init__(self, target: str) -> None:
-        self.target = target
-        self.cases: List[PytestCase] = []
+        # anchor is the string that will be reused in templates
+        self._anchor_keys: t.Set[str] = set()
+        # template is a dict that will be extended
+        self._template_keys: t.Set[str] = set()
+        self._used_template_keys: t.Set[str] = set()  # tracing the used templates
+        # job is a dict that will be executed
+        self._job_keys: t.Set[str] = set()
 
-    @staticmethod
-    def get_param(item: 'Function', key: str, default: Any = None) -> Any:
-        if not hasattr(item, 'callspec'):
-            raise ValueError(f'Function {item} does not have params')
+        self.expand_extends()
 
-        return item.callspec.params.get(key, default) or default
+    @property
+    def default(self) -> t.Dict[str, t.Any]:
+        return self._defaults
 
-    def pytest_report_collectionfinish(self, items: List['Function']) -> None:
-        from pytest_embedded.plugin import parse_multi_dut_args
+    @property
+    def config(self) -> t.Dict[str, t.Any]:
+        return self._config
 
-        for item in items:
-            count = 1
-            case_path = str(item.path)
-            case_name = item.originalname
-            target = self.target
-            # funcargs is not calculated while collection
-            if hasattr(item, 'callspec'):
-                count = item.callspec.params.get('count', 1)
-                app_paths = to_list(
-                    parse_multi_dut_args(
-                        count,
-                        self.get_param(item, 'app_path', os.path.dirname(case_path)),
-                    )
-                )
-                configs = to_list(parse_multi_dut_args(count, self.get_param(item, 'config', 'default')))
-                targets = to_list(parse_multi_dut_args(count, self.get_param(item, 'target', target)))
+    @cached_property
+    def global_keys(self) -> t.List[str]:
+        return ['default', 'include', 'workflow', 'variables', 'stages']
+
+    @cached_property
+    def anchors(self) -> t.Dict[str, t.Any]:
+        return {k: v for k, v in self.config.items() if k in self._anchor_keys}
+
+    @cached_property
+    def jobs(self) -> t.Dict[str, t.Any]:
+        return {k: v for k, v in self.config.items() if k in self._job_keys}
+
+    @cached_property
+    def templates(self) -> t.Dict[str, t.Any]:
+        return {k: v for k, v in self.config.items() if k in self._template_keys}
+
+    @cached_property
+    def used_templates(self) -> t.Set[str]:
+        return self._used_template_keys
+
+    def expand_extends(self) -> None:
+        """
+        expand the `extends` key in-place.
+        """
+        for k, v in self.config.items():
+            if k in self.global_keys:
+                continue
+
+            if isinstance(v, (str, list)):
+                self._anchor_keys.add(k)
+            elif k.startswith('.if-'):
+                self._anchor_keys.add(k)
+            elif k.startswith('.'):
+                self._template_keys.add(k)
+            elif isinstance(v, dict):
+                self._job_keys.add(k)
             else:
-                app_paths = [os.path.dirname(case_path)]
-                configs = ['default']
-                targets = [target]
+                raise ValueError(f'Unknown type for key {k} with value {v}')
 
-            case_apps = set()
-            for i in range(count):
-                case_apps.add(PytestApp(app_paths[i], targets[i], configs[i]))
+        # no need to expand anchor
 
-            self.cases.append(
-                PytestCase(
-                    case_path,
-                    case_name,
-                    case_apps,
-                    'nightly_run' in [marker.name for marker in item.iter_markers()],
-                )
-            )
+        # expand template first
+        for k in self._template_keys:
+            self._expand_extends(k)
 
+        # expand job
+        for k in self._job_keys:
+            self._expand_extends(k)
 
-def get_pytest_files(paths: List[str]) -> List[str]:
-    # this is a workaround to solve pytest collector super slow issue
-    # benchmark with
-    # - time pytest -m esp32 --collect-only
-    #   user=15.57s system=1.35s cpu=95% total=17.741
-    # - time { find -name 'pytest_*.py'; } | xargs pytest -m esp32 --collect-only
-    #   user=0.11s system=0.63s cpu=36% total=2.044
-    #   user=1.76s system=0.22s cpu=43% total=4.539
-    # use glob.glob would also save a bunch of time
-    pytest_scripts: Set[str] = set()
-    for p in paths:
-        path = Path(p)
-        pytest_scripts.update(str(_p) for _p in path.glob('**/pytest_*.py'))
-
-    return list(pytest_scripts)
-
-
-def get_pytest_cases(
-    paths: Union[str, List[str]],
-    target: str = 'all',
-    marker_expr: Optional[str] = None,
-    filter_expr: Optional[str] = None,
-) -> List[PytestCase]:
-    import pytest
-    from _pytest.config import ExitCode
-
-    if target == 'all':
-        targets = SUPPORTED_TARGETS + PREVIEW_TARGETS
-    else:
-        targets = [target]
-
-    paths = to_list(paths)
-
-    origin_include_nightly_run_env = os.getenv('INCLUDE_NIGHTLY_RUN')
-    origin_nightly_run_env = os.getenv('NIGHTLY_RUN')
-
-    # disable the env vars to get all test cases
-    if 'INCLUDE_NIGHTLY_RUN' in os.environ:
-        os.environ.pop('INCLUDE_NIGHTLY_RUN')
-
-    if 'NIGHTLY_RUN' in os.environ:
-        os.environ.pop('NIGHTLY_RUN')
-
-    # collect all cases
-    os.environ['INCLUDE_NIGHTLY_RUN'] = '1'
-
-    cases = []
-    for target in targets:
-        collector = PytestCollectPlugin(target)
-
-        with io.StringIO() as buf:
-            with redirect_stdout(buf):
-                cmd = ['--collect-only', *get_pytest_files(paths), '--target', target, '-q']
-                if marker_expr:
-                    cmd.extend(['-m', marker_expr])
-                if filter_expr:
-                    cmd.extend(['-k', filter_expr])
-                res = pytest.main(cmd, plugins=[collector])
-            if res.value != ExitCode.OK:
-                if res.value == ExitCode.NO_TESTS_COLLECTED:
-                    print(f'WARNING: no pytest app found for target {target} under paths {", ".join(paths)}')
+    def _merge_dict(self, d1: t.Dict[str, t.Any], d2: t.Dict[str, t.Any]) -> t.Any:
+        for k, v in d2.items():
+            if k in d1:
+                if isinstance(v, dict) and isinstance(d1[k], dict):
+                    d1[k] = self._merge_dict(d1[k], v)
                 else:
-                    print(buf.getvalue())
-                    raise RuntimeError(
-                        f'pytest collection failed at {", ".join(paths)} with command \"{" ".join(cmd)}\"'
-                    )
-
-        cases.extend(collector.cases)
-
-    # revert back the env vars
-    if origin_include_nightly_run_env is not None:
-        os.environ['INCLUDE_NIGHTLY_RUN'] = origin_include_nightly_run_env
-
-    if origin_nightly_run_env is not None:
-        os.environ['NIGHTLY_RUN'] = origin_nightly_run_env
-
-    return cases
-
-
-##################
-# TTFW Utilities #
-##################
-def get_ttfw_cases(paths: Union[str, List[str]]) -> List[Any]:
-    """
-    Get the test cases from ttfw_idf under the given paths
-
-    :param paths: list of paths to search
-    """
-    try:
-        from ttfw_idf.IDFAssignTest import IDFAssignTest
-    except ImportError:
-        sys.path.append(os.path.join(IDF_PATH, 'tools', 'ci', 'python_packages'))
-
-        from ttfw_idf.IDFAssignTest import IDFAssignTest
-
-    # mock CI_JOB_ID if not exists
-    if not os.environ.get('CI_JOB_ID'):
-        os.environ['CI_JOB_ID'] = '1'
-
-    cases = []
-    for path in to_list(paths):
-        assign = IDFAssignTest(path, os.path.join(IDF_PATH, '.gitlab', 'ci', 'target-test.yml'))
-        with contextlib.redirect_stdout(None):  # swallow stdout
-            try:
-                cases += assign.search_cases()
-            except ImportError as e:
-                logging.error(str(e))
-
-    return cases
-
-
-def get_ttfw_app_paths(paths: Union[str, List[str]], target: Optional[str] = None) -> Set[str]:
-    """
-    Get the app paths from ttfw_idf under the given paths
-    """
-    from idf_build_apps import CMakeApp
-
-    cases = get_ttfw_cases(paths)
-    res: Set[str] = set()
-    for case in cases:
-        if not target or target == case.case_info['target'].lower():
-            # ttfw has no good way to detect the app path for master-slave tests
-            # the apps real location may be the sub folder of the test script path
-            # check if the current folder is an app, if it's not, add all its subfolders if they are apps
-            # only one level down
-            _app_dir = case.case_info['app_dir']
-            if CMakeApp.is_app(_app_dir):
-                res.add(_app_dir)
+                    d1[k] = v
             else:
-                for child in os.listdir(_app_dir):
-                    sub_path = os.path.join(_app_dir, child)
-                    if os.path.isdir(sub_path) and CMakeApp.is_app(sub_path):
-                        res.add(sub_path)
+                d1[k] = v
 
-    return res
+        return d1
+
+    def _expand_extends(self, name: str) -> t.Dict[str, t.Any]:
+        extends = to_list(self.config[name].pop('extends', None))
+        if not extends:
+            return self.config[name]  # type: ignore
+
+        original_d = self.config[name].copy()
+        d = {}
+        while extends:
+            self._used_template_keys.update(extends)  # for tracking
+
+            for i in extends:
+                d.update(self._expand_extends(i))
+
+            extends = to_list(self.config[name].pop('extends', None))
+
+        self.config[name] = self._merge_dict(d, original_d)
+        return self.config[name]  # type: ignore
+
+
+def get_all_manifest_files() -> t.List[str]:
+    paths: t.List[str] = []
+
+    for p in Path(IDF_PATH).glob('**/.build-test-rules.yml'):
+        if 'managed_components' in p.parts:
+            continue
+
+        paths.append(str(p))
+
+    return paths
+
+
+def sanitize_job_name(name: str) -> str:
+    """
+    Sanitize the job name from CI_JOB_NAME
+
+    - for job with `parallel: int` set, the `CI_JOB_NAME` would be `job_name index/total`, like `foo 1/3`
+    - for job with `parallel: matrix` set, the `CI_JOB_NAME` would be `job_name: [var1, var2]`, like `foo: [a, b]`
+
+    We consider
+    - the jobs generated by `parallel: int` as the same job, i.e., we remove the index/total part.
+    - the jobs generated by `parallel: matrix` as different jobs, so we keep the matrix part.
+
+    :param name: job name
+    :return: sanitized job name
+    """
+    return re.sub(r' \d+/\d+', '', name)
+
+
+def idf_relpath(p: str) -> str:
+    """
+    Turn all paths under IDF_PATH to relative paths
+    :param p: path
+    :return: relpath to IDF_PATH, or absolute path if not under IDF_PATH
+    """
+    abs_path = os.path.abspath(p)
+    if abs_path.startswith(IDF_PATH):
+        return os.path.relpath(abs_path, IDF_PATH)
+    else:
+        return abs_path

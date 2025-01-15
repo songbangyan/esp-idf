@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,6 +22,8 @@
 #include "soc/clk_tree_defs.h"
 #include "hal/regi2c_ctrl.h"
 #include "soc/regi2c_saradc.h"
+#include "soc/system_reg.h"
+#include "soc/dport_reg.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,11 +32,16 @@ extern "C" {
 #define ADC_LL_EVENT_ADC1_ONESHOT_DONE    (1 << 0)
 #define ADC_LL_EVENT_ADC2_ONESHOT_DONE    (1 << 1)
 
+#define ADC_LL_THRES_ALL_INTR_ST_M  (APB_SARADC_ADC1_THRES_INT_ST_M | APB_SARADC_ADC2_THRES_INT_ST_M)
+#define ADC_LL_GET_HIGH_THRES_MASK(monitor_id)    ((monitor_id == 0) ? APB_SARADC_ADC1_THRES_INT_ST_M : APB_SARADC_ADC2_THRES_INT_ST_M)
+#define ADC_LL_GET_LOW_THRES_MASK(monitor_id)     ((monitor_id == 0) ? APB_SARADC_ADC1_THRES_INT_ST_M : APB_SARADC_ADC2_THRES_INT_ST_M)
+
 /*---------------------------------------------------------------
                     Oneshot
 ---------------------------------------------------------------*/
 #define ADC_LL_DATA_INVERT_DEFAULT(PERIPH_NUM)         (0)
-#define ADC_LL_SAR_CLK_DIV_DEFAULT(PERIPH_NUM)         ((PERIPH_NUM==0)? 2 : 1)
+#define ADC_LL_SAR_CLK_DIV_DEFAULT(PERIPH_NUM)         (1)
+#define ADC_LL_DELAY_CYCLE_AFTER_DONE_SIGNAL           (0)
 
 /*---------------------------------------------------------------
                     DMA
@@ -460,48 +467,88 @@ static inline uint32_t adc_ll_digi_filter_read_data(adc_unit_t adc_n)
  * Set monitor mode of adc digital controller.
  *
  * @note The monitor will monitor all the enabled channel data of the each ADC unit at the same time.
- * @param adc_n ADC unit.
+ * @param monitor_id ADC digi monitor unit index.
  * @param is_larger true:  If ADC_OUT >  threshold, Generates monitor interrupt.
  *                  false: If ADC_OUT <  threshold, Generates monitor interrupt.
  */
-static inline void adc_ll_digi_monitor_set_mode(adc_unit_t adc_n, bool is_larger)
+static inline void adc_ll_digi_monitor_set_mode(adc_monitor_id_t monitor_id, bool is_larger)
 {
-    if (adc_n == ADC_UNIT_1) {
+    if (monitor_id == ADC_MONITOR_0) {
         APB_SARADC.thres_ctrl.adc1_thres_mode = is_larger;
-    } else { // adc_n == ADC_UNIT_2
+    } else { // monitor_id == ADC_MONITOR_1
         APB_SARADC.thres_ctrl.adc2_thres_mode = is_larger;
     }
 }
 
 /**
- * Set monitor threshold of adc digital controller.
+ * Set monitor threshold of adc digital controller on specific channel.
  *
- * @note The monitor will monitor all the enabled channel data of the each ADC unit at the same time.
- * @param adc_n ADC unit.
- * @param threshold Monitor threshold.
+ * @param monitor_id ADC digi monitor unit index.
+ * @param adc_n      Which adc unit the channel belong to.
+ * @param channel    Which channel of adc want to be monitored.
+ * @param h_thresh   High threshold of this monitor.
+ * @param l_thresh   Low threshold of this monitor.
  */
-static inline void adc_ll_digi_monitor_set_thres(adc_unit_t adc_n, uint32_t threshold)
+static inline void adc_ll_digi_monitor_set_thres(adc_monitor_id_t monitor_id, adc_unit_t adc_n, uint8_t channel, int32_t h_thresh, int32_t l_thresh)
 {
-    if (adc_n == ADC_UNIT_1) {
-        APB_SARADC.thres_ctrl.adc1_thres = threshold;
-    } else { // adc_n == ADC_UNIT_2
-        APB_SARADC.thres_ctrl.adc2_thres = threshold;
+    if (monitor_id == ADC_MONITOR_0) {
+        APB_SARADC.thres_ctrl.adc1_thres = (h_thresh == -1)? l_thresh : h_thresh;
+    } else { // monitor_id == ADC_MONITOR_1
+        APB_SARADC.thres_ctrl.adc2_thres = (h_thresh == -1)? l_thresh : h_thresh;
+    }
+    adc_ll_digi_monitor_set_mode(monitor_id, l_thresh == -1);
+}
+
+/**
+ * Start/Stop monitor of adc digital controller.
+ *
+ * @param monitor_id ADC digi monitor unit index.
+ * @param start 1 for start, 0 for stop
+ */
+static inline void adc_ll_digi_monitor_user_start(adc_monitor_id_t monitor_id, bool start)
+{
+    if (monitor_id == ADC_MONITOR_0) {
+        APB_SARADC.thres_ctrl.adc1_thres_en = start;
+    } else {
+        APB_SARADC.thres_ctrl.adc2_thres_en = start;
     }
 }
 
 /**
- * Enable/disable monitor of adc digital controller.
+ * Enable/disable a intr of adc digital monitor.
  *
- * @note The monitor will monitor all the enabled channel data of the each ADC unit at the same time.
- * @param adc_n ADC unit.
+ * @param monitor_id ADC digi monitor unit index.
+ * @param mode monit mode to enable/disable intr.
+ * @param enable enable or disable.
  */
-static inline void adc_ll_digi_monitor_enable(adc_unit_t adc_n, bool enable)
+static inline void adc_ll_digi_monitor_enable_intr(adc_monitor_id_t monitor_id, adc_monitor_mode_t mode, bool enable)
 {
-    if (adc_n == ADC_UNIT_1) {
-        APB_SARADC.thres_ctrl.adc1_thres_en = enable;
-    } else { // adc_n == ADC_UNIT_2
-        APB_SARADC.thres_ctrl.adc2_thres_en = enable;
+    if (monitor_id == ADC_MONITOR_0) {
+        APB_SARADC.int_ena.adc1_thres = enable;
     }
+    if (monitor_id == ADC_MONITOR_1) {
+        APB_SARADC.int_ena.adc2_thres = enable;
+    }
+}
+
+/**
+ * Clear intr raw for adc digi monitors.
+ */
+__attribute__((always_inline))
+static inline void adc_ll_digi_monitor_clear_intr(void)
+{
+    APB_SARADC.int_clr.val |= ADC_LL_THRES_ALL_INTR_ST_M;
+}
+
+/**
+ * Get the address of digi monitor intr statue register.
+ *
+ * @return address of register.
+ */
+__attribute__((always_inline))
+static inline volatile const void *adc_ll_digi_monitor_get_intr_status_addr(void)
+{
+    return &APB_SARADC.int_st.val;
 }
 
 /**
@@ -804,7 +851,7 @@ static inline void adc_ll_rtc_set_arbiter_stable_cycle(uint32_t cycle)
  * - 0dB attenuation (ADC_ATTEN_DB_0) gives full-scale voltage 1.1V
  * - 2.5dB attenuation (ADC_ATTEN_DB_2_5) gives full-scale voltage 1.5V
  * - 6dB attenuation (ADC_ATTEN_DB_6) gives full-scale voltage 2.2V
- * - 11dB attenuation (ADC_ATTEN_DB_11) gives full-scale voltage 3.9V (see note below)
+ * - 11dB attenuation (ADC_ATTEN_DB_12) gives full-scale voltage 3.9V (see note below)
  *
  * @note The full-scale voltage is the voltage corresponding to a maximum reading (depending on ADC1 configured
  * bit width, this value is: 4095 for 12-bits, 2047 for 11-bits, 1023 for 10-bits, 511 for 9 bits.)
@@ -816,7 +863,7 @@ static inline void adc_ll_rtc_set_arbiter_stable_cycle(uint32_t cycle)
  * - 0dB attenuation (ADC_ATTEN_DB_0) between 100 and 950mV
  * - 2.5dB attenuation (ADC_ATTEN_DB_2_5) between 100 and 1250mV
  * - 6dB attenuation (ADC_ATTEN_DB_6) between 150 to 1750mV
- * - 11dB attenuation (ADC_ATTEN_DB_11) between 150 to 2450mV
+ * - 11dB attenuation (ADC_ATTEN_DB_12) between 150 to 2450mV
  *
  * For maximum accuracy, use the ADC calibration APIs and measure voltages within these recommended ranges.
  *
@@ -872,11 +919,38 @@ static inline void adc_oneshot_ll_disable_all_unit(void)
 /*---------------------------------------------------------------
                     Common setting
 ---------------------------------------------------------------*/
+
+/**
+ * @brief Enable the ADC clock
+ * @param enable true to enable, false to disable
+ */
+static inline void adc_ll_enable_bus_clock(bool enable)
+{
+    uint32_t reg_val = READ_PERI_REG(DPORT_PERIP_CLK_EN0_REG);
+    reg_val = reg_val & (~DPORT_APB_SARADC_CLK_EN);
+    reg_val = reg_val | (enable << DPORT_APB_SARADC_CLK_EN_S);
+    WRITE_PERI_REG(DPORT_PERIP_CLK_EN0_REG, reg_val);
+}
+// SYSTEM.perip_clk_en0 is a shared register, so this function must be used in an atomic way
+#define adc_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; adc_ll_enable_bus_clock(__VA_ARGS__)
+
+/**
+ * @brief Reset ADC module
+ */
+static inline void adc_ll_reset_register(void)
+{
+    SET_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG, DPORT_APB_SARADC_RST);
+    CLEAR_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG, DPORT_APB_SARADC_RST);
+}
+//  SYSTEM.perip_rst_en0 is a shared register, so this function must be used in an atomic way
+#define adc_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; adc_ll_reset_register(__VA_ARGS__)
+
 /**
  * Set ADC module power management.
  *
  * @param manage Set ADC power status.
  */
+__attribute__((always_inline))
 static inline void adc_ll_digi_set_power_manage(adc_ll_power_t manage)
 {
     if (manage == ADC_LL_POWER_SW_ON) {

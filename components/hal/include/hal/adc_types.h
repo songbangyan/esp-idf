@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,10 @@
 #include "soc/soc_caps.h"
 #include "soc/clk_tree_defs.h"
 #include "esp_attr.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief ADC unit
@@ -41,11 +45,15 @@ typedef enum {
  */
 typedef enum {
     ADC_ATTEN_DB_0   = 0,  ///<No input attenuation, ADC can measure up to approx.
-    ADC_ATTEN_DB_2_5 = 1,  ///<The input voltage of ADC will be attenuated extending the range of measurement by about 2.5 dB (1.33 x)
-    ADC_ATTEN_DB_6   = 2,  ///<The input voltage of ADC will be attenuated extending the range of measurement by about 6 dB (2 x)
-    ADC_ATTEN_DB_11  = 3,  ///<The input voltage of ADC will be attenuated extending the range of measurement by about 11 dB (3.55 x)
+    ADC_ATTEN_DB_2_5 = 1,  ///<The input voltage of ADC will be attenuated extending the range of measurement by about 2.5 dB
+    ADC_ATTEN_DB_6   = 2,  ///<The input voltage of ADC will be attenuated extending the range of measurement by about 6 dB
+    ADC_ATTEN_DB_12  = 3,  ///<The input voltage of ADC will be attenuated extending the range of measurement by about 12 dB
+    ADC_ATTEN_DB_11 __attribute__((deprecated)) = ADC_ATTEN_DB_12,  ///<This is deprecated, it behaves the same as `ADC_ATTEN_DB_12`
 } adc_atten_t;
 
+/**
+ * @brief ADC bitwidth
+ */
 typedef enum {
     ADC_BITWIDTH_DEFAULT = 0, ///< Default ADC output bits, max supported width will be selected
     ADC_BITWIDTH_9  = 9,      ///< ADC output width is 9Bit
@@ -55,10 +63,19 @@ typedef enum {
     ADC_BITWIDTH_13 = 13,     ///< ADC output width is 13Bit
 } adc_bitwidth_t;
 
+/**
+ * @brief ADC ULP working mode
+ *
+ * This decides the controller that controls ADC when in low power mode.
+ * Set `ADC_ULP_MODE_DISABLE` for normal mode.
+ */
 typedef enum {
     ADC_ULP_MODE_DISABLE = 0, ///< ADC ULP mode is disabled
     ADC_ULP_MODE_FSM     = 1, ///< ADC is controlled by ULP FSM
     ADC_ULP_MODE_RISCV   = 2, ///< ADC is controlled by ULP RISCV
+#if SOC_LP_ADC_SUPPORTED
+    ADC_ULP_MODE_LP_CORE = 3, ///< ADC is controlled by LP Core
+#endif // SOC_LP_ADC_SUPPORTED
 } adc_ulp_mode_t;
 
 /**
@@ -85,6 +102,9 @@ typedef soc_periph_adc_digi_clk_src_t    adc_continuous_clk_src_t;  ///< Clock s
 #elif SOC_ADC_RTC_CTRL_SUPPORTED
 typedef soc_periph_adc_rtc_clk_src_t     adc_oneshot_clk_src_t;     ///< Clock source type of oneshot mode which uses RTC controller
 typedef soc_periph_adc_digi_clk_src_t    adc_continuous_clk_src_t;  ///< Clock source type of continuous mode which uses digital controller
+#else
+typedef int                              adc_oneshot_clk_src_t;     ///< Default type
+typedef int                              adc_continuous_clk_src_t;  ///< Default type
 #endif
 
 /**
@@ -113,8 +133,28 @@ typedef enum {
     ADC_DIGI_IIR_FILTER_COEFF_4,     ///< The filter coefficient is 4
     ADC_DIGI_IIR_FILTER_COEFF_8,     ///< The filter coefficient is 8
     ADC_DIGI_IIR_FILTER_COEFF_16,    ///< The filter coefficient is 16
+    ADC_DIGI_IIR_FILTER_COEFF_32,    ///< The filter coefficient is 32
     ADC_DIGI_IIR_FILTER_COEFF_64,    ///< The filter coefficient is 64
 } adc_digi_iir_filter_coeff_t;
+
+/*---------------------------------------------------------------
+                        ADC Monitor
+---------------------------------------------------------------*/
+/**
+ * @brief ADC monitor (continuous mode) ID
+ */
+typedef enum {
+    ADC_MONITOR_0,          ///< The monitor index 0.
+    ADC_MONITOR_1,          ///< The monitor index 1.
+} adc_monitor_id_t;
+
+/**
+ * @brief Monitor config/event mode type
+ */
+typedef enum {
+    ADC_MONITOR_MODE_HIGH = 0,      ///< ADC raw_result > threshold value, monitor interrupt will be generated.
+    ADC_MONITOR_MODE_LOW,           ///< ADC raw_result < threshold value, monitor interrupt will be generated.
+} adc_monitor_mode_t;
 
 /*---------------------------------------------------------------
                     Output Format
@@ -144,7 +184,7 @@ typedef struct {
     };
 } adc_digi_output_data_t;
 
-#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32H4 || CONFIG_IDF_TARGET_ESP32C2
+#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2
 /**
  * @brief ADC digital controller (DMA mode) output data format.
  *        Used to analyze the acquired ADC (DMA) data.
@@ -164,7 +204,7 @@ typedef struct {
     };
 } adc_digi_output_data_t;
 
-#elif CONFIG_IDF_TARGET_ESP32S3
+#elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32P4
 /**
  * @brief ADC digital controller (DMA mode) output data format.
  *        Used to analyze the acquired ADC (DMA) data.
@@ -184,7 +224,7 @@ typedef struct {
     };
 } adc_digi_output_data_t;
 
-#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2
+#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 /**
  * @brief ADC digital controller (DMA mode) output data format.
  *        Used to analyze the acquired ADC (DMA) data.
@@ -205,6 +245,7 @@ typedef struct {
 
 #endif
 
+
 #if CONFIG_IDF_TARGET_ESP32S2
 /**
  * @brief ADC digital controller (DMA mode) clock system setting.
@@ -220,4 +261,8 @@ typedef struct {
     uint32_t div_b;     /*!<Division factor. Range: 1 ~ 63. */
     uint32_t div_a;     /*!<Division factor. Range: 0 ~ 63. */
 } adc_digi_clk_t;
+#endif
+
+#ifdef __cplusplus
+}
 #endif

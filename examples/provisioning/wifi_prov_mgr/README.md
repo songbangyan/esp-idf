@@ -1,5 +1,5 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- |
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- |
 
 # Wi-Fi Provisioning Manager Example
 
@@ -45,7 +45,7 @@ For iOS, a provisioning application along with source code is available on GitHu
 
 #### Platform : Linux / Windows / macOS
 
-To install the dependency packages needed, please refer to the top level [README file](../../README.md#running-test-python-script-ttfw).
+To install the dependency packages needed, please refer to the top level [README file](../../README.md#running-test-python-script-pytest).
 
 `esp_prov` supports BLE and SoftAP transport for Linux, MacOS and Windows platforms. For BLE, however, if dependencies are not met, the script falls back to console mode and requires another application through which the communication can take place. The `esp_prov` console will guide you through the provisioning process of locating the correct BLE GATT services and characteristics, the values to write, and input read values.
 
@@ -54,7 +54,7 @@ To install the dependency packages needed, please refer to the top level [README
 ```
 idf.py menuconfig
 ```
-* Set the BLE/Soft AP transport under "Example Configuration" options. ESP32-S2 will have only SoftAP option.
+* Set the BLE/Soft AP transport under "Example Configuration" options. ESP32-S2 will have only SoftAP option (SoftAP option cannot be used if IPv4 is disabled in lwIP)
 
 ### Build and Flash
 

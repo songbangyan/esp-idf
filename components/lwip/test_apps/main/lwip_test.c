@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -205,10 +205,19 @@ TEST(lwip, dhcp_server_start_stop_localhost)
     // Class C: IP: 192.168.1.1, Mask: 255.255.255.0
     dhcps_test_net_classes(0xC0A80101, 0xFFFFFF00, true);
 
-    // Class A: IP: 127.0.0.1, with Class C Mask: 255.255.255.0
-    // expect dhcps_start() to fail
-    dhcps_test_net_classes(0x7f000001, 0xFFFFFF00, false);
+    // Class C: IP: 192.168.4.1, Mask: 255.255.0.0
+    dhcps_test_net_classes(0xC0A80401, 0xFFFF0000, true);
 
+    // Class C: IP: 192.168.4.1, Mask: 255.0.0.0
+    dhcps_test_net_classes(0xC0A80401, 0xFF000000, true);
+
+    // Class A: IP: 127.0.0.1, with inaccurate Mask: 255.248.255.0
+    // expect dhcps_start() to fail
+    dhcps_test_net_classes(0x7f000001, 0xFFF8FF00, false);
+
+    // Class C: IP: 192.168.200.8, with inaccurate Mask: 255.255.255.248
+    // expect dhcps_start() to fail
+    dhcps_test_net_classes(0xC0A8C808, 0xFFFFFFF8, false);
 }
 
 
@@ -285,8 +294,16 @@ void test_sntp_timestamps(int year, bool msb_flag)
     localtime_r(&now, &timeinfo);
     TEST_ASSERT_EQUAL(year, 1900 + timeinfo.tm_year);
 
+    // Check that the server 0 was reachable
+    TEST_ASSERT_EQUAL(1, esp_sntp_getreachability(0));
     // close the SNTP and the fake server
     esp_sntp_stop();
+
+    // Test some other SNTP APIs
+    TEST_ASSERT_EQUAL(0, esp_sntp_getreachability(0));
+    TEST_ASSERT_EQUAL(ESP_SNTP_OPMODE_POLL, esp_sntp_getoperatingmode());
+    const ip_addr_t *server_ip = esp_sntp_getserver(0);
+    TEST_ASSERT_EQUAL(PP_HTONL(IPADDR_LOOPBACK), server_ip->u_addr.ip4.addr);
     close(sock);
 }
 

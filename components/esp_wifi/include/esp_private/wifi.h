@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,7 +14,6 @@
  * the API, otherwise you may get unexpected behavior!!!
  *
  */
-
 
 #ifndef __ESP_WIFI_INTERNAL_H__
 #define __ESP_WIFI_INTERNAL_H__
@@ -46,7 +45,7 @@ typedef struct {
   */
 typedef enum {
     WIFI_LOG_NONE = 0,
-    WIFI_LOG_ERROR ,      /*enabled by default*/
+    WIFI_LOG_ERROR,       /*enabled by default*/
     WIFI_LOG_WARNING,     /*enabled by default*/
     WIFI_LOG_INFO,        /*enabled by default*/
     WIFI_LOG_DEBUG,       /*can be set in menuconfig*/
@@ -72,8 +71,7 @@ typedef enum {
 #define WIFI_LOG_SUBMODULE_INIT  (1)    /*logs related to initialization*/
 #define WIFI_LOG_SUBMODULE_IOCTL (1<<1) /*logs related to API calling*/
 #define WIFI_LOG_SUBMODULE_CONN  (1<<2) /*logs related to connecting*/
-#define WIFI_LOG_SUBMODULE_SCAN  (1<<3) /*logs related to scaning*/
-
+#define WIFI_LOG_SUBMODULE_SCAN  (1<<3) /*logs related to scanning*/
 
 /**
  * @brief Initialize Wi-Fi Driver
@@ -132,7 +130,7 @@ void esp_wifi_internal_free_rx_buffer(void* buffer);
   * @return
   *    - ESP_OK  : Successfully transmit the buffer to wifi driver
   *    - ESP_ERR_NO_MEM: out of memory
-  *    - ESP_ERR_WIFI_ARG: invalid argument
+  *    - ESP_ERR_INVALID_ARG: invalid argument
   *    - ESP_ERR_WIFI_IF : WiFi interface is invalid
   *    - ESP_ERR_WIFI_CONN : WiFi interface is not created, e.g. send the data to STA while WiFi mode is AP mode
   *    - ESP_ERR_WIFI_NOT_STARTED : WiFi is not started
@@ -164,14 +162,14 @@ typedef void (*wifi_netstack_buf_free_cb_t)(void *netstack_buf);
   * supports reference counter.
   *
   * @param  wifi_if : wifi interface id
-  * @param  buffer : the buffer to be tansmit
+  * @param  buffer : the buffer to be transmit
   * @param  len : the length of buffer
-  * @param  netstack_buf : the netstack buffer related to bufffer
+  * @param  netstack_buf : the netstack buffer related to buffer
   *
   * @return
   *    - ESP_OK  : Successfully transmit the buffer to wifi driver
   *    - ESP_ERR_NO_MEM: out of memory
-  *    - ESP_ERR_WIFI_ARG: invalid argument
+  *    - ESP_ERR_INVALID_ARG: invalid argument
   *    - ESP_ERR_WIFI_IF : WiFi interface is invalid
   *    - ESP_ERR_WIFI_CONN : WiFi interface is not created, e.g. send the data to STA while WiFi mode is AP mode
   *    - ESP_ERR_WIFI_NOT_STARTED : WiFi is not started
@@ -214,7 +212,6 @@ esp_err_t esp_wifi_internal_wapi_deinit(void);
   *    - others  : failed to register the callback
   */
 esp_err_t esp_wifi_internal_reg_netstack_buf_cb(wifi_netstack_buf_ref_cb_t ref, wifi_netstack_buf_free_cb_t free);
-
 
 /**
   * @brief     The WiFi RX callback function
@@ -370,7 +367,7 @@ esp_err_t esp_wifi_internal_esp_wifi_he_md5_check(const char *md5);
   *
   * @return    A pointer to the memory allocated on success, NULL on failure
   */
-void *wifi_malloc( size_t size );
+void *wifi_malloc(size_t size);
 
 /**
   * @brief     Reallocate a chunk of memory for WiFi driver
@@ -382,7 +379,7 @@ void *wifi_malloc( size_t size );
   *
   * @return    A pointer to the memory allocated on success, NULL on failure
   */
-void *wifi_realloc( void *ptr, size_t size );
+void *wifi_realloc(void *ptr, size_t size);
 
 /**
   * @brief     Callocate memory for WiFi driver
@@ -394,7 +391,7 @@ void *wifi_realloc( void *ptr, size_t size );
   *
   * @return    A pointer to the memory allocated on success, NULL on failure
   */
-void *wifi_calloc( size_t n, size_t size );
+void *wifi_calloc(size_t n, size_t size);
 
 /**
   * @brief     Update WiFi MAC time
@@ -403,7 +400,7 @@ void *wifi_calloc( size_t n, size_t size );
   *
   * @return    Always returns ESP_OK
   */
-typedef esp_err_t (* wifi_mac_time_update_cb_t)( uint32_t time_delta );
+typedef esp_err_t (* wifi_mac_time_update_cb_t)(uint32_t time_delta);
 
 /**
   * @brief     Update WiFi MAC time
@@ -412,7 +409,7 @@ typedef esp_err_t (* wifi_mac_time_update_cb_t)( uint32_t time_delta );
   *
   * @return    Always returns ESP_OK
   */
-esp_err_t esp_wifi_internal_update_mac_time( uint32_t time_delta );
+esp_err_t esp_wifi_internal_update_mac_time(uint32_t time_delta);
 
 /**
   * @brief     Set current WiFi log level
@@ -439,7 +436,7 @@ esp_err_t esp_wifi_internal_set_log_level(wifi_log_level_t level);
   * @return
   *    - ESP_OK: succeed
   *    - ESP_ERR_WIFI_NOT_INIT: WiFi is not initialized by esp_wifi_init
-  *    - ESP_ERR_WIFI_ARG: invalid argument
+  *    - ESP_ERR_INVALID_ARG: invalid argument
   */
 esp_err_t esp_wifi_internal_set_log_mod(wifi_log_module_t module, uint32_t submodule, bool enable);
 
@@ -539,6 +536,17 @@ void esp_wifi_power_domain_on(void);
  */
 void esp_wifi_power_domain_off(void);
 
+#if (CONFIG_FREERTOS_USE_TICKLESS_IDLE && SOC_PM_MODEM_RETENTION_BY_REGDMA)
+/**
+  * @brief     Get wifi mac sleep retention hardware context configuration and size
+  *
+  * @param     config_size: the wifi mac hardware context configuration size
+  *
+  * @return    A pointer that point to wifi mac sleep renteiton hardware context configuration table
+  */
+void * esp_wifi_internal_mac_retention_context_get(int *config_size);
+#endif
+
 #if CONFIG_MAC_BB_PD
 /**
   * @brief     Enable or disable powering down MAC and baseband when Wi-Fi is sleeping.
@@ -562,12 +570,12 @@ void pm_mac_wakeup(void);
 #endif
 
 /**
-  * @breif    TxDone callback function type. Should be registered using esp_wifi_set_tx_done_cb()
+  * @brief    TxDone callback function type. Should be registered using esp_wifi_set_tx_done_cb()
   *
   * @param    ifidx The interface id that the tx callback has been triggered from
   * @param    data Pointer to the data transmitted
   * @param    data_len Length of the data transmitted
-  * @param    txStatus True:if the data was transmitted sucessfully False: if data transmission failed
+  * @param    txStatus True:if the data was transmitted successfully False: if data transmission failed
   */
 typedef void (* wifi_tx_done_cb_t)(uint8_t ifidx, uint8_t *data, uint16_t *data_len, bool txStatus);
 
@@ -606,13 +614,13 @@ esp_err_t esp_wifi_internal_set_spp_amsdu(wifi_interface_t ifidx, bool spp_cap, 
 void esp_wifi_internal_update_light_sleep_default_params(int min_freq_mhz, int max_freq_mhz);
 
 /**
- * @brief   Set the delay time for wifi to enter the sleep state when light sleep
+ * @brief   Set the min active time for wifi to enter the sleep state when light sleep
  *
- * @param   return_to_sleep_delay: minimum timeout time  for waiting to receive
+ * @param   min_active_time: minimum timeout time  for waiting to receive
  *                      data, when no data is received during the timeout period,
  *                      the wifi enters the sleep process.
  */
-void esp_wifi_set_sleep_delay_time(uint32_t return_to_sleep_delay);
+void esp_wifi_set_sleep_min_active_time(uint32_t min_active_time);
 
 /**
  * @brief   Set wifi keep alive time
@@ -622,13 +630,152 @@ void esp_wifi_set_sleep_delay_time(uint32_t return_to_sleep_delay);
 void esp_wifi_set_keep_alive_time(uint32_t keep_alive_time);
 
 /**
+  * @brief      Set the min broadcast data wait time for wifi to enter the sleep state
+  *
+  * @attention  Default sleep wait broadcast data time is 15000, Uint µs.
+  *
+  * @param      time: When the station knows through the beacon that the AP
+  *                   will send broadcast packet, it will wait for a minimum of
+  *                   wait_broadcast_data_time before entering the sleep process.
+  */
+void esp_wifi_set_sleep_wait_broadcast_data_time(uint32_t time);
+
+/**
  * @brief   Configure wifi beacon montior default parameters
  *
- * @param   enable: enable or disable beacon monitor
- * @param   timeout: timeout time for close rf phy when beacon loss occurs, Unit: 1024 microsecond
- * @param   threshold: maximum number of consecutive lost beacons allowed
+ * @param   config: the configuration parameters for wifi beacon monitor
  */
-void esp_wifi_beacon_monitor_configure(bool enable, int timeout, int threshold, int delta_intr_early, int delta_timeout);
+void esp_wifi_beacon_monitor_configure(wifi_beacon_monitor_config_t *config);
+
+/**
+ * @brief   Set modem state mode to require WiFi to enable or disable Advanced DTIM sleep function
+ *
+ * @param   require_modem_state: true for require WiFi to enable Advanced DTIM sleep function,
+ *                              false for require WiFi to disable Advanced DTIM sleep function.
+ * @return
+ *    - ESP_OK: succeed
+ */
+void esp_wifi_internal_modem_state_configure(bool require_modem_state);
+
+/**
+ * @brief   Set light sleep mode to require WiFi to enable or disable Advanced DTIM sleep function
+ *
+ * @param   light_sleep_enable: true for light sleep mode is enabled, false for light sleep mode is disabled.
+ * @return
+ *    - ESP_OK: succeed
+ */
+void esp_wifi_internal_light_sleep_configure(bool light_sleep_enable);
+
+/**
+  * @brief      Start Publishing a service in the NAN cluster
+  *
+  * @attention  This API should be called after esp_wifi_start() in NAN Mode.
+  *
+  * @param      publish_cfg  Configuration parameters for publishing a service.
+  * @param      id  Identifier for the Publish service.
+  * @param      cancel  Cancel the service identified by the id.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - others: failed
+  */
+esp_err_t esp_nan_internal_publish_service(const wifi_nan_publish_cfg_t *publish_cfg,
+                                           uint8_t *id, bool cancel);
+
+/**
+  * @brief      Subscribe for a service within the NAN cluster
+  *
+  * @attention  This API should be called after esp_wifi_start() in NAN Mode.
+  *
+  * @param      subscribe_cfg  Configuration parameters for subscribing for a service.
+  * @param      id  Identifier for the Subscribe service.
+  * @param      cancel  Cancel the service identified by the id.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - others: failed
+  */
+esp_err_t esp_nan_internal_subscribe_service(const wifi_nan_subscribe_cfg_t *subscribe_cfg,
+                                             uint8_t *id, bool cancel);
+
+/**
+  * @brief      Send Follow-up to the Publisher with matching service
+  *
+  * @attention  This API should be called after WIFI_EVENT_NAN_SVC_MATCH event is received.
+  *
+  * @param      fup_params  Configuration parameters for sending a Follow-up to the Peer.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - others: failed
+  */
+esp_err_t esp_nan_internal_send_followup(const wifi_nan_followup_params_t *fup_params);
+
+/**
+  * @brief      Send Datapath Request to the Publisher with matching service
+  *
+  * @attention  This API should be called after WIFI_EVENT_NAN_SVC_MATCH event is received.
+  *
+  * @param      req  NAN Datapath Request parameters.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - others: failed
+  */
+esp_err_t esp_nan_internal_datapath_req(wifi_nan_datapath_req_t *req, uint8_t *ndp_id);
+
+/**
+  * @brief      Send Datapath Response to accept or reject the received request
+  *
+  * @attention  This API should be called on the Publisher after receiving WIFI_EVENT_NDP_INDICATION event.
+  *
+  * @param      resp  NAN Datapath Response parameters.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - others: failed
+  */
+esp_err_t esp_nan_internal_datapath_resp(wifi_nan_datapath_resp_t *resp);
+
+/**
+  * @brief      End NAN Datapath that is active
+  *
+  * @attention  This API should be called after receiving WIFI_EVENT_NDP_CONFIRM event.
+  *
+  * @param      req  NAN Datapath end request parameters.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - others: failed
+  */
+esp_err_t esp_nan_internal_datapath_end(wifi_nan_datapath_end_req_t *req);
+
+/**
+  * @brief     Connect WiFi station to the AP.
+  *
+  * @attention 1. This API only impact WIFI_MODE_STA or WIFI_MODE_APSTA mode
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - ESP_ERR_WIFI_NOT_INIT: WiFi is not initialized by esp_wifi_init
+  *    - ESP_ERR_WIFI_NOT_STARTED: WiFi is not started by esp_wifi_start
+  *    - ESP_ERR_WIFI_MODE: WiFi mode error
+  *    - ESP_ERR_WIFI_CONN: WiFi internal error, station or soft-AP control block wrong
+  *    - ESP_ERR_WIFI_SSID: SSID of AP which station connects is invalid
+  */
+esp_err_t esp_wifi_connect_internal(void);
+
+/**
+  * @brief     Disconnect WiFi station from the AP.
+  *
+  * @return
+  *    - ESP_OK: succeed
+  *    - ESP_ERR_WIFI_NOT_INIT: WiFi was not initialized by esp_wifi_init
+  *    - ESP_ERR_WIFI_NOT_STARTED: WiFi was not started by esp_wifi_start
+  *    - ESP_FAIL: other WiFi internal errors
+  *
+  */
+esp_err_t esp_wifi_disconnect_internal(void);
 
 #ifdef __cplusplus
 }

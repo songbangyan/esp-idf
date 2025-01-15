@@ -1,5 +1,5 @@
-| Supported Targets | ESP32 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- |
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
 
 # Semihosting VFS driver example
 
@@ -73,7 +73,7 @@ openocd -c "set ESP_SEMIHOST_BASEDIR %IDF_PATH%/examples/storage/semihost_vfs/da
 
 The above command will set `ESP_SEMIHOST_BASEDIR` variable to `examples/storage/semihost_vfs/data` subdirectory of ESP-IDF. With that, it is not necessary to run OpenOCD from that specific directory.
 
-> Note: This feature is not available for RISC-V based SoCs (ESP32-C3, ESP32-H4). To set the semihosting base directory, change into the required directory before running `openocd` command.
+> Note: This feature is not available for RISC-V based SoCs (ESP32-C3, ESP32-H2). To set the semihosting base directory, change into the required directory before running `openocd` command.
 
 ## Example output
 
@@ -97,7 +97,7 @@ There are two outputs produced by example:
    ```
    W (274) example: Switch to semihosted stdout
    W (274) example: Switched back to UART stdout
-   I (274) example: Wrote 2798 bytes
+   I (274) example: Wrote 2776 bytes
    ====================== HOST DATA START =========================
    The following are the graphical (non-control) characters defined by
    ISO 8859-1 (1987).  Descriptions in words aren't all that helpful,
@@ -115,4 +115,3 @@ There are two outputs produced by example:
    ====================== HOST DATA END =========================
    I (694) example: Read 6121 bytes
    ```
-

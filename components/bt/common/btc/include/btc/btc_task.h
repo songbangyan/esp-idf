@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -67,6 +67,9 @@ typedef enum {
 #if (BTC_HF_CLIENT_INCLUDED == TRUE)
     BTC_PID_HF_CLIENT,
 #endif /* BTC_HF_CLIENT_INCLUDED */
+#if (BTC_PBA_CLIENT_INCLUDED == TRUE)
+    BTC_PID_PBA_CLIENT,
+#endif /* BTC_PBA_CLIENT_INCLUDED */
 #endif  /* CLASSIC_BT_INCLUDED */
 #if CONFIG_BLE_MESH
     BTC_PID_PROV,
@@ -75,6 +78,24 @@ typedef enum {
     BTC_PID_HEALTH_SERVER,
     BTC_PID_CONFIG_CLIENT,
     BTC_PID_CONFIG_SERVER,
+    BTC_PID_AGG_CLIENT,
+    BTC_PID_AGG_SERVER,
+    BTC_PID_BRC_CLIENT,
+    BTC_PID_BRC_SERVER,
+    BTC_PID_DF_CLIENT,
+    BTC_PID_DF_SERVER,
+    BTC_PID_LCD_CLIENT,
+    BTC_PID_LCD_SERVER,
+    BTC_PID_ODP_CLIENT,
+    BTC_PID_ODP_SERVER,
+    BTC_PID_PRB_CLIENT,
+    BTC_PID_PRB_SERVER,
+    BTC_PID_RPR_CLIENT,
+    BTC_PID_RPR_SERVER,
+    BTC_PID_SAR_CLIENT,
+    BTC_PID_SAR_SERVER,
+    BTC_PID_SRPL_CLIENT,
+    BTC_PID_SRPL_SERVER,
     BTC_PID_GENERIC_CLIENT,
     BTC_PID_LIGHTING_CLIENT,
     BTC_PID_SENSOR_CLIENT,
@@ -83,6 +104,8 @@ typedef enum {
     BTC_PID_LIGHTING_SERVER,
     BTC_PID_SENSOR_SERVER,
     BTC_PID_TIME_SCENE_SERVER,
+    BTC_PID_MBT_CLIENT,
+    BTC_PID_MBT_SERVER,
     BTC_PID_BLE_MESH_BLE_COEX,
 #endif /* CONFIG_BLE_MESH */
     BTC_PID_NUM,
@@ -103,8 +126,8 @@ extern "C" {
 /**
  * transfer an message to another module in the different task.
  * @param  msg       message
- * @param  arg       paramter
- * @param  arg_len   length of paramter
+ * @param  arg       parameter
+ * @param  arg_len   length of parameter
  * @param  copy_func deep copy function
  * @param  free_func deep free function
  * @return           BT_STATUS_SUCCESS: success
@@ -114,7 +137,7 @@ bt_status_t btc_transfer_context(btc_msg_t *msg, void *arg, int arg_len, btc_arg
                                     btc_arg_deep_free_t free_func);
 
 /**
- * transfer an message to another module in tha same task.
+ * transfer an message to another module in the same task.
  * @param  msg       message
  * @return           BT_STATUS_SUCCESS: success
  *                   others: fail

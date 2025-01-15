@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,10 +13,11 @@
 extern "C" {
 #endif
 
-#define ESP_ETH_PHY_ADDR_AUTO (-1)
+#define ESP_ETH_PHY_ADDR_AUTO           (-1)
+#define ESP_ETH_NO_POST_HW_RESET_DELAY  (-1)
 
 /**
- * @brief Auto-negotiation controll commands
+ * @brief Auto-negotiation control commands
  *
  */
 typedef enum {
@@ -127,6 +128,19 @@ struct esp_eth_phy_s {
     *
     */
     esp_err_t (*get_link)(esp_eth_phy_t *phy);
+
+    /**
+    * @brief Set Ethernet PHY link status
+    *
+    * @param[in] phy: Ethernet PHY instance
+    * @param[in] link new link status
+    *
+    * @return
+    *      - ESP_OK: set Ethernet PHY link status successfully
+    *      - ESP_FAIL: set Ethernet PHY link status failed because some error occurred
+    *
+    */
+    esp_err_t (*set_link)(esp_eth_phy_t *phy, eth_link_t link);
 
     /**
     * @brief Power control of Ethernet PHY
@@ -240,7 +254,7 @@ struct esp_eth_phy_s {
     *       - ESP_FAIL: process io command failed because some other error occurred
     *       - ESP_ERR_NOT_SUPPORTED: requested feature is not supported
     */
-    esp_err_t (*custom_ioctl)(esp_eth_phy_t *phy, uint32_t cmd, void *data);
+    esp_err_t (*custom_ioctl)(esp_eth_phy_t *phy, int cmd, void *data);
 
     /**
     * @brief Free memory of Ethernet PHY instance
@@ -260,23 +274,44 @@ struct esp_eth_phy_s {
 *
 */
 typedef struct {
-    int32_t phy_addr;             /*!< PHY address, set -1 to enable PHY address detection at initialization stage */
-    uint32_t reset_timeout_ms;    /*!< Reset timeout value (Unit: ms) */
-    uint32_t autonego_timeout_ms; /*!< Auto-negotiation timeout value (Unit: ms) */
-    int reset_gpio_num;           /*!< Reset GPIO number, -1 means no hardware reset */
+    int32_t phy_addr;                 /*!< PHY address, set -1 to enable PHY address detection at initialization stage */
+    uint32_t reset_timeout_ms;        /*!< Reset timeout value (Unit: ms) */
+    uint32_t autonego_timeout_ms;     /*!< Auto-negotiation timeout value (Unit: ms) */
+    int reset_gpio_num;               /*!< Reset GPIO number, -1 means no hardware reset */
+    int32_t hw_reset_assert_time_us;  /*!< Time the reset pin is asserted (Unit: us), 0 to use chip specific default */
+    int32_t post_hw_reset_delay_ms;   /*!< Time to wait after the HW reset (Unit: ms), 0 to use chip specific default, -1 means no wait */
 } eth_phy_config_t;
 
 /**
  * @brief Default configuration for Ethernet PHY object
  *
  */
-#define ETH_PHY_DEFAULT_CONFIG()           \
-    {                                      \
-        .phy_addr = ESP_ETH_PHY_ADDR_AUTO, \
-        .reset_timeout_ms = 100,           \
-        .autonego_timeout_ms = 4000,       \
-        .reset_gpio_num = 5,               \
+#define ETH_PHY_DEFAULT_CONFIG()               \
+    {                                          \
+        .phy_addr = ESP_ETH_PHY_ADDR_AUTO,     \
+        .reset_timeout_ms = 100,               \
+        .autonego_timeout_ms = 4000,           \
+        .reset_gpio_num = 5,                   \
+        .hw_reset_assert_time_us = 0,         \
+        .post_hw_reset_delay_ms = 0           \
     }
+
+/**
+* @brief Create a PHY instance of generic chip which conforms with IEEE 802.3
+*
+* @note Default reset timing configuration is set conservatively( @c DEFAULT_PHY_RESET_ASSERTION_TIME_US ).
+*       If you need faster response and your chip supports it, configure it via @c config parameter.
+*
+* @warning While basic functionality should always work, some specific features might be limited,
+*          even if the PHY meets IEEE 802.3 standard. A typical example is loopback functionality,
+*          where certain PHYs may require setting a specific speed mode to operate correctly.
+*
+* @param[in] config configuration of PHY
+* @return
+*      - instance: create PHY instance successfully
+*      - NULL: create PHY instance failed because some error occurred
+ */
+esp_eth_phy_t *esp_eth_phy_new_generic(const eth_phy_config_t *config);
 
 /**
 * @brief Create a PHY instance of IP101

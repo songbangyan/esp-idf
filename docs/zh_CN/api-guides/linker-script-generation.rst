@@ -1,5 +1,6 @@
 链接器脚本生成机制
 ======================
+
 :link_to_translation:`en:[English]`
 
 概述
@@ -13,7 +14,7 @@
 
     * 将关键代码存放到 RAM 中以提高性能；
     * 将可执行代码存放到 IRAM 中，以便在缓存被禁用时运行这些代码；
-    :SOC_RTC_MEM_SUPPORTED: * 将代码存放到 RTC 存储器中，以便在 wake stub 中使用；
+    :ESP_ROM_SUPPORT_DEEP_SLEEP_WAKEUP_STUB: * 将代码存放到 RTC 存储器中，以便在 wake stub 中使用；
     :SOC_ULP_SUPPORTED: * 将代码存放到 RTC 内存中，以便 ULP 协处理器使用。
 
 链接器脚本生成机制可以让用户指定代码和数据在 ESP-IDF 组件中的存放区域。组件包含如何存放符号、目标或完整库的信息。在构建应用程序时，组件中的这些信息会被收集、解析并处理；生成的存放规则用于链接应用程序。
@@ -144,7 +145,7 @@
         else:
             * (default)
 
-来看一种更复杂的情况。假设``CONFIG_PERFORMANCE_LEVEL == 1`` 时，只有 ``object1.o`` 存放到 RAM 中；``CONFIG_PERFORMANCE_LEVEL == 2`` 时，``object1.o`` 和 ``object2.o`` 会存放到 RAM 中；``CONFIG_PERFORMANCE_LEVEL == 3`` 时，库中的所有目标文件都会存放到 RAM 中。以上三个条件为假时，整个库会存放到 RTC 存储器中。虽然这种使用场景很罕见，不过，还是可以通过以下方式实现：
+来看一种更复杂的情况。假设 ``CONFIG_PERFORMANCE_LEVEL == 1`` 时，只有 ``object1.o`` 存放到 RAM 中； ``CONFIG_PERFORMANCE_LEVEL == 2`` 时，``object1.o`` 和 ``object2.o`` 会存放到 RAM 中； ``CONFIG_PERFORMANCE_LEVEL == 3`` 时，库中的所有目标文件都会存放到 RAM 中。以上三个条件为假时，整个库会存放到 RTC 存储器中。虽然这种使用场景很罕见，不过，还是可以通过以下方式实现：
 
 .. code-block:: none
 
@@ -190,6 +191,7 @@
 与 ``rtc`` 和 ``noflash`` 类似，还有一个 ``默认`` 协议，定义了默认存放规则。顾名思义，该协议规定了代码和数据通常存放的区域，即代码和恒量存放在 flash 中，变量存放在 RAM 中。更多关于默认协议的信息，请见 :ref:`这里<ldgen-default-scheme>`。
 
 .. note::
+
     使用链接器脚本生成机制的 IDF 组件示例，请参阅 :component_file:`freertos/CMakeLists.txt`。为了提高性能，``freertos`` 使用链接器脚本生成机制，将其目标文件存放到 RAM 中。
 
 快速入门指南到此结束，下文将详述这个机制的内核，有助于创建自定义存放区域或修改默认方式。
@@ -197,7 +199,7 @@
 链接器脚本生成机制内核
 ---------------------------
 
-链接是将 C/C++ 源文件转换成可执行文件的最后一步。链接由工具链的链接器完成，接受指定代码和数据存放区域等信息的链接脚本。链接器脚本生成机制的转换过程类似，区别在于传输给链接器的链接脚本根据(1) 收集的 :ref:`链接器片段文件<ldgen-linker-fragment-files>` 和 (2) :ref:`链接器脚本模板<ldgen-linker-script-template>` 动态生成。
+链接是将 C/C++ 源文件转换成可执行文件的最后一步。链接由工具链的链接器完成，接受指定代码和数据存放区域等信息的链接脚本。链接器脚本生成机制的转换过程类似，区别在于传输给链接器的链接脚本根据 (1) 收集的 :ref:`链接器片段文件<ldgen-linker-fragment-files>` 和 (2) :ref:`链接器脚本模板<ldgen-linker-script-template>` 动态生成。
 
 .. note::
 
@@ -530,26 +532,53 @@
 
 如需引用一个 ``目标`` 标记下的所有存放规则，请使用以下语法：
 
-.. code-block:: none
+.. only:: SOC_MEM_NON_CONTIGUOUS_SRAM
 
-    mapping[target]
+    .. code-block:: none
+
+        arrays[target]      /* SURROUND 关键字下的对象 */
+        mapping[target]     /* 所有其他数据 */
+
+.. only:: not SOC_MEM_NON_CONTIGUOUS_SRAM
+
+    .. code-block:: none
+
+        mapping[target]
 
 示例：
 
 以下示例是某个链接器脚本模板的摘录，定义了输出段 ``.iram0.text``，该输出段包含一个引用目标 ``iram0_text`` 的标记。
 
-.. code-block:: none
+.. only:: SOC_MEM_NON_CONTIGUOUS_SRAM
 
-    .iram0.text :
-    {
-        /* 标记 IRAM 空间不足 */
-        _iram_text_start = ABSOLUTE(.);
+    .. code-block:: none
 
-        /* 引用 iram0_text */
-        mapping[iram0_text]
+        .iram0.text :
+        {
+            /* 标记 IRAM 空间不足 */
+            _iram_text_start = ABSOLUTE(.);
 
-        _iram_text_end = ABSOLUTE(.);
-    } > iram0_0_seg
+            /* 引用 iram0_text */
+            arrays[iram0_text]
+            mapping[iram0_text]
+
+            _iram_text_end = ABSOLUTE(.);
+        } > iram0_0_seg
+
+.. only:: not SOC_MEM_NON_CONTIGUOUS_SRAM
+
+    .. code-block:: none
+
+        .iram0.text :
+        {
+            /* 标记 IRAM 空间不足 */
+            _iram_text_start = ABSOLUTE(.);
+
+            /* 引用 iram0_text */
+            mapping[iram0_text]
+
+            _iram_text_end = ABSOLUTE(.);
+        } > iram0_0_seg
 
 假设链接器脚本生成器收集到了以下片段定义：
 
@@ -601,14 +630,3 @@
     这是根据默认协议条目 ``iram -> iram0_text`` 生成的规则。默认协议指定了 ``iram -> iram0_text`` 条目，因此生成的规则同样也放在被 ``iram0_text`` 标记的地方。由于该规则是根据默认协议生成的，因此在同一目标下收集的所有规则下排在第一位。
 
     目前使用的链接器脚本模板是 :component_file:`esp_system/ld/{IDF_TARGET_PATH_NAME}/sections.ld.in`，生成的脚本存放在构建目录下。
-
-.. _ldgen-migrate-lf-grammar :
-
-将链接器脚本片段文件语法迁移至 ESP-IDF v5.0 适应版本
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-ESP-IDF v5.0 中将不再支持 ESP-IDF v3.x 中链接器脚本片段文件的旧式语法。在迁移的过程中需注意以下几点：
-
-- 必须缩进，缩进不当的文件会产生解析异常；旧版本不强制缩进，但之前的文档和示例均遵循了正确的缩进语法
-- 条件改用 ``if...elif...else`` 结构，可以参照 :ref:`之前的章节<ldgen-conditional-placements>`
-- 映射片段和其他片段类型一样，需有名称

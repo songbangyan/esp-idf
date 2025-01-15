@@ -1,6 +1,8 @@
 通用定时器
 =====================
 
+:link_to_translation:`en:[English]`
+
 简介
 -----------------
 
@@ -8,9 +10,9 @@
 
 通用定时器通常在以下场景中使用：
 
--  如同挂钟一般自由运行，随时随地获取高分辨率时间戳；
--  生成周期性警报，定期触发事件；
--  生成一次性警报，在目标时间内响应。
+- 如同挂钟一般自由运行，随时随地获取高分辨率时间戳；
+- 生成周期性警报，定期触发事件；
+- 生成一次性警报，在目标时间内响应。
 
 功能概述
 -----------------
@@ -25,7 +27,7 @@
     - :ref:`gptimer-register-event-callbacks` - 如何将用户的特定代码挂载到警报事件回调函数。
     - :ref:`enable-and-disable-timer` - 如何使能和禁用定时器。
     - :ref:`start-and-stop-timer` - 通过不同报警行为启动定时器的典型使用场景。
-    :SOC_ETM_SUPPORTED and SOC_TIMER_SUPPORT_ETM: - :ref:`gptimer-etm-event-and-task` - 定时器提供了哪些事件和任务可以连接到 ETM 通道上。
+    :SOC_TIMER_SUPPORT_ETM: - :ref:`gptimer-etm-event-and-task` - 定时器提供了哪些事件和任务可以连接到 ETM 通道上。
     - :ref:`gptimer-power-management` - 选择不同的时钟源将会如何影响功耗。
     - :ref:`gptimer-iram-safe` - 在 cache 禁用的情况下，如何更好地让定时器处理中断事务以及实现 IO 控制功能。
     - :ref:`gptimer-thread-safety` - 驱动程序保证哪些 API 线程安全。
@@ -38,17 +40,16 @@
 
 不同的 ESP 芯片可能有不同数量的独立定时器组，每组内也可能有若干个独立定时器。[1]_
 
-通用定时器实例由 :cpp:type:`gptimer_handle_t` 表示。后台驱动会在资源池中管理所有可用的硬件资源，这样您便无需考虑硬件所属的定时器以及定时器组。
+通用定时器实例由 :cpp:type:`gptimer_handle_t` 表示。可用硬件资源汇集在资源池内，由后台驱动程序管理，无需考虑硬件所属的定时器以及定时器组。
 
 要安装一个定时器实例，需要提前提供配置结构体 :cpp:type:`gptimer_config_t`：
 
--  :cpp:member:`gptimer_config_t::clk_src` 选择定时器的时钟源。:cpp:type:`gptimer_clock_source_t` 中列出多个可用时钟，仅可选择其中一个时钟。了解不同时钟源对功耗的影响，请查看章节 :ref:`gptimer-power-management`。
-
--  :cpp:member:`gptimer_config_t::direction` 设置定时器的计数方向，:cpp:type:`gptimer_count_direction_t` 中列出多个支持的方向，仅可选择其中一个方向。
-
--  :cpp:member:`gptimer_config_t::resolution_hz` 设置内部计数器的分辨率。计数器每滴答一次相当于 **1 / resolution_hz** 秒。
-
--  选用 :cpp:member:`gptimer_config_t::intr_shared` 设置是否将定时器中断源标记为共享源。了解共享中断的优缺点，请参考 :doc:`Interrupt Handling <../../api-reference/system/intr_alloc>`。
+- :cpp:member:`gptimer_config_t::clk_src` 选择定时器的时钟源。:cpp:type:`gptimer_clock_source_t` 中列出多个可用时钟，仅可选择其中一个时钟。了解不同时钟源对功耗的影响，请查看章节 :ref:`gptimer-power-management`。
+- :cpp:member:`gptimer_config_t::direction` 设置定时器的计数方向，:cpp:type:`gptimer_count_direction_t` 中列出多个支持的方向，仅可选择其中一个方向。
+- :cpp:member:`gptimer_config_t::resolution_hz` 设置内部计数器的分辨率。计数器每滴答一次相当于 **1 / resolution_hz** 秒。
+- :cpp:member:`gptimer_config::intr_priority` 设置中断的优先级。如果设置为 ``0``，则会分配一个默认优先级的中断，否则会使用指定的优先级。
+- :cpp:member:`gptimer_config::allow_pd` 配置驱动程序是否允许系统在睡眠模式下关闭外设电源。在进入睡眠之前，系统将备份 GPTimer 寄存器上下文，当系统退出睡眠模式时，这些上下文将被恢复。关闭外设可以节省更多功耗，但代价是消耗更多内存来保存寄存器上下文。你需要在功耗和内存消耗之间做权衡。此配置选项依赖于特定的硬件功能，如果在不支持的芯片上启用它，你将看到类似 ``not able to power down in light sleep`` 的错误消息。
+- 可选地， :cpp:member:`gptimer_config_t::intr_shared` 设置是否将定时器中断源标记为共享源。了解共享中断的优缺点，请参考 :doc:`Interrupt Handling <../../api-reference/system/intr_alloc>`。
 
 完成上述结构配置之后，可以将结构传递给 :cpp:func:`gptimer_new_timer`，用以实例化定时器实例并返回定时器句柄。
 
@@ -85,7 +86,7 @@
 
 对于大多数通用定时器使用场景而言，应在启动定时器之前设置警报动作，但不包括简单的挂钟场景，该场景仅需自由运行的定时器。设置警报动作，需要根据如何使用警报事件来配置 :cpp:type:`gptimer_alarm_config_t` 的不同参数：
 
--  :cpp:member:`gptimer_alarm_config_t::alarm_count` 设置触发警报事件的目标计数值。设置警报值时还需考虑计数方向。尤其是当 :cpp:member:`gptimer_alarm_config_t::auto_reload_on_alarm` 为 true 时，:cpp:member:`gptimer_alarm_config_t::alarm_count` 和 :cpp:member:`gptimer_alarm_config_t::reload_count` 不能设置为相同的值，因为警报值和重载值相同时没有意义。
+-  :cpp:member:`gptimer_alarm_config_t::alarm_count` 设置触发警报事件的目标计数值。设置警报值时还需考虑计数方向。当 :cpp:member:`gptimer_alarm_config_t::auto_reload_on_alarm` 为 ``true`` 时，:cpp:member:`gptimer_alarm_config_t::alarm_count` 和 :cpp:member:`gptimer_alarm_config_t::reload_count` 不能设置为相同的值，因为警报值和重载值相同时没有意义。请注意，由于中断延迟，不建议将警报周期设置为小于 5 微秒。
 
 -  :cpp:member:`gptimer_alarm_config_t::reload_count` 代表警报事件发生时要重载的计数值。此配置仅在 :cpp:member:`gptimer_alarm_config_t::auto_reload_on_alarm` 设置为 true 时生效。
 
@@ -106,7 +107,7 @@
 
 -  :cpp:member:`gptimer_event_callbacks_t::on_alarm` 设置警报事件的回调函数。由于此函数在 ISR 上下文中调用，必须确保该函数不会试图阻塞（例如，确保仅从函数内调用具有 ``ISR`` 后缀的 FreeRTOS API）。函数原型在 :cpp:type:`gptimer_alarm_cb_t` 中有所声明。
 
-您也可以通过参数 ``user_data`` 将自己的上下文保存到 :cpp:func:`gptimer_register_event_callbacks` 中。用户数据将直接传递给回调函数。
+也可以通过参数 ``user_data``，将自己的上下文保存到 :cpp:func:`gptimer_register_event_callbacks` 中。用户数据将直接传递给回调函数。
 
 此功能将为定时器延迟安装中断服务，但不使能中断服务。所以，请在 :cpp:func:`gptimer_enable` 之前调用这一函数，否则将返回 :c:macro:`ESP_ERR_INVALID_STATE` 错误。了解详细信息，请查看章节 :ref:`enable-and-disable-timer`。
 
@@ -129,6 +130,8 @@
 ^^^^^^^^^^^^^^^^
 
 启动和停止是定时器的基本 IO 操作。调用 :cpp:func:`gptimer_start` 可以使内部计数器开始工作，而 :cpp:func:`gptimer_stop` 可以使计数器停止工作。下文说明了如何在存在或不存在警报事件的情况下启动定时器。
+
+调用 :cpp:func:`gptimer_start` 将使驱动程序状态从 enable 转换为 run, 反之亦然。注意确保 start 和 stop 函数成对使用，否则，函数可能返回 :c:macro:`ESP_ERR_INVALID_STATE`。
 
 将定时器作为挂钟启动
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -257,10 +260,10 @@
     };
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, queue));
     ESP_ERROR_CHECK(gptimer_enable(gptimer));
-    ESP_ERROR_CHECK(gptimer_start(gptimer, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_start(gptimer));
 
 
-.. only:: SOC_ETM_SUPPORTED and SOC_TIMER_SUPPORT_ETM
+.. only:: SOC_TIMER_SUPPORT_ETM
 
     .. _gptimer-etm-event-and-task:
 
@@ -273,16 +276,20 @@
 
     .. _gptimer-power-management:
 
-.. only:: not SOC_ETM_SUPPORTED or not SOC_TIMER_SUPPORT_ETM
+.. only:: not SOC_TIMER_SUPPORT_ETM
 
     .. _gptimer-power-management:
 
 电源管理
 ^^^^^^^^
 
-有些电源管理的策略会在某些时刻关闭时钟源，或者改变时钟源的频率，以求降低功耗。比如在启用 DFS 后， APB 时钟源会降低频率。如果浅睡眠（light sleep） 模式也被开启， PLL 和 XTAL 时钟都会被默认关闭，从而导致 GPTimer 的计时不准确。
+当电源管理 :ref:`CONFIG_PM_ENABLE` 被启用的时候，系统在进入睡眠前可能会调整或禁用时钟源。结果导致 GPTimer 的计时不准确。
 
-驱动程序会根据具体的时钟源选择，通过创建不同的电源锁来避免上述情况的发生。驱动会在 :cpp:func:`gptimer_enable` 函数中增加电源锁的引用计数，并在 :cpp:func:`gptimer_disable` 函数中减少电源锁的引用计数，从而保证了在 :cpp:func:`gptimer_enable` 和 :cpp:func:`gptimer_disable` 之间， GPTimer 的时钟源始处于稳定工作的状态。
+驱动程序可以通过创建一个电源管理锁来防止上述问题。锁的类型会根据不同的时钟源来设置。驱动程序将在 :cpp:func:`gptimer_enable` 中拿锁，并在 :cpp:func:`gptimer_disable` 中释放锁。这意味着，在这两个函数之间，定时器可以正确工作，因为此时时钟源不会被禁用或改变频率。
+
+.. only:: SOC_TIMER_SUPPORT_SLEEP_RETENTION
+
+    除了时钟源的潜在变化外，当启用电源管理时，系统还可以在睡眠前关闭 GPTimer 电源。将 :cpp:member:`gptimer_config_t::allow_pd` 设置为 ``true`` 以启用电源关闭功能。GPTimer 寄存器将在睡眠前备份，并在唤醒后恢复。请注意，启用此选项会增加内存消耗。
 
 .. _gptimer-iram-safe:
 
@@ -310,27 +317,25 @@ IRAM 安全
 .. _gptimer-thread-safety:
 
 线程安全
-^^^^^^^^^^^^^^^^^^
+^^^^^^^^
 
-驱动程序会保证工厂函数 :cpp:func:`gptimer_new_timer` 的线程安全，这意味着您可以从不同的 RTOS 任务中调用这一函数，而无需额外的锁保护。
-
-由于驱动程序通过使用临界区来防止这些函数在任务和 ISR 中同时被调用，所以以下函数能够在 ISR 上下文中运行。
+驱动提供的所有 API 都是线程安全的。使用时，可以直接从不同的 RTOS 任务中调用此类函数，无需额外锁保护。以下这些函数还支持在中断上下文中运行。
 
 - :cpp:func:`gptimer_start`
 - :cpp:func:`gptimer_stop`
 - :cpp:func:`gptimer_get_raw_count`
 - :cpp:func:`gptimer_set_raw_count`
+- :cpp:func:`gptimer_get_captured_count`
 - :cpp:func:`gptimer_set_alarm_action`
-
-将 :cpp:type:`gptimer_handle_t` 作为第一个位置参数的其他函数不被视作线程安全，也就是说应该避免从多个任务中调用这些函数。
 
 .. _gptimer-kconfig-options:
 
 Kconfig 选项
 ^^^^^^^^^^^^^^^^^^^^^^
 
-- :ref:`CONFIG_GPTIMER_CTRL_FUNC_IN_IRAM` 控制放置通用定时器控制函数（IRAM 或 flash）的位置。了解更多信息，请参考章节 :ref:`gptimer-iram-safe`。
-- :ref:`CONFIG_GPTIMER_ISR_IRAM_SAFE` 控制默认 ISR 程序在 cache 禁用时是否可以运行。了解更多信息，请参考章节 :ref:`gptimer-iram-safe`。
+- :ref:`CONFIG_GPTIMER_CTRL_FUNC_IN_IRAM` 控制着定时器控制函数的存放位置（IRAM 或 flash）。
+- :ref:`CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM` 控制着定时器中断处理函数的存放位置（IRAM 或 flash）。
+- :ref:`CONFIG_GPTIMER_ISR_IRAM_SAFE` 控制着中断处理函数是否需要在 cache 关闭的时候被屏蔽掉。更多信息，请参阅 :ref:`gptimer-iram-safe`。
 - :ref:`CONFIG_GPTIMER_ENABLE_DEBUG_LOG` 用于启用调试日志输出。启用这一选项将增加固件二进制文件大小。
 
 应用示例
@@ -338,19 +343,24 @@ Kconfig 选项
 
 .. list::
 
-    - 示例 :example:`peripherals/timer_group/gptimer` 中列出了通用定时器的典型用例。
-    :SOC_TIMER_SUPPORT_ETM: - 示例 :example:`peripherals/timer_group/gptimer_capture_hc_sr04` 展示了如何在 ETM 模块的帮助下，用定时器捕获外部事件的时间戳。
+    * :example:`peripherals/timer_group/gptimer` 演示了如何在 ESP 芯片上使用通用定时器 API 生成周期性警报事件，触发不同的警报动作。
+    :SOC_TIMER_SUPPORT_ETM: * :example:`peripherals/timer_group/gptimer_capture_hc_sr04` 展示了如何使用通用定时器和事件任务矩阵 (ETM) 外设来捕获内部定时器计数值，并测量两个事件之间的时间，用于解码常见的 HC-SR04 超声波传感器生成的脉冲宽度信号。
+    :not esp32c2: * :example:`peripherals/timer_group/wiegand_interface` 使用两个定时器（一个在单次触发模式下，另一个在周期触发模式下），来触发中断并在中断中改变 GPIO 的输出状态。
+
 
 API 参考
 -------------------
 
 .. include-build-file:: inc/gptimer.inc
-.. include-build-file:: inc/gptimer_etm.inc
 .. include-build-file:: inc/gptimer_types.inc
 .. include-build-file:: inc/timer_types.inc
 
+.. only:: SOC_TIMER_SUPPORT_ETM
+
+    .. include-build-file:: inc/gptimer_etm.inc
+
 .. [1]
-   不同 ESP 芯片系列的通用定时器实例数量可能不同。了解详细信息，请参考《{IDF_TARGET_NAME} 技术参考手册》 > 章节定时器组 (TIMG) [`PDF <{IDF_TARGET_TRM_CN_URL}#timg>`__]。驱动程序不会禁止您申请更多的定时器，但是当所有可用的硬件资源用完时将会返回错误。在分配资源时，请务必检查返回值（例如 :cpp:func:`gptimer_new_timer`）。
+   不同 ESP 芯片系列的通用定时器实例数量可能不同。了解详细信息，请参考《{IDF_TARGET_NAME} 技术参考手册》 > 章节定时器组 (TIMG) [`PDF <{IDF_TARGET_TRM_CN_URL}#timg>`__]。驱动程序对通道申请数量不做限制，但当硬件资源用尽时，驱动程序将返回错误。在分配资源时，请务必检查返回值（例如 :cpp:func:`gptimer_new_timer`）。
 
 .. [2]
    :cpp:member:`gptimer_event_callbacks_t::on_alarm` 回调函数和这一函数调用的函数也需放在 IRAM 中，请自行处理。

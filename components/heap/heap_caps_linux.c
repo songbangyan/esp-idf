@@ -13,6 +13,10 @@
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
 
+#ifdef CONFIG_HEAP_ABORT_WHEN_ALLOCATION_FAILS
+#include "esp_system.h"
+#endif
+
 static esp_alloc_failed_hook_t alloc_failed_callback;
 
 static const uint32_t MAGIC_HEAP_SIZE = UINT32_MAX;
@@ -80,7 +84,7 @@ void *heap_caps_malloc_prefer( size_t size, size_t num, ... )
 
 static void *heap_caps_realloc_base( void *ptr, size_t size, uint32_t caps)
 {
-    ptr = realloc(ptr, caps);
+    ptr = realloc(ptr, size);
 
     if (ptr == NULL && size > 0) {
         heap_caps_alloc_failed(size, caps, __func__);

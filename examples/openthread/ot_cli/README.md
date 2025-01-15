@@ -1,5 +1,5 @@
-| Supported Targets | ESP32-C6 | ESP32-H4 |
-| ----------------- | -------- | -------- |
+| Supported Targets | ESP32-C5 | ESP32-C6 | ESP32-H2 |
+| ----------------- | -------- | -------- | -------- |
 
 # OpenThread Command Line Example
 
@@ -9,7 +9,7 @@ This example demonstrates an [OpenThread CLI](https://github.com/openthread/open
 
 ### Hardware Required
 
-To run this example, an ESP32-H4 board is required.
+To run this example, a board with IEEE 802.15.4 module (for example ESP32-H2) is required.
 
 ### Configure the project
 
@@ -17,7 +17,11 @@ To run this example, an ESP32-H4 board is required.
 idf.py menuconfig
 ```
 
-The example can run with the default configuration.
+The example can run with the default configuration. OpenThread Command Line is enabled with UART as the default interface. Additionally, USB JTAG is also supported and can be activated through the menuconfig:
+
+```
+Component config → ESP System Settings → Channel for console output → USB Serial/JTAG Controller
+```
 
 ### Build, Flash, and Run
 
@@ -63,7 +67,7 @@ factoryreset
 
 ## Set Up Network
 
-To run this example, at least two ESP32-H4 boards flashed with this ot_cli example are required.
+To run this example, at least two ESP32-H2 boards flashed with this ot_cli example are required.
 
 On the first device, run the following commands:
 ```bash

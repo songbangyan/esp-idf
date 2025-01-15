@@ -128,7 +128,7 @@ void BTA_GATTC_AppDeregister(tBTA_GATTC_IF client_if)
 
 /*******************************************************************************
 **
-** Function         BTA_GATTC_Open
+** Function         BTA_GATTC_Enh_Open
 **
 ** Description      Open a direct connection or add a background auto connection
 **                  bd address
@@ -142,8 +142,10 @@ void BTA_GATTC_AppDeregister(tBTA_GATTC_IF client_if)
 ** Returns          void
 **
 *******************************************************************************/
-void BTA_GATTC_Open(tBTA_GATTC_IF client_if, BD_ADDR remote_bda, tBTA_ADDR_TYPE remote_addr_type,
-                    BOOLEAN is_direct, tBTA_GATT_TRANSPORT transport, BOOLEAN is_aux)
+void BTA_GATTC_Enh_Open(tBTA_GATTC_IF client_if, BD_ADDR remote_bda, tBTA_ADDR_TYPE remote_addr_type,
+                        BOOLEAN is_direct, tBTA_GATT_TRANSPORT transport, BOOLEAN is_aux, tBTA_ADDR_TYPE own_addr_type,
+                        UINT8 phy_mask, tBTA_BLE_CONN_PARAMS *phy_1m_conn_params, tBTA_BLE_CONN_PARAMS *phy_2m_conn_params,
+                        tBTA_BLE_CONN_PARAMS *phy_coded_conn_params)
 {
     tBTA_GATTC_API_OPEN  *p_buf;
 
@@ -155,8 +157,18 @@ void BTA_GATTC_Open(tBTA_GATTC_IF client_if, BD_ADDR remote_bda, tBTA_ADDR_TYPE 
         p_buf->transport = transport;
         p_buf->is_aux = is_aux;
         p_buf->remote_addr_type = remote_addr_type;
+        p_buf->own_addr_type = own_addr_type;
+        p_buf->phy_mask = phy_mask;
         memcpy(p_buf->remote_bda, remote_bda, BD_ADDR_LEN);
-
+        if ((phy_mask & BTA_BLE_PHY_1M_MASK) && phy_1m_conn_params) {
+            memcpy(&p_buf->phy_1m_conn_params, phy_1m_conn_params, sizeof(tBTA_BLE_CONN_PARAMS));
+        }
+        if ((phy_mask & BTA_BLE_PHY_2M_MASK) && phy_2m_conn_params) {
+            memcpy(&p_buf->phy_2m_conn_params, phy_2m_conn_params, sizeof(tBTA_BLE_CONN_PARAMS));
+        }
+        if ((phy_mask & BTA_BLE_PHY_CODED_MASK) && phy_coded_conn_params) {
+            memcpy(&p_buf->phy_coded_conn_params, phy_coded_conn_params, sizeof(tBTA_BLE_CONN_PARAMS));
+        }
 
         bta_sys_sendmsg(p_buf);
     }
@@ -472,7 +484,7 @@ void  BTA_GATTC_GetGattDb(UINT16 conn_id, UINT16 start_handle, UINT16 end_handle
 ** Description      This function is called to read a characteristics value
 **
 ** Parameters       conn_id - connection ID.
-**                  handle - characteritic handle to read.
+**                  handle - characteristic handle to read.
 **
 ** Returns          None
 **
@@ -565,13 +577,49 @@ void BTA_GATTC_ReadMultiple(UINT16 conn_id, tBTA_GATTC_MULTI *p_read_multi,
 
 /*******************************************************************************
 **
+** Function         BTA_GATTC_ReadMultipleVariable
+**
+** Description      This function is called to read multiple variable length characteristic or
+**                  characteristic descriptors.
+**
+** Parameters       conn_id - connection ID.
+**                    p_read_multi - pointer to the read multiple parameter.
+**
+** Returns          None
+**
+*******************************************************************************/
+void BTA_GATTC_ReadMultipleVariable(UINT16 conn_id, tBTA_GATTC_MULTI *p_read_multi,
+                            tBTA_GATT_AUTH_REQ auth_req)
+{
+    tBTA_GATTC_API_READ_MULTI  *p_buf;
+    UINT16 len = (UINT16)(sizeof(tBTA_GATTC_API_READ_MULTI));
+
+    if ((p_buf = (tBTA_GATTC_API_READ_MULTI *) osi_malloc(len)) != NULL) {
+        memset(p_buf, 0, len);
+
+        p_buf->hdr.event = BTA_GATTC_API_READ_MULTI_VAR_EVT;
+        p_buf->hdr.layer_specific = conn_id;
+        p_buf->auth_req = auth_req;
+        p_buf->num_attr = p_read_multi->num_attr;
+        p_buf->cmpl_evt = BTA_GATTC_READ_MULTI_VAR_EVT;
+        if (p_buf->num_attr > 0) {
+            memcpy(p_buf->handles, p_read_multi->handles, sizeof(UINT16) * p_read_multi->num_attr);
+	    }
+
+        bta_sys_sendmsg(p_buf);
+    }
+    return;
+}
+
+/*******************************************************************************
+**
 ** Function         BTA_GATTC_Read_by_type
 **
 ** Description      This function is called to read a attribute value by uuid
 **
 ** Parameters       conn_id - connection ID.
 **                  s_handle - start handle.
-**                  e_handle - end hanle
+**                  e_handle - end handle
 **                  uuid - The attribute UUID.
 **
 ** Returns          None
@@ -651,7 +699,7 @@ void BTA_GATTC_WriteCharValue ( UINT16 conn_id,
 ** Description      This function is called to write descriptor value.
 **
 ** Parameters       conn_id - connection ID
-**                  handle - descriptor hadle to write.
+**                  handle - descriptor handle to write.
 **                  write_type - write type.
 **                  p_value - the value to be written.
 **
@@ -702,7 +750,7 @@ void BTA_GATTC_WriteCharDescr (UINT16 conn_id,
 ** Description      This function is called to prepare write a characteristic value.
 **
 ** Parameters       conn_id - connection ID.
-**                    p_char_id - GATT characteritic ID of the service.
+**                    p_char_id - GATT characteristic ID of the service.
 **                  offset - offset of the write value.
 **                  len: length of the data to be written.
 **                  p_value - the value to be written.
@@ -745,7 +793,7 @@ void BTA_GATTC_PrepareWrite  (UINT16 conn_id, UINT16 handle,
 ** Description      This function is called to prepare write a characteristic descriptor value.
 **
 ** Parameters       conn_id - connection ID.
-**                  p_char_descr_id - GATT characteritic descriptor ID of the service.
+**                  p_char_descr_id - GATT characteristic descriptor ID of the service.
 **                  offset - offset of the write value.
 **                  len: length of the data to be written.
 **                  p_value - the value to be written.
@@ -896,7 +944,7 @@ tBTA_GATT_STATUS BTA_GATTC_RegisterForNotifications (tBTA_GATTC_IF client_if,
             }
             if (i == BTA_GATTC_NOTIF_REG_MAX) {
                 status = BTA_GATT_NO_RESOURCES;
-                APPL_TRACE_ERROR("Max Notification Reached, registration failed.");
+                APPL_TRACE_ERROR("Max Notification Reached, registration failed,see CONFIG_BT_GATTC_NOTIF_REG_MAX in menuconfig");
             }
         }
     } else {
@@ -974,9 +1022,9 @@ void BTA_GATTC_Refresh(BD_ADDR remote_bda, bool erase_flash)
     if(bta_sys_is_register(BTA_ID_GATTC) == FALSE) {
         return;
     }
-    tBTA_GATTC_API_OPEN  *p_buf;
+    tBTA_GATTC_API_CACHE_REFRESH  *p_buf;
 
-    if ((p_buf = (tBTA_GATTC_API_OPEN *) osi_malloc(sizeof(tBTA_GATTC_API_OPEN))) != NULL) {
+    if ((p_buf = (tBTA_GATTC_API_CACHE_REFRESH *) osi_malloc(sizeof(tBTA_GATTC_API_CACHE_REFRESH))) != NULL) {
         p_buf->hdr.event = BTA_GATTC_API_REFRESH_EVT;
         memcpy(p_buf->remote_bda, remote_bda, BD_ADDR_LEN);
 
@@ -1032,9 +1080,9 @@ void BTA_GATTC_Clean(BD_ADDR remote_bda)
     bta_gattc_cache_reset(remote_bda);
 #endif
 
-    tBTA_GATTC_API_OPEN  *p_buf;
+    tBTA_GATTC_API_CACHE_CLEAN  *p_buf;
 
-    if ((p_buf = (tBTA_GATTC_API_OPEN *) osi_malloc(sizeof(tBTA_GATTC_API_OPEN))) != NULL) {
+    if ((p_buf = (tBTA_GATTC_API_CACHE_CLEAN *) osi_malloc(sizeof(tBTA_GATTC_API_CACHE_CLEAN))) != NULL) {
         p_buf->hdr.event = BTA_GATTC_API_CACHE_CLEAN_EVT;
         memcpy(p_buf->remote_bda, remote_bda, BD_ADDR_LEN);
 
@@ -1174,31 +1222,6 @@ uint8_t BTA_GATTC_ReadLongChar(uint8_t gatt_if, uint16_t conn_id, uint16_t handl
     read_param.partial.auth_req = auth_req;
 
     status = GATTC_Read(conn_id, GATT_READ_PARTIAL, &read_param);
-    if (status != GATT_SUCCESS) {
-        APPL_TRACE_ERROR("%s status %x", __func__, status);
-        return -1;
-    }
-
-    return 0;
-}
-
-uint8_t BTA_GATTC_ReadMultiVariableChar(uint8_t gatt_if, uint16_t conn_id, uint16_t num_handles, uint16_t *handles, uint8_t auth_req)
-{
-    tGATT_STATUS status;
-    tGATT_READ_PARAM read_param;
-
-    if (num_handles > GATT_MAX_READ_MULTI_HANDLES) {
-        APPL_TRACE_ERROR("%s max read multi handlse %x", __func__, num_handles);
-        return -1;
-    }
-
-    conn_id = (UINT16)((((UINT8)conn_id) << 8) | gatt_if);
-    memset (&read_param, 0, sizeof(tGATT_READ_PARAM));
-    read_param.read_multiple.num_handles = num_handles;
-    memcpy(read_param.read_multiple.handles, handles, num_handles);
-    read_param.read_multiple.auth_req = auth_req;
-
-    status = GATTC_Read(conn_id, GATT_READ_MULTIPLE_VAR, &read_param);
     if (status != GATT_SUCCESS) {
         APPL_TRACE_ERROR("%s status %x", __func__, status);
         return -1;

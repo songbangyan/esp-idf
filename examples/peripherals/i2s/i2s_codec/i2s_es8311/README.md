@@ -1,5 +1,5 @@
-| Supported Targets | ESP32 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- |
+| Supported Targets | ESP32 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
 
 # I2S ES8311 Example
 
@@ -55,7 +55,7 @@ For more details, see [ES8311 datasheet](http://www.everest-semi.com/pdf/ES8311%
 │              GND├───────────┤GND                       │
 └─────────────────┘           └──────────────────────────┘
 ```
-Note: Since ESP32-C3 & ESP32-H4 board does not have GPIO 16/17, you can use other available GPIOs instead. In this example, we set GPIO 6/7 as I2C pins for ESP32-C3 & ESP32-H4 and GPIO 16/17 for other chips, same as GPIO 18/19, we use GPIO 2/3 instead.
+Note: Since ESP32-C3 & ESP32-H2 board does not have GPIO 16/17, you can use other available GPIOs instead. In this example, we set GPIO 6/7 as I2C pins for ESP32-C3 and GPIO 8/9 ESP32-H2 and GPIO 16/17 for other chips, same as GPIO 18/19, we use GPIO 2/3 instead.
 
 ### Dependency
 
@@ -73,13 +73,13 @@ If the dependency is added, you can check `idf_component.yml` for more detail. W
 ```
 idf.py menuconfig
 ```
-You can find configurations for this example in 'Example Configutation' tag.
+You can find configurations for this example in 'Example Configuration' tag.
 
 * In 'Example mode' subtag, you can set the example mode to 'music' or 'echo'. You can hear a piece of music in 'music' mode and echo the sound sampled by mic in 'echo' mode. You can also customize you own music to play as shown below.
 
 * In 'Set MIC gain' subtag, you can set the mic gain for echo mode.
 
-* In 'Voice volume', you can set the volum between 0 to 100.
+* In 'Voice volume', you can set the volume between 0 to 100.
 
 * In 'Enable Board Support Package (BSP) support' you can enable support for BSP. You can pick specific BSP in [idf_component.yml](main/idf_component.yml).
 
@@ -129,6 +129,11 @@ If you have a logic analyzer, you can use a logic analyzer to grab GPIO signal d
 | SDOUT |serial data out| GPIO_NUM_18/2 |
 | SDIN  |serial data in | GPIO_NUM_19/3 |
 
+Other pins like I2C please refer to `example_config.h`.
+
+Please note that the power amplifier on some development boards (like P4 EV board) are disabled by default, you might need to set the PA_CTRL pin to high to play the music via a speaker.
+The PA_CTRL pin can be configured by `idf.py menuconfig`, please check if the PA_CTRL pin is correct on your board if the audio can only be played from the earphones but not the speaker.
+
 ### Customize your own music
 
 The example have contained a piece of music in canon.pcm, if you want to play your own music, you can follow these steps:
@@ -149,5 +154,10 @@ The example have contained a piece of music in canon.pcm, if you want to play yo
 
     * Hardware connection is not correct: run `idf.py -p PORT monitor`, and reboot your board to see if there are any output logs.
     * The baud rate for downloading is too high: lower your baud rate in the `menuconfig` menu, and try again.
+
+* Failed to get audio from specker
+
+    * The PA (Power Amplifier) on some dev-kits might be disabled by default, please check the schematic to see if PA_CTRL is connected to any GPIO or something.
+    * Pull-up the PA_CTRL pin either by setting that GPIO to high or by connecting it to 3.3V with a jump wire should help.
 
 For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.

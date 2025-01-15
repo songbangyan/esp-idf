@@ -7,11 +7,8 @@
 # See https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/partition-tables.html
 # for explanation of partition table structure and uses.
 #
-# SPDX-FileCopyrightText: 2016-2021 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2016-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
-
-from __future__ import division, print_function, unicode_literals
-
 import argparse
 import binascii
 import errno
@@ -27,17 +24,23 @@ PARTITION_TABLE_SIZE  = 0x1000  # Size of partition table
 
 MIN_PARTITION_SUBTYPE_APP_OTA = 0x10
 NUM_PARTITION_SUBTYPE_APP_OTA = 16
+MIN_PARTITION_SUBTYPE_APP_TEE = 0x30
+NUM_PARTITION_SUBTYPE_APP_TEE = 2
 
 SECURE_NONE = None
 SECURE_V1 = 'v1'
 SECURE_V2 = 'v2'
 
-__version__ = '1.2'
+__version__ = '1.4'
 
 APP_TYPE = 0x00
 DATA_TYPE = 0x01
+BOOTLOADER_TYPE = 0x02
+PARTITION_TABLE_TYPE = 0x03
 
 TYPES = {
+    'bootloader': BOOTLOADER_TYPE,
+    'partition_table': PARTITION_TABLE_TYPE,
     'app': APP_TYPE,
     'data': DATA_TYPE,
 }
@@ -56,6 +59,15 @@ def get_ptype_as_int(ptype):
 
 # Keep this map in sync with esp_partition_subtype_t enum in esp_partition.h
 SUBTYPES = {
+    BOOTLOADER_TYPE: {
+        'primary': 0x00,
+        'ota': 0x01,
+        'recovery': 0x02,
+    },
+    PARTITION_TABLE_TYPE: {
+        'primary': 0x00,
+        'ota': 0x01,
+    },
     APP_TYPE: {
         'factory': 0x00,
         'test': 0x20,
@@ -71,6 +83,9 @@ SUBTYPES = {
         'esphttpd': 0x80,
         'fat': 0x81,
         'spiffs': 0x82,
+        'littlefs': 0x83,
+        'tee_ota': 0x90,
+        'tee_sec_stg': 0x91,
     },
 }
 
@@ -89,6 +104,8 @@ def get_subtype_as_int(ptype, subtype):
 ALIGNMENT = {
     APP_TYPE: 0x10000,
     DATA_TYPE: 0x1000,
+    BOOTLOADER_TYPE: 0x1000,
+    PARTITION_TABLE_TYPE: 0x1000,
 }
 
 
@@ -97,15 +114,19 @@ def get_alignment_offset_for_type(ptype):
 
 
 def get_alignment_size_for_type(ptype):
-    if ptype == APP_TYPE and secure == SECURE_V1:
-        # For secure boot v1 case, app partition must be 64K aligned
-        # signature block (68 bytes) lies at the very end of 64K block
-        return 0x10000
-    if ptype == APP_TYPE and secure == SECURE_V2:
-        # For secure boot v2 case, app partition must be 4K aligned
-        # signature block (4K) is kept after padding the unsigned image to 64K boundary
-        return 0x1000
-    # No specific size alignement requirement as such
+    if ptype == APP_TYPE:
+        if secure == SECURE_V1:
+            # For secure boot v1 case, app partition must be 64K aligned
+            # signature block (68 bytes) lies at the very end of 64K block
+            return 0x10000
+        elif secure == SECURE_V2:
+            # For secure boot v2 case, app partition must be 4K aligned
+            # signature block (4K) is kept after padding the unsigned image to 64K boundary
+            return 0x1000
+        else:
+            # For no secure boot enabled case, app partition must be 4K aligned (min. flash erase size)
+            return 0x1000
+    # No specific size alignment requirement as such
     return 0x1
 
 
@@ -114,6 +135,10 @@ def get_partition_type(ptype):
         return APP_TYPE
     if ptype == 'data':
         return DATA_TYPE
+    if ptype == 'bootloader':
+        return BOOTLOADER_TYPE
+    if ptype == 'partition_table':
+        return PARTITION_TABLE_TYPE
     raise InputError('Invalid partition type')
 
 
@@ -133,6 +158,8 @@ quiet = False
 md5sum = True
 secure = SECURE_NONE
 offset_part_table = 0
+primary_bootloader_offset = None
+recovery_bootloader_offset = None
 
 
 def status(msg):
@@ -190,6 +217,11 @@ class PartitionTable(list):
         # fix up missing offsets & negative sizes
         last_end = offset_part_table + PARTITION_TABLE_SIZE  # first offset after partition table
         for e in res:
+            is_primary_bootloader = (e.type == BOOTLOADER_TYPE and e.subtype == SUBTYPES[e.type]['primary'])
+            is_primary_partition_table = (e.type == PARTITION_TABLE_TYPE and e.subtype == SUBTYPES[e.type]['primary'])
+            if is_primary_bootloader or is_primary_partition_table:
+                # They do not participate in the restoration of missing offsets
+                continue
             if e.offset is not None and e.offset < last_end:
                 if e == res[0]:
                     raise InputError('CSV Error at line %d: Partitions overlap. Partition sets offset 0x%x. '
@@ -260,7 +292,10 @@ class PartitionTable(list):
         last = None
         for p in sorted(self, key=lambda x:x.offset):
             if p.offset < offset_part_table + PARTITION_TABLE_SIZE:
-                raise InputError('Partition offset 0x%x is below 0x%x' % (p.offset, offset_part_table + PARTITION_TABLE_SIZE))
+                is_primary_bootloader = (p.type == BOOTLOADER_TYPE and p.subtype == SUBTYPES[p.type]['primary'])
+                is_primary_partition_table = (p.type == PARTITION_TABLE_TYPE and p.subtype == SUBTYPES[p.type]['primary'])
+                if not (is_primary_bootloader or is_primary_partition_table):
+                    raise InputError('Partition offset 0x%x is below 0x%x' % (p.offset, offset_part_table + PARTITION_TABLE_SIZE))
             if last is not None and p.offset < last.offset + last.size:
                 raise InputError('Partition at 0x%x overlaps 0x%x-0x%x' % (p.offset, last.offset, last.offset + last.size - 1))
             last = p
@@ -276,6 +311,18 @@ class PartitionTable(list):
             p = otadata_duplicates[0]
             critical('%s' % (p.to_csv()))
             raise InputError('otadata partition must have size = 0x2000')
+
+        # Above checks but for TEE otadata
+        otadata_duplicates = [p for p in self if p.type == TYPES['data'] and p.subtype == SUBTYPES[DATA_TYPE]['tee_ota']]
+        if len(otadata_duplicates) > 1:
+            for p in otadata_duplicates:
+                critical('%s' % (p.to_csv()))
+            raise InputError('Found multiple TEE otadata partitions. Only one partition can be defined with type="data"(1) and subtype="tee_ota"(0x90).')
+
+        if len(otadata_duplicates) == 1 and otadata_duplicates[0].size != 0x2000:
+            p = otadata_duplicates[0]
+            critical('%s' % (p.to_csv()))
+            raise InputError('TEE otadata partition must have size = 0x2000')
 
     def flash_size(self):
         """ Return the size that partitions will occupy in flash
@@ -340,12 +387,17 @@ class PartitionDefinition(object):
     # dictionary maps flag name (as used in CSV flags list, property name)
     # to bit set in flags words in binary format
     FLAGS = {
-        'encrypted': 0
+        'encrypted': 0,
+        'readonly': 1
     }
 
     # add subtypes for the 16 OTA slot values ("ota_XX, etc.")
     for ota_slot in range(NUM_PARTITION_SUBTYPE_APP_OTA):
         SUBTYPES[TYPES['app']]['ota_%d' % ota_slot] = MIN_PARTITION_SUBTYPE_APP_OTA + ota_slot
+
+    # add subtypes for the 2 TEE OTA slot values ("tee_XX, etc.")
+    for tee_slot in range(NUM_PARTITION_SUBTYPE_APP_TEE):
+        SUBTYPES[TYPES['app']]['tee_%d' % tee_slot] = MIN_PARTITION_SUBTYPE_APP_TEE + tee_slot
 
     def __init__(self):
         self.name = ''
@@ -354,6 +406,7 @@ class PartitionDefinition(object):
         self.offset = None
         self.size = None
         self.encrypted = False
+        self.readonly = False
 
     @classmethod
     def from_csv(cls, line, line_no):
@@ -366,8 +419,8 @@ class PartitionDefinition(object):
         res.name = fields[0]
         res.type = res.parse_type(fields[1])
         res.subtype = res.parse_subtype(fields[2])
-        res.offset = res.parse_address(fields[3])
-        res.size = res.parse_address(fields[4])
+        res.offset = res.parse_address(fields[3], res.type, res.subtype)
+        res.size = res.parse_size(fields[4], res.type)
         if res.size is None:
             raise InputError("Size field can't be empty")
 
@@ -421,7 +474,29 @@ class PartitionDefinition(object):
             return SUBTYPES[DATA_TYPE]['undefined']
         return parse_int(strval, SUBTYPES.get(self.type, {}))
 
-    def parse_address(self, strval):
+    def parse_size(self, strval, ptype):
+        if ptype == BOOTLOADER_TYPE:
+            if primary_bootloader_offset is None:
+                raise InputError(f'Primary bootloader offset is not defined. Please use --primary-bootloader-offset')
+            return offset_part_table - primary_bootloader_offset
+        if ptype == PARTITION_TABLE_TYPE:
+            return PARTITION_TABLE_SIZE
+        if strval == '':
+            return None  # PartitionTable will fill in default
+        return parse_int(strval)
+
+    def parse_address(self, strval, ptype, psubtype):
+        if ptype == BOOTLOADER_TYPE:
+            if psubtype == SUBTYPES[ptype]['primary']:
+                if primary_bootloader_offset is None:
+                    raise InputError(f'Primary bootloader offset is not defined. Please use --primary-bootloader-offset')
+                return primary_bootloader_offset
+            if psubtype == SUBTYPES[ptype]['recovery']:
+                if recovery_bootloader_offset is None:
+                    raise InputError(f'Recovery bootloader offset is not defined. Please use --recovery-bootloader-offset')
+                return recovery_bootloader_offset
+        if ptype == PARTITION_TABLE_TYPE and psubtype == SUBTYPES[ptype]['primary']:
+            return offset_part_table
         if strval == '':
             return None  # PartitionTable will fill in default
         return parse_int(strval)
@@ -438,7 +513,7 @@ class PartitionDefinition(object):
         offset_align = get_alignment_offset_for_type(self.type)
         if self.offset % offset_align:
             raise ValidationError(self, 'Offset 0x%x is not aligned to 0x%x' % (self.offset, offset_align))
-        if self.type == APP_TYPE and secure is not SECURE_NONE:
+        if self.type == APP_TYPE:
             size_align = get_alignment_size_for_type(self.type)
             if self.size % size_align:
                 raise ValidationError(self, 'Size 0x%x is not aligned to 0x%x' % (self.size, size_align))
@@ -452,6 +527,11 @@ class PartitionDefinition(object):
         if self.name in all_subtype_names and SUBTYPES.get(self.type, {}).get(self.name, '') != self.subtype:
             critical("WARNING: Partition has name '%s' which is a partition subtype, but this partition has "
                      'non-matching type 0x%x and subtype 0x%x. Mistake in partition table?' % (self.name, self.type, self.subtype))
+
+        always_rw_data_subtypes = [SUBTYPES[DATA_TYPE]['ota'], SUBTYPES[DATA_TYPE]['coredump']]
+        if self.type == TYPES['data'] and self.subtype in always_rw_data_subtypes and self.readonly is True:
+            raise ValidationError(self, "'%s' partition of type %s and subtype %s is always read-write and cannot be read-only" %
+                                  (self.name, self.type, self.subtype))
 
     STRUCT_FORMAT = b'<2sBBLL16sL'
 
@@ -536,6 +616,8 @@ def main():
     global md5sum
     global offset_part_table
     global secure
+    global primary_bootloader_offset
+    global recovery_bootloader_offset
     parser = argparse.ArgumentParser(description='ESP32 partition table utility')
 
     parser.add_argument('--flash-size', help='Optional flash size limit, checks partition table fits in flash',
@@ -546,6 +628,8 @@ def main():
                                                'enabled by default and this flag does nothing.', action='store_true')
     parser.add_argument('--quiet', '-q', help="Don't print non-critical status messages to stderr", action='store_true')
     parser.add_argument('--offset', '-o', help='Set offset partition table', default='0x8000')
+    parser.add_argument('--primary-bootloader-offset', help='Set primary bootloader offset', default=None)
+    parser.add_argument('--recovery-bootloader-offset', help='Set recovery bootloader offset', default=None)
     parser.add_argument('--secure', help='Require app partitions to be suitable for secure boot', nargs='?', const=SECURE_V1, choices=[SECURE_V1, SECURE_V2])
     parser.add_argument('--extra-partition-subtypes', help='Extra partition subtype entries', nargs='*')
     parser.add_argument('input', help='Path to CSV or binary file to parse.', type=argparse.FileType('rb'))
@@ -558,6 +642,15 @@ def main():
     md5sum = not args.disable_md5sum
     secure = args.secure
     offset_part_table = int(args.offset, 0)
+    if args.primary_bootloader_offset is not None:
+        primary_bootloader_offset = int(args.primary_bootloader_offset, 0)
+        if primary_bootloader_offset >= offset_part_table:
+            raise InputError(
+                f'Unsupported configuration. Primary bootloader must be below partition table. '
+                f'Check --primary-bootloader-offset={primary_bootloader_offset:#x} and --offset={offset_part_table:#x}'
+            )
+    if args.recovery_bootloader_offset is not None:
+        recovery_bootloader_offset = int(args.recovery_bootloader_offset, 0)
     if args.extra_partition_subtypes:
         add_extra_subtypes(args.extra_partition_subtypes)
 
@@ -583,7 +676,7 @@ def main():
 
     if input_is_binary:
         output = table.to_csv()
-        with sys.stdout if args.output == '-' else open(args.output, 'w') as f:
+        with sys.stdout if args.output == '-' else open(args.output, 'w', encoding='utf-8') as f:
             f.write(output)
     else:
         output = table.to_binary()

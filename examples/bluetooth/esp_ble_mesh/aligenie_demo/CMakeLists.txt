@@ -2,11 +2,8 @@
 # in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.16)
 
-set(EXTRA_COMPONENT_DIRS $ENV{IDF_PATH}/examples/bluetooth/esp_ble_mesh/common_components/button
-                         $ENV{IDF_PATH}/examples/bluetooth/esp_ble_mesh/common_components/light_driver
-                         $ENV{IDF_PATH}/examples/bluetooth/esp_ble_mesh/common_components/example_init
-                         $ENV{IDF_PATH}/examples/bluetooth/esp_ble_mesh/common_components/example_nvs)
-
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# "Trim" the build. Include the minimal set of components, main, and anything it depends on.
+idf_build_set_property(MINIMAL_BUILD ON)
 
 project(aligenie_demo)

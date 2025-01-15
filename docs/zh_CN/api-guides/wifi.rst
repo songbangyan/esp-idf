@@ -1,10 +1,15 @@
-﻿Wi-Fi 驱动程序
+Wi-Fi 驱动程序
 ==================
 
 :link_to_translation:`en:[English]`
 
+{IDF_TARGET_MAX_CONN_STA_NUM:default="15", esp32c2="4", esp32c3="10", esp32c6="10"}
+
+{IDF_TARGET_SUB_MAX_NUM_FROM_KEYS:default="2", esp32c3="7", esp32c6="7"}
+
 {IDF_TARGET_NAME} Wi-Fi 功能列表
 ------------------------------------
+
 {IDF_TARGET_NAME} 支持以下 Wi-Fi 功能：
 
 .. only:: esp32 or esp32s2 or esp32c3 or esp32s3
@@ -22,9 +27,32 @@
     - 支持多个天线
     - 支持获取信道状态信息
 
+    .. only:: SOC_WIFI_NAN_SUPPORT
+
+     - Wi-Fi Aware (NAN)
+
+.. only:: esp32c6
+
+    - 支持 4 个虚拟接口，即 STA、AP、Sniffer 和 reserved。
+    - 支持仅 station 模式、仅 AP 模式、station/AP 共存模式
+    - 支持使用 IEEE 802.11b、IEEE 802.11g、IEEE 802.11n、IEEE 802.11ax 和 API 配置协议模式
+    - 支持 WPA/WPA2/WPA3/WPA2-企业版/WPA3-企业版/WAPI/WPS 和 DPP
+    - 支持 AMSDU、AMPDU、HT40、QoS 以及其它主要功能
+    - 支持 Modem-sleep
+    - 支持乐鑫专属协议，可实现 **1 km** 数据通信量
+    - 空中数据传输最高可达 20 MBit/s TCP 吞吐量和 30 MBit/s UDP 吞吐量
+    - 支持 Sniffer
+    - 支持快速扫描和全信道扫描
+    - 支持多个天线
+    - 支持获取信道状态信息
+    - 支持 TWT
+    - 支持下行 MU-MIMO
+    - 支持 OFDMA
+    - 支持 BSS Color
+
 .. only:: esp32c2
 
-    - 支持 3 个虚拟接口，即STA、AP 和 Sniffer。
+    - 支持 3 个虚拟接口，即 STA、AP 和 Sniffer。
     - 支持仅 station 模式、仅 AP 模式、station/AP 共存模式
     - 支持使用 IEEE 802.11b、IEEE 802.11g、IEEE 802.11n 和 API 配置协议模式
     - 支持 WPA/WPA2/WPA3/WPA2-企业版/WPA3-企业版/WPS 和 DPP
@@ -41,37 +69,72 @@
 
 准备工作
 +++++++++++
-一般来说，要编写自己的 Wi-Fi 应用程序，最高效的方式是先选择一个相似的应用程序示例，然后将其中可用的部分移植到自己的项目中。如果您希望编写一个强健的 Wi-Fi 应用程序，强烈建议您在开始之前先阅读本文。**非强制要求，请依个人情况而定。**
 
-本文将补充说明 Wi-Fi API 和 Wi-Fi 示例的相关信息，重点描述使用 Wi-Fi API 的原则、当前 Wi-Fi API 实现的限制以及使用 Wi-Fi 时的常见错误。同时，本文还介绍了 Wi-Fi 驱动程序的一些设计细节。建议您选择一个示例 :example:`example <wifi>` 进行参考。
+一般来说，要编写自己的 Wi-Fi 应用程序，最高效的方式是先选择一个相似的应用程序示例，然后将其中可用的部分移植到自己的项目中。如果你希望编写一个强健的 Wi-Fi 应用程序，强烈建议在开始之前先阅读本文。**非强制要求，请依个人情况而定。**
+
+本文将补充说明 Wi-Fi API 和 Wi-Fi 示例的相关信息，重点描述使用 Wi-Fi API 的原则、当前 Wi-Fi API 实现的限制以及使用 Wi-Fi 时的常见错误。同时，本文还介绍了 Wi-Fi 驱动程序的一些设计细节。建议选择一个示例 :example:`example <wifi>` 进行参考。
+
+- :example:`wifi/getting_started/station` 演示如何使用 station 功能连接到 AP。
+
+- :example:`wifi/getting_started/softAP` 演示如何使用 SoftAP 功能将 {IDF_TARGET_NAME} 配置为 AP。
+
+- :example:`wifi/scan` 演示如何扫描可用的 AP，配置扫描设置，并显示扫描结果。
+
+- :example:`wifi/fast_scan` 演示如何执行快速和全通道扫描，查找附近的 AP，设置信号强度的阈值和认证模式，并根据信号强度和认证模式连接到最合适的 AP。
+
+- :example:`wifi/wps` 演示如何使用 WPS 入网功能，简化连接 Wi-Fi 路由器的过程，支持 PIN 或 PBC 模式。
+
+- :example:`wifi/wps_softap_registrar` 演示如何在 SoftAP 模式下使用 WPS 注册器功能，从而简化从 station 连接到 Wi-Fi SoftAP 的过程。
+
+- :example:`wifi/smart_config` 演示如何使用 smartconfig 功能通过 ESPTOUCH 应用连接到目标 AP。
+
+- :example:`wifi/power_save` 演示如何使用 station 模式的省电模式。
+
+- :example:`wifi/softap_sta` 演示如何配置 {IDF_TARGET_NAME} 同时用作 AP 和 station，从而可将其用作 Wi-Fi NAT 路由器。
+
+- :example:`wifi/iperf` 演示如何实现 iPerf 性能测量工具所使用的协议，允许在两个芯片之间或在单个芯片和运行 iPerf 工具的计算机之间进行性能测量，并提供测试 station/SoftAP TCP/UDP RX/TX 吞吐量的具体说明。
+
+- :example:`wifi/roaming/roaming_app` 演示如何使用 Wi-Fi Roaming App 功能，在兼容的 AP 之间高效漫游。
+
+- :example:`wifi/roaming/roaming_11kvr` 演示如何使用 11k 和 11v API 实现漫游功能。
+
+.. only:: SOC_WIFI_HE_SUPPORT
+
+    - :example:`wifi/itwt` 演示如何使用 iTWT 功能，该功能仅在 station 模式下工作，并在不同的省电模式下提供设置、拆卸和挂起的命令，还展示了启用和禁用 iTWT 时的电流消耗差异。
 
 设置 Wi-Fi 编译时选项
 ++++++++++++++++++++++++++++++++++++
+
 请参阅 `Wi-Fi menuconfig`_。
 
 Wi-Fi 初始化
 +++++++++++++++
+
 请参阅 `{IDF_TARGET_NAME} Wi-Fi station 一般情况`_、`{IDF_TARGET_NAME} Wi-Fi AP 一般情况`_。
 
 启动/连接 Wi-Fi
 ++++++++++++++++++++
+
 请参阅 `{IDF_TARGET_NAME} Wi-Fi station 一般情况`_、`{IDF_TARGET_NAME} Wi-Fi AP 一般情况`_。
 
 事件处理
 ++++++++++++++
-通常，在理想环境下编写代码难度并不大，如 `WIFI_EVENT_STA_START`_、`WIFI_EVENT_STA_CONNECTED`_ 中所述。难度在于如何在现实的困难环境下编写代码，如 `WIFI_EVENT_STA_DISCONNECTED`_ 中所述。能否在后者情况下完美地解决各类事件冲突，是编写一个强健的 Wi-Fi 应用程序的根本。请参阅 `{IDF_TARGET_NAME} Wi-Fi 事件描述`_, `{IDF_TARGET_NAME} Wi-Fi station 一般情况`_, `{IDF_TARGET_NAME} Wi-Fi AP 一般情况`_。另可参阅 ESP-IDF 中的 `事件处理概述 <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/event-handling.html?highlight=event%20handling>`_。
+
+通常，在理想环境下编写代码难度并不大，如 `WIFI_EVENT_STA_START`_、`WIFI_EVENT_STA_CONNECTED`_ 中所述。难度在于如何在现实的困难环境下编写代码，如 `WIFI_EVENT_STA_DISCONNECTED`_ 中所述。能否在后者情况下完美地解决各类事件冲突，是编写一个强健的 Wi-Fi 应用程序的根本。请参阅 `{IDF_TARGET_NAME} Wi-Fi 事件描述`_, `{IDF_TARGET_NAME} Wi-Fi station 一般情况`_, `{IDF_TARGET_NAME} Wi-Fi AP 一般情况`_。另可参阅 ESP-IDF 中的 :doc:`事件处理概述 <../api-reference/system/esp_event>`。
 
 编写错误恢复程序
 ++++++++++++++++++++++++++++++++++++++++++++++++++++
-除了在能在比较差的环境下工作，错误恢复能力也对一个强健的 Wi-Fi 应用程序至关重要。请参阅 `{IDF_TARGET_NAME} Wi-Fi API 错误代码`_。
+
+除了能在比较差的环境下工作，错误恢复能力也对一个强健的 Wi-Fi 应用程序至关重要。请参阅 `{IDF_TARGET_NAME} Wi-Fi API 错误代码`_。
 
 
 {IDF_TARGET_NAME} Wi-Fi API 错误代码
 --------------------------------------
+
 所有 {IDF_TARGET_NAME} Wi-Fi API 都有定义好的返回值，即错误代码。这些错误代码可分类为：
 
- - 无错误，例如：返回值 ESP_OK 代表 API 成功返回
- - 可恢复错误，例如：ESP_ERR_NO_MEM
+ - 无错误，例如：返回值 :c:macro:`ESP_OK` 代表 API 成功返回
+ - 可恢复错误，例如：:c:macro:`ESP_ERR_NO_MEM`
  - 不可恢复的非关键性错误
  - 不可恢复的关键性错误
 
@@ -79,11 +142,11 @@ Wi-Fi 初始化
 
 **要使用 Wi-Fi API 编写一个强健的应用程序，根本原则便是要时刻检查错误代码并编写相应的错误处理代码。** 一般来说，错误处理代码可用于解决：
 
- - 可恢复错误，您可以编写一个可恢复错误处理代码解决该类错误。例如，当 :cpp:func:`esp_wifi_start()` 返回 ESP_ERR_NO_MEM 时，调用可恢复错误处理代码 vTaskDelay 可以获取几微秒的重试时间。
- - 不可恢复非关键性错误，打印错误代码可以帮助您更好地处理该类错误。
- - 不可恢复关键性错误，可使用 "assert" 语句处理该类错误。例如，如果 :cpp:func:`esp_wifi_set_mode()` 返回 ESP_ERR_WIFI_NOT_INIT，该值意为 :cpp:func:`esp_wifi_init()` 未成功初始化 Wi-Fi 驱动程序。您可以在应用程序开发阶段非常快速地检测到此类错误。
+ - 可恢复错误，你可以编写一个可恢复错误处理代码解决该类错误。例如，当 :cpp:func:`esp_wifi_start()` 返回 :c:macro:`ESP_ERR_NO_MEM` 时，调用可恢复错误处理代码 vTaskDelay 可以获取几微秒的重试时间。
+ - 不可恢复非关键性错误，打印错误代码可以帮助你更好地处理该类错误。
+ - 不可恢复关键性错误，可使用 "assert" 语句处理该类错误。例如，如果 :cpp:func:`esp_wifi_set_mode()` 返回 ``ESP_ERR_WIFI_NOT_INIT`` :cpp:func:`esp_wifi_init()` 未成功初始化 Wi-Fi 驱动程序。你可以在应用程序开发阶段非常快速地检测到此类错误。
 
-在 esp_err.h 中，ESP_ERROR_CHECK 负责检查返回值。这是一个较为常见的错误处理代码，可在应用程序开发阶段作为默认的错误处理代码。但是，我们强烈建议 API 的使用者编写自己的错误处理代码。
+在 :component_file:`esp_common/include/esp_err.h` 中， ``ESP_ERROR_CHECK`` 负责检查返回值。这是一个较为常见的错误处理代码，可在应用程序开发阶段作为默认的错误处理代码。但是，我们强烈建议 API 的使用者编写自己的错误处理代码。
 
 初始化 {IDF_TARGET_NAME} Wi-Fi API 参数
 ----------------------------------------------------
@@ -93,12 +156,13 @@ Wi-Fi 初始化
 - 设置该参数的所有字段
 - 先使用 get API 获取当前配置，然后只设置特定于应用程序的字段
 
-初始化或获取整个结构这一步至关重要，因为大多数情况下，返回值 0 意味着程序使用了默认值。未来，我们将会在该结构中加入更多字段，并将这些字段初始化为 0，确保即使 IDF 版本升级后您的应用程序依然能够正常运行。
+初始化或获取整个结构这一步至关重要，因为大多数情况下，返回值 0 意味着程序使用了默认值。未来，我们将会在该结构中加入更多字段，并将这些字段初始化为 0，确保即使 ESP-IDF 版本升级后，你的应用程序依然能够正常运行。
 
 .. _wifi-programming-model:
 
 {IDF_TARGET_NAME} Wi-Fi 编程模型
 -----------------------------------------
+
 {IDF_TARGET_NAME} Wi-Fi 编程模型如下图所示：
 
 .. blockdiag::
@@ -153,10 +217,12 @@ Wi-Fi 事件处理是在 :doc:`esp_event 库 <../api-reference/system/esp_event>
 
 WIFI_EVENT_WIFI_READY
 ++++++++++++++++++++++++++++++++++++
+
 Wi-Fi 驱动程序永远不会生成此事件，因此，应用程序的事件回调函数可忽略此事件。在未来的版本中，此事件可能会被移除。
 
 WIFI_EVENT_SCAN_DONE
 ++++++++++++++++++++++++++++++++++++
+
 扫描完成事件，由 :cpp:func:`esp_wifi_scan_start()` 函数触发，将在以下情况下产生：
 
   - 扫描已完成，例如：Wi-Fi 已成功找到目标 AP 或已扫描所有信道。
@@ -173,18 +239,22 @@ WIFI_EVENT_SCAN_DONE
 
 WIFI_EVENT_STA_START
 ++++++++++++++++++++++++++++++++++++
-如果调用函数 :cpp:func:`esp_wifi_start()` 后接收到返回值 ESP_OK，且当前 Wi-Fi 处于 station 或 station/AP 共存模式，则将产生此事件。接收到此事件后，事件任务将初始化 LwIP 网络接口 (netif)。通常，应用程序的事件回调函数需调用 :cpp:func:`esp_wifi_connect()` 来连接已配置的 AP。
+
+如果调用函数 :cpp:func:`esp_wifi_start()` 后接收到返回值 :c:macro:`ESP_OK`，且当前 Wi-Fi 处于 station 或 station/AP 共存模式，则将产生此事件。接收到此事件后，事件任务将初始化 LwIP 网络接口 (netif)。通常，应用程序的事件回调函数需调用 :cpp:func:`esp_wifi_connect()` 来连接已配置的 AP。
 
 WIFI_EVENT_STA_STOP
 ++++++++++++++++++++++++++++++++++++
-如果调用函数 :cpp:func:`esp_wifi_stop()` 后接收到返回值 ESP_OK，且当前 Wi-Fi 处于 station 或 station/AP 共存模式，则将产生此事件。接收到此事件后，事件任务将进行释放 station IP 地址、终止 DHCP 客户端服务、移除 TCP/UDP 相关连接并清除 LwIP station netif 等动作。此时，应用程序的事件回调函数通常不需做任何响应。
+
+如果调用函数 :cpp:func:`esp_wifi_stop()` 后接收到返回值 :c:macro:`ESP_OK`，且当前 Wi-Fi 处于 station 或 station/AP 共存模式，则将产生此事件。接收到此事件后，事件任务将进行释放 station IP 地址、终止 DHCP 客户端服务、移除 TCP/UDP 相关连接并清除 LwIP station netif 等动作。此时，应用程序的事件回调函数通常不需做任何响应。
 
 WIFI_EVENT_STA_CONNECTED
 ++++++++++++++++++++++++++++++++++++
-如果调用函数 :cpp:func:`esp_wifi_connect()` 后接收到返回值 ESP_OK，且 station 已成功连接目标 AP，则将产生此连接事件。接收到此事件后，事件任务将启动 DHCP 客户端服务并开始获取 IP 地址。此时，Wi-Fi 驱动程序已准备就绪，可发送和接收数据。如果您的应用程序不依赖于 LwIP（即 IP 地址），则此刻便可以开始应用程序开发工作。但是，如果您的应用程序需基于 LwIP 进行，则还需等待 *got ip* 事件发生后才可开始。
+
+如果调用函数 :cpp:func:`esp_wifi_connect()` 后接收到返回值 :c:macro:`ESP_OK`，且 station 已成功连接目标 AP，则将产生此连接事件。接收到此事件后，事件任务将启动 DHCP 客户端服务并开始获取 IP 地址。此时，Wi-Fi 驱动程序已准备就绪，可发送和接收数据。如果你的应用程序不依赖于 LwIP（即 IP 地址），则此刻便可以开始应用程序开发工作。但是，如果你的应用程序需基于 LwIP 进行，则还需等待 *got ip* 事件发生后才可开始。
 
 WIFI_EVENT_STA_DISCONNECTED
 ++++++++++++++++++++++++++++++++++++
+
 此事件将在以下情况下产生：
 
   - 调用了函数 :cpp:func:`esp_wifi_disconnect()` 或 :cpp:func:`esp_wifi_stop()`，且 Wi-Fi station 已成功连接至 AP。
@@ -205,10 +275,11 @@ WIFI_EVENT_STA_DISCONNECTED
 - 5 秒后，因为在应用程序的事件回调函数中调用了 :cpp:func:`esp_wifi_connect()`，Wi-Fi 连接恢复。**同时，station 连接至同一个 AP 并获得与之前相同的 IPV4 地址。**
 - 60 秒后，当应用程序发送具有保持活动状态的套接字的数据时，套接字将返回错误，应用程序将关闭套接字并在必要时重新创建。
 
-在上述场景中，理想状态下应用程序套接字和网络层将不会受到影响，因为在此过程中 Wi-Fi 连接只是短暂地断开然后快速恢复。应用程序可通过 LwIP menuconfig 启动“IP 改变时保持 TCP 连接”的功能。
+在上述场景中，理想状态下应用程序套接字和网络层将不会受到影响，因为在此过程中 Wi-Fi 连接只是短暂地断开然后快速恢复。
 
 IP_EVENT_STA_GOT_IP
 ++++++++++++++++++++++++++++++++++++
+
 当 DHCP 客户端成功从 DHCP 服务器获取 IPV4 地址或 IPV4 地址发生改变时，将引发此事件。此事件意味着应用程序一切就绪，可以开始任务（如：创建套接字）。
 
 IPV4 地址可能由于以下原因而发生改变：
@@ -223,10 +294,12 @@ IPV4 地址可能由于以下原因而发生改变：
 
 IP_EVENT_GOT_IP6
 ++++++++++++++++++++++++++++++++++++
+
 当 IPV6 SLAAC 支持自动为 {IDF_TARGET_NAME} 配置一个地址，或 {IDF_TARGET_NAME} 地址发生改变时，将引发此事件。此事件意味着应用程序一切就绪，可以开始任务（如：创建套接字）。
 
 IP_EVENT_STA_LOST_IP
 ++++++++++++++++++++++++++++++++++++
+
 当 IPV4 地址失效时，将引发此事件。
 
 此事件不会在 Wi-Fi 断连后立刻出现。Wi-Fi 连接断开后，首先将启动一个 IPV4 地址丢失计时器，如果 station 在该计时器超时之前成功获取了 IPV4 地址，则不会发生此事件。否则，此事件将在计时器超时时发生。
@@ -235,18 +308,22 @@ IP_EVENT_STA_LOST_IP
 
 WIFI_EVENT_AP_START
 ++++++++++++++++++++++++++++++++++++
+
 与 `WIFI_EVENT_STA_START`_ 事件相似。
 
 WIFI_EVENT_AP_STOP
 ++++++++++++++++++++++++++++++++++++
+
 与 `WIFI_EVENT_STA_STOP`_ 事件相似。
 
 WIFI_EVENT_AP_STACONNECTED
 ++++++++++++++++++++++++++++++++++++
-每当有一个 station 成功连接 {IDF_TARGET_NAME} AP 时，将引发此事件。接收到此事件后，事件任务将不做任何响应，应用程序的回调函数也可忽略这一事件。但是，您可以在此时进行一些操作，例如：获取已连接 station 的信息等。
+
+每当有一个 station 成功连接 {IDF_TARGET_NAME} AP 时，将引发此事件。接收到此事件后，事件任务将不做任何响应，应用程序的回调函数也可忽略这一事件。但是，你可以在此时进行一些操作，例如：获取已连接 station 的信息等。
 
 WIFI_EVENT_AP_STADISCONNECTED
 ++++++++++++++++++++++++++++++++++++
+
 此事件将在以下情况下发生：
 
   - 应用程序通过调用函数 :cpp:func:`esp_wifi_disconnect()` 或 :cpp:func:`esp_wifi_deauth_sta()` 手动断开 station 连接。
@@ -273,6 +350,7 @@ WIFI_EVENT_CONNECTIONLESS_MODULE_WAKE_INTERVAL_START
 
 {IDF_TARGET_NAME} Wi-Fi station 一般情况
 ------------------------------------------------
+
 下图为 station 模式下的宏观场景，其中包含不同阶段的具体描述：
 
 .. seqdiag::
@@ -331,6 +409,7 @@ WIFI_EVENT_CONNECTIONLESS_MODULE_WAKE_INTERVAL_START
 
 1. Wi-Fi/LwIP 初始化阶段
 ++++++++++++++++++++++++++++++
+
  - s1.1：主任务通过调用函数 :cpp:func:`esp_netif_init()` 创建一个 LwIP 核心任务，并初始化 LwIP 相关工作。
 
  - s1.2：主任务通过调用函数 :cpp:func:`esp_event_loop_create()` 创建一个系统事件任务，并初始化应用程序事件的回调函数。在此情况下，该回调函数唯一的动作就是将事件中继到应用程序任务中。
@@ -341,29 +420,32 @@ WIFI_EVENT_CONNECTIONLESS_MODULE_WAKE_INTERVAL_START
 
  - s1.5：主任务通过调用 OS API 创建应用程序任务。
 
-推荐按照 s1.1 ~ s1.5 的步骤顺序针对基于 Wi-Fi/LwIP 的应用程序进行初始化。但这一顺序 **并非** 强制，您可以在第 s1.1 步创建应用程序任务，然后在该应用程序任务中进行所有其它初始化操作。不过，如果您的应用程序任务依赖套接字，那么在初始化阶段创建应用程序任务可能并不适用。此时，您可以在接收到 IP 后再进行任务创建。
+推荐按照 s1.1 ~ s1.5 的步骤顺序针对基于 Wi-Fi/LwIP 的应用程序进行初始化。但这一顺序 **并非** 强制，你可以在第 s1.1 步创建应用程序任务，然后在该应用程序任务中进行所有其它初始化操作。不过，如果你的应用程序任务依赖套接字，那么在初始化阶段创建应用程序任务可能并不适用。此时，你可以在接收到 IP 后再进行任务创建。
 
 2. Wi-Fi 配置阶段
 +++++++++++++++++++++++++++++++
-Wi-Fi 驱动程序初始化成功后，可以进入到配置阶段。该场景下，Wi-Fi 驱动程序处于 station 模式。因此，首先您需调用函数 :cpp:func:`esp_wifi_set_mode` (WIFI_MODE_STA) 将 Wi-Fi 模式配置为 station 模式。可通过调用其它 esp_wifi_set_xxx API 进行更多设置，例如：协议模式、国家代码、带宽等。请参阅 `{IDF_TARGET_NAME} Wi-Fi 配置`_。
 
-一般情况下，我们会在建立 Wi-Fi 连接之前配置 Wi-Fi 驱动程序，但这 **并非** 强制要求。也就是说，只要 Wi-Fi 驱动程序已成功初始化，您可以在任意阶段进行配置。但是，如果您的 Wi-Fi 在建立连接后不需要更改配置，则应先在此阶段完成配置。因为调用配置 API（例如 :cpp:func:`esp_wifi_set_protocol()`）将会导致 Wi-Fi 连接断开，为您的操作带来不便。
+Wi-Fi 驱动程序初始化成功后，可以进入到配置阶段。该场景下，Wi-Fi 驱动程序处于 station 模式。因此，首先你需调用函数 :cpp:func:`esp_wifi_set_mode` (WIFI_MODE_STA) 将 Wi-Fi 模式配置为 station 模式。可通过调用其它 esp_wifi_set_xxx API 进行更多设置，例如：协议模式、国家代码、带宽等。请参阅 `{IDF_TARGET_NAME} Wi-Fi 配置`_。
 
-如果 menuconfig 已使能 Wi-Fi NVS flash，则不论当前阶段还是后续的 Wi-Fi 配置信息都将被存储至该 flash 中。那么，当主板上电/重新启动时，就不需从头开始配置 Wi-Fi 驱动程序。您只需调用函数 esp_wifi_get_xxx API 获取之前存储的配置信息。当然，如果不想使用之前的配置，您依然可以重新配置 Wi-Fi 驱动程序。
+一般情况下，我们会在建立 Wi-Fi 连接之前配置 Wi-Fi 驱动程序，但这 **并非** 强制要求。也就是说，只要 Wi-Fi 驱动程序已成功初始化，你可以在任意阶段进行配置。但是，如果你的 Wi-Fi 在建立连接后不需要更改配置，则应先在此阶段完成配置。因为调用配置 API（例如 :cpp:func:`esp_wifi_set_protocol()`）将会导致 Wi-Fi 连接断开，为操作带来不便。
+
+如果 menuconfig 已使能 Wi-Fi NVS flash，则不论当前阶段还是后续的 Wi-Fi 配置信息都将被存储至该 flash 中。那么，当主板上电/重新启动时，就不需从头开始配置 Wi-Fi 驱动程序，只需调用函数 esp_wifi_get_xxx API 获取之前存储的配置信息。当然，如果不想使用之前的配置，你也可以重新配置 Wi-Fi 驱动程序。
 
 3. Wi-Fi 启动阶段
 ++++++++++++++++++++++++++++++++
+
  - s3.1：调用函数 :cpp:func:`esp_wifi_start()` 启动 Wi-Fi 驱动程序。
  - s3.2：Wi-Fi 驱动程序将事件 `WIFI_EVENT_STA_START`_ 发布到事件任务中，然后，事件任务将执行一些正常操作并调用应用程序的事件回调函数。
- - s3.3：应用程序的事件回调函数将事件 `WIFI_EVENT_STA_START`_ 中继到应用程序任务中。推荐您此时调用函数 :cpp:func:`esp_wifi_connect()` 进行 Wi-Fi 连接。当然，您也可以等待在 `WIFI_EVENT_STA_START`_ 事件发生后的其它阶段再调用此函数。
+ - s3.3：应用程序的事件回调函数将事件 `WIFI_EVENT_STA_START`_ 中继到应用程序任务中。此时，推荐调用函数 :cpp:func:`esp_wifi_connect()` 进行 Wi-Fi 连接。当然，你也可以等待在 `WIFI_EVENT_STA_START`_ 事件发生后的其它阶段再调用此函数。
 
 4. Wi-Fi 连接阶段
 +++++++++++++++++++++++++++++++++
+
  - s4.1：调用函数 :cpp:func:`esp_wifi_connect()` 后，Wi-Fi 驱动程序将启动内部扫描/连接过程。
 
  - s4.2：如果内部扫描/连接过程成功，将产生 `WIFI_EVENT_STA_CONNECTED`_ 事件。然后，事件任务将启动 DHCP 客户端服务，最终触发 DHCP 程序。
 
- - s4.3：在此情况下，应用程序的事件回调函数会将 `WIFI_EVENT_STA_CONNECTED`_ 事件中继到应用程序任务中。通常，应用程序不需进行操作，而您可以执行任何动作，例如：打印日志等。
+ - s4.3：在此情况下，应用程序的事件回调函数会将 `WIFI_EVENT_STA_CONNECTED`_ 事件中继到应用程序任务中。通常，应用程序不需进行操作，而你可以执行任何动作，例如：打印日志等。
 
 步骤 s4.2 中 Wi-Fi 连接可能会由于某些原因而失败，例如：密码错误、未找到 AP 等。这种情况下，将引发 `WIFI_EVENT_STA_DISCONNECTED`_ 事件并提示连接错误原因。有关如何处理中断 Wi-Fi 连接的事件，请参阅下文阶段 6 的描述。
 
@@ -376,8 +458,9 @@ Wi-Fi 驱动程序初始化成功后，可以进入到配置阶段。该场景�
 
 6. Wi-Fi 断开阶段
 +++++++++++++++++++++++++++++++++
+
  - s6.1：当 Wi-Fi 因为某些原因（例如：AP 掉电、RSSI 较弱等）连接中断时，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件。此事件也可能在上文阶段 3 中发生。在这里，事件任务将通知 LwIP 任务清除/移除所有 UDP/TCP 连接。然后，所有应用程序套接字都将处于错误状态。也就是说，`WIFI_EVENT_STA_DISCONNECTED`_ 事件发生时，任何套接字都无法正常工作。
- - s6.2：上述情况下，应用程序的事件回调函数会将 `WIFI_EVENT_STA_DISCONNECTED`_ 事件中继到应用程序任务中。推荐您调用函数 :cpp:func:`esp_wifi_connect()` 重新连接 Wi-Fi，关闭所有套接字，并在必要时重新创建套接字。请参阅 `WIFI_EVENT_STA_DISCONNECTED`_。
+ - s6.2：上述情况下，应用程序的事件回调函数会将 `WIFI_EVENT_STA_DISCONNECTED`_ 事件中继到应用程序任务中。推荐调用函数 :cpp:func:`esp_wifi_connect()` 重新连接 Wi-Fi，关闭所有套接字，并在必要时重新创建套接字。请参阅 `WIFI_EVENT_STA_DISCONNECTED`_。
 
 7. Wi-Fi IP 更改阶段
 ++++++++++++++++++++++++++++++++++
@@ -396,6 +479,7 @@ Wi-Fi 驱动程序初始化成功后，可以进入到配置阶段。该场景�
 
 {IDF_TARGET_NAME} Wi-Fi AP 一般情况
 ---------------------------------------------
+
 下图为 AP 模式下的宏观场景，其中包含不同阶段的具体描述：
 
  .. seqdiag::
@@ -459,15 +543,15 @@ Wi-Fi 驱动程序初始化成功后，可以进入到配置阶段。该场景�
    * - 主动扫描
      - 通过发送 probe request 进行扫描。该模式为默认的扫描模式。
    * - 被动扫描
-     - 不发送 probe request。跳至某一特定信道并等待 beacon。应用程序可通过 wifi_scan_config_t 中的 scan_type 字段使能被动扫描。
+     - 不发送 probe request。跳至某一特定信道并等待 beacon。应用程序可通过 :cpp:type:`wifi_scan_config_t` 中的 scan_type 字段使能被动扫描。
    * - 前端扫描
      - 在 station 模式下 Wi-Fi 未连接时，可进行前端扫描。Wi-Fi 驱动程序决定进行前端扫描还是后端扫描，应用程序无法配置这两种模式。
    * - 后端扫描
      - 在 station 模式或 station/AP 共存模式下 Wi-Fi 已连接时，可进行后端扫描。Wi-Fi 驱动程序决定进行前端扫描还是后端扫描，应用程序无法配置这两种模式。
    * - 全信道扫描
-     - 扫描所有信道。wifi_scan_config_t 中的 channel 字段为 0 时，当前模式为全信道扫描。
+     - 扫描所有信道。:cpp:type:`wifi_scan_config_t` 中的 channel 字段为 0 时，当前模式为全信道扫描。
    * - 特定信道扫描
-     - 仅扫描特定的信道。wifi_scan_config_t 中的 channel 字段为 1-14 时，当前模式为特定信道扫描。
+     - 仅扫描特定的信道。:cpp:type:`wifi_scan_config_t` 中的 channel 字段为 1-14 时，当前模式为特定信道扫描。
 
 上表中的扫描模式可以任意组合，因此共有 8 种不同扫描方式：
 
@@ -483,7 +567,7 @@ Wi-Fi 驱动程序初始化成功后，可以进入到配置阶段。该场景�
 扫描配置
 +++++++++++++++++
 
-扫描类型与其他扫描属性通过函数 :cpp:func:`esp_wifi_scan_start()` 进行配置。下表详细描述了函数 wifi_scan_config_t 各字段信息。
+扫描类型与其他扫描属性通过函数 :cpp:func:`esp_wifi_scan_start()` 进行配置。下表详细描述了函数 :cpp:type:`wifi_scan_config_t` 各字段信息。
 
 .. list-table::
    :header-rows: 1
@@ -567,7 +651,7 @@ Wi-Fi 驱动程序内部扫描阶段
 
  - s2.1：Wi-Fi 驱动程序切换至信道 1，此时的扫描类型为 WIFI_SCAN_TYPE_ACTIVE，同时发送一个 probe request。反之，Wi-Fi 将等待接收 AP beacon。Wi-Fi 驱动程序将在信道 1 停留一段时间。min/max 扫描时间中定义了 Wi-Fi 在信道 1 中停留的时间长短，默认为 120 ms。
  - s2.2：Wi-Fi 驱动程序跳转至信道 2，并重复进行 s2.1 中的步骤。
- - s2.3:Wi-Fi 驱动程序扫描最后的信道 N，N 的具体数值由步骤 s1.1 中配置的国家代码决定。
+ - s2.3：Wi-Fi 驱动程序扫描最后的信道 N，N 的具体数值由步骤 s1.1 中配置的国家代码决定。
 
 扫描完成后事件处理阶段
 *********************************
@@ -577,6 +661,7 @@ Wi-Fi 驱动程序内部扫描阶段
 
 在所有信道上扫描全部 AP（后端）
 ++++++++++++++++++++++++++++++++++++++++
+
 场景：
 
 .. seqdiag::
@@ -613,6 +698,7 @@ Wi-Fi 驱动程序内部扫描阶段
 
 在所有信道中扫描特定 AP
 +++++++++++++++++++++++++++++++++++++++
+
 场景：
 
 .. seqdiag::
@@ -645,11 +731,11 @@ Wi-Fi 驱动程序内部扫描阶段
 该扫描过程与 `在所有信道中扫描全部 AP（前端）`_ 相似。区别在于：
 
  - s1.1：在步骤 1.2 中，目标 AP 将配置为 SSID/BSSID。
- - s2.1 ~ s2.N：每当 Wi-Fi 驱动程序扫描某个 AP 时，它将检查该 AP 是否为目标 AP。如果本次扫描类型为 WIFI_FAST_SCAN，且确认已找到目标 AP，则将产生扫描完成事件，同时结束本次扫描；反之，扫描将继续。请注意，第一个扫描的信道可能不是信道 1，因为 Wi-Fi 驱动程序会优化扫描顺序。
+ - s2.1 ~ s2.N：每当 Wi-Fi 驱动程序扫描某个 AP 时，它将检查该 AP 是否为目标 AP。如果本次扫描类型为 ``WIFI_FAST_SCAN``，且确认已找到目标 AP，则将产生扫描完成事件，同时结束本次扫描；反之，扫描将继续。请注意，第一个扫描的信道可能不是信道 1，因为 Wi-Fi 驱动程序会优化扫描顺序。
 
-如果有多个匹配目标 AP 信息的 AP，例如：碰巧扫描到两个 SSID 为 "ap" 的 AP。如果本次扫描类型为 WIFI_FAST_SCAN，则仅可找到第一个扫描到的 "ap"；如果本次扫描类型为 WIFI_ALL_CHANNEL_SCAN，则两个 "ap“ 都将被找到，且 station 将根据配置规则连接至其需要连接的 "ap"，请参阅 `station 基本配置`_。
+如果有多个匹配目标 AP 信息的 AP，例如：碰巧扫描到两个 SSID 为 "ap" 的 AP。如果本次扫描类型为 ``WIFI_FAST_SCAN``，则仅可找到第一个扫描到的 "ap"；如果本次扫描类型为 ``WIFI_ALL_CHANNEL_SCAN``，则两个 "ap“ 都将被找到，且 station 将根据配置规则连接至其需要连接的 "ap"，请参阅 `station 基本配置`_。
 
-您可以在任意信道中扫描某个特定的 AP，或扫描该信道中的所有 AP。这两种扫描过程也较为相似。
+你可以在任意信道中扫描某个特定的 AP，或扫描该信道中的所有 AP。这两种扫描过程也较为相似。
 
 在 Wi-Fi 连接模式下扫描
 +++++++++++++++++++++++++
@@ -663,6 +749,7 @@ Wi-Fi 驱动程序内部扫描阶段
 
 并行扫描
 +++++++++++++
+
 有时，可能会有两个应用程序任务同时调用函数 :cpp:func:`esp_wifi_scan_start()`，或者某个应用程序任务在获取扫描完成事件之前再次调用了函数 :cpp:func:`esp_wifi_scan_start()`。这两种情况都有可能会发生。**但是，Wi-Fi 驱动程序并不足以支持多个并行的扫描。因此，应避免上述并行扫描**。随着 {IDF_TARGET_NAME} 的 Wi-Fi 功能不断提升，未来的版本中可能会增加并行扫描支持。
 
 连接 Wi-Fi 时扫描
@@ -677,7 +764,7 @@ Wi-Fi 驱动程序内部扫描阶段
 - 而另一个应用程序任务（如，控制任务）调用了函数 :cpp:func:`esp_wifi_scan_start()` 进行扫描。这种情况下，每一次扫描都会立即失败，因为 station 一直处于正在连接状态。
 - 扫描失败后，应用程序将等待一段时间后进行重新扫描。
 
-上述场景中的扫描永远不会成功，因为 Wi-Fi 一直处于正在连接过程中。因此，如果您的应用程序也可能发生相似的场景，那么就需要为其配置一个更佳的重新连接策略。例如：
+上述场景中的扫描永远不会成功，因为 Wi-Fi 一直处于正在连接过程中。因此，如果你的应用程序也可能发生相似的场景，那么就需要为其配置一个更佳的重新连接策略。例如：
 
 - 应用程序可以定义一个连续重新连接次数的最大值，当重新连接的次数达到这个最大值时，立刻停止重新连接。
 - 应用程序可以在首轮连续重新连接 N 次后立即进行重新连接，然后延时一段时间后再进行下一次重新连接。
@@ -738,21 +825,21 @@ Wi-Fi 驱动程序内部扫描阶段
 +++++++++++++++++++++
 
  - s1.1：Wi-Fi 驱动程序开始在“Wi-Fi 连接”模式下扫描。详细信息请参阅 `在 Wi-Fi 连接模式下扫描`_。
- - s1.2：如果未找到目标 AP，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 WIFI_REASON_NO_AP_FOUND。请参阅 `Wi-Fi 原因代码`_。
+ - s1.2：如果未找到目标 AP，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 ``WIFI_REASON_NO_AP_FOUND``。请参阅 `Wi-Fi 原因代码`_。
 
 认证阶段
 +++++++++++++++++++++
 
  - s2.1：发送认证请求数据包并使能认证计时器。
- - s1.2：如果在认证计时器超时之前未接收到认证响应数据包，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 WIFI_REASON_AUTH_EXPIRE。请参阅 `Wi-Fi 原因代码`_。
+ - s1.2：如果在认证计时器超时之前未接收到认证响应数据包，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 ``WIFI_REASON_AUTH_EXPIRE``。请参阅 `Wi-Fi 原因代码`_。
  - s2.3：接收到认证响应数据包，且认证计时器终止。
- - s2.4：AP 在响应中拒绝认证且产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，原因代码为 WIFI_REASON_AUTH_FAIL 或为 AP 指定的其它原因。请参阅 `Wi-Fi 原因代码`_。
+ - s2.4：AP 在响应中拒绝认证且产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，原因代码为 ``WIFI_REASON_AUTH_FAIL`` 或为 AP 指定的其它原因。请参阅 `Wi-Fi 原因代码`_。
 
 关联阶段
 +++++++++++++++++++++
 
  - s3.1：发送关联请求并使能关联计时器。
- - s3.2：如果在关联计时器超时之前未接收到关联响应，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 WIFI_REASON_ASSOC_EXPIRE。请参阅 `Wi-Fi 原因代码`_。
+ - s3.2：如果在关联计时器超时之前未接收到关联响应，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 ``WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY``。请参阅 `Wi-Fi 原因代码`_。
  - s3.3：接收到关联响应，且关联计时器终止。
  - s3.4：AP 在响应中拒绝关联且产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，原因代码将在关联响应中指定。请参阅 `Wi-Fi 原因代码`_。
 
@@ -760,10 +847,10 @@ Wi-Fi 驱动程序内部扫描阶段
 四次握手阶段
 ++++++++++++++++++++++++++
 
- - s4.1：使能握手定时器，定时器终止之前未接收到 1/4 EAPOL，此时将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 WIFI_REASON_HANDSHAKE_TIMEOUT。请参阅 `Wi-Fi 原因代码`_。
+ - s4.1：使能握手定时器，定时器终止之前未接收到 1/4 EAPOL，此时将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 ``WIFI_REASON_HANDSHAKE_TIMEOUT``。请参阅 `Wi-Fi 原因代码`_。
  - s4.2：接收到 1/4 EAPOL。
  - s4.3：station 回复 2/4 EAPOL。
- - s4.4：如果在握手定时器终止之前未接收到 3/4 EAPOL，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 WIFI_REASON_HANDSHAKE_TIMEOUT。请参阅 `Wi-Fi 原因代码`_。
+ - s4.4：如果在握手定时器终止之前未接收到 3/4 EAPOL，将产生 `WIFI_EVENT_STA_DISCONNECTED`_ 事件，且原因代码为 ``WIFI_REASON_HANDSHAKE_TIMEOUT``。请参阅 `Wi-Fi 原因代码`_。
  - s4.5：接收到 3/4 EAPOL。
  - s4.6：station 回复 4/4 EAPOL。
  - s4.7：station 产生 `WIFI_EVENT_STA_CONNECTED`_ 事件。
@@ -772,7 +859,7 @@ Wi-Fi 驱动程序内部扫描阶段
 Wi-Fi 原因代码
 +++++++++++++++++++++
 
-下表罗列了 {IDF_TARGET_NAME} 中定义的原因代码。其中，第一列为 esp_wifi_types.h 中定义的宏名称。名称中省去了前缀 *WIFI_REASON*，也就是说，名称 *UNSPECIFIED* 实际应为 *WIFI_REASON_UNSPECIFIED*，以此类推。第二列为原因代码的相应数值。第三列为该原因映射到 IEEE 802.11-2020 中 9.4.1.7 段的标准值。（更多详细信息，请参阅前文描述。）最后一列为这一原因的描述。
+下表罗列了 {IDF_TARGET_NAME} 中定义的原因代码。其中，第一列为 :component_file:`esp_wifi/include/esp_wifi_types.h` 中定义的宏名称。名称中省去了前缀 ``WIFI_REASON``，也就是说，名称 ``UNSPECIFIED`` 实际应为 ``WIFI_REASON_UNSPECIFIED``，以此类推。第二列为原因代码的相应数值。第三列为该原因映射到 IEEE 802.11-2020 中 9.4.1.7 段的标准值。（更多详细信息，请参阅前文描述。）最后一列为这一原因的描述。
 
 .. list-table::
    :header-rows: 1
@@ -809,7 +896,7 @@ Wi-Fi 原因代码
        对于 ESP station，出现以下情况时报告该代码：
 
        - 从 AP 接收到该代码。
-   * - ASSOC_EXPIRE
+   * - DISASSOC_DUE_TO_INACTIVITY
      - 4
      - 4
      - 因为 AP 不活跃，association 取消。
@@ -835,7 +922,7 @@ Wi-Fi 原因代码
        对于 ESP AP，出现以下情况时将报告该代码：
 
        - 与 AP 相关联的 station 数量已到达 AP 可支持的最大值。
-   * - NOT_AUTHED
+   * - CLASS2_FRAME_FROM_NONAUTH_STA
      - 6
      - 6
      - 从一个未认证 station 接收到 class-2 frame。
@@ -847,7 +934,7 @@ Wi-Fi 原因代码
        对于 ESP AP，出现以下情况时将报告该代码：
 
        - AP 从一个未认证 station 接收到数据包。
-   * - NOT_ASSOCED
+   * - CLASS3_FRAME_FROM_NONASSOC_STA
      - 7
      - 7
      - 从一个未关联 station 接收到的 class-3 frame。
@@ -919,7 +1006,7 @@ Wi-Fi 原因代码
    * - 4WAY_HANDSHAKE_TIMEOUT
      - 15
      - 15
-     - 四次握手超时。由于某些历史原因，在 ESP 中该原因代码实为 WIFI_REASON_HANDSHAKE_TIMEOUT。
+     - 四次握手超时。由于某些历史原因，在 ESP 中该原因代码实为 ``WIFI_REASON_HANDSHAKE_TIMEOUT``。
 
        对于 ESP station，出现以下情况时报告该代码：
 
@@ -1112,7 +1199,7 @@ Wi-Fi 原因代码
    * - ASSOC_FAIL
      - 203
      - 保留
-     - 乐鑫特有的 Wi-Fi 原因代码： association 失败，但并非由 ASSOC_EXPIRE 或 ASSOC_TOOMANY 引发。
+     - 乐鑫特有的 Wi-Fi 原因代码： association 失败，但并非由 DISASSOC_DUE_TO_INACTIVITY 或 ASSOC_TOOMANY 引发。
    * - HANDSHAKE_TIMEOUT
      - 204
      - 保留
@@ -1209,13 +1296,13 @@ Wi-Fi 模式
 
    * - 模式
      - 描述
-   * - WIFI_MODE_NULL
-     - NULL 模式：此模式下，内部数据结构不分配给 station 和 AP，同时，station 和 AP 接口不会为发送/接收 Wi-Fi 数据进行初始化。通常，此模式用于 Sniffer，或者您不想通过调用函数 :cpp:func:`esp_wifi_deinit()` 卸载整个 Wi-Fi 驱动程序来同时停止 station 和 AP。
-   * - WIFI_MODE_STA
+   * - ``WIFI_MODE_NULL``
+     - NULL 模式：此模式下，内部数据结构不分配给 station 和 AP，同时，station 和 AP 接口不会为发送/接收 Wi-Fi 数据进行初始化。通常，此模式用于 Sniffer，或者你不想通过调用函数 :cpp:func:`esp_wifi_deinit()` 卸载整个 Wi-Fi 驱动程序来同时停止 station 和 AP。
+   * - ``WIFI_MODE_STA``
      - station 模式：此模式下，:cpp:func:`esp_wifi_start()` 将初始化内部 station 数据，同时 station 接口准备发送/接收 Wi-Fi 数据。调用函数 :cpp:func:`esp_wifi_connect()` 后，station 将连接到目标 AP。
-   * - WIFI_MODE_AP
+   * - ``WIFI_MODE_AP``
      - AP 模式：在此模式下，:cpp:func:`esp_wifi_start()` 将初始化内部 AP 数据，同时 AP 接口准备发送/接收 Wi-Fi 数据。随后，Wi-Fi 驱动程序开始广播 beacon，AP 即可与其它 station 连接。
-   * - WIFI_MODE_APSTA
+   * - ``WIFI_MODE_APSTA``
      - station/AP 共存模式：在此模式下，函数 :cpp:func:`esp_wifi_start()` 将同时初始化 station 和 AP。该步骤在 station 模式和 AP 模式下完成。请注意 ESP station 所连外部 AP 的信道优先于 ESP AP 信道。
 
 
@@ -1235,19 +1322,19 @@ API :cpp:func:`esp_wifi_set_config()` 可用于配置 station。配置的参数�
    * - password
      - 目标 AP 的密码。
    * - scan_method
-     - WIFI_FAST_SCAN 模式下，扫描到一个匹配的 AP 时即结束。WIFI_ALL_CHANNEL_SCAN 模式下，在所有信道扫描所有匹配的 AP。默认扫描模式是 WIFI_FAST_SCAN。
+     - ``WIFI_FAST_SCAN`` 模式下，扫描到一个匹配的 AP 时即结束。 ``WIFI_ALL_CHANNEL_SCAN`` 模式下，在所有信道扫描所有匹配的 AP。默认扫描模式是 ``WIFI_FAST_SCAN``。
    * - bssid_set
      - 如果 bssid_set 为 0，station 连接 SSID 与 “ssid” 字段相同的 AP，同时忽略字段 “bssid”。其他情况下，station 连接 SSID 与 “ssid” 字段相同、BSSID 与 “bssid” 字段也相同的 AP。
    * - bssid
      - 只有当 bssid_set 为 1 时有效。见字段 “bssid_set”。
    * - channel
-     - 该字段为 0 时，station 扫描信道 1 ~ N 寻找目标 AP；否则，station 首先扫描值与 “channel” 字段相同的信道，再扫描其他信道。比如，当该字段设置为 3 时，扫描顺序为 3，1，2，...，N 。如果您不知道目标 AP 在哪个信道，请将该字段设置为 0。
+     - 该字段为 0 时，station 扫描信道 1 ~ N 寻找目标 AP；否则，station 首先扫描值与 “channel” 字段相同的信道，再扫描其他信道。比如，当该字段设置为 3 时，扫描顺序为 3，1，2，...，N 。如果你不知道目标 AP 在哪个信道，请将该字段设置为 0。
    * - sort_method
-     - 该字段仅用于 WIFI_ALL_CHANNEL_SCAN 模式。
+     - 该字段仅用于 ``WIFI_ALL_CHANNEL_SCAN`` 模式。
 
-       如果设置为 WIFI_CONNECT_AP_BY_SIGNAL，所有匹配的 AP 将会按照信号强度排序，信号最好的 AP 会被首先连接。比如，如果 station 想要连接 ssid 为 “apxx” 的 AP，且扫描到两个这样的 AP。第一个 AP 的信号为 -90 dBm，第二个 AP 的信号为 -30 dBm，station 首先连接第二个 AP。除非失败，才会连接第一个。
+       如果设置为 ``WIFI_CONNECT_AP_BY_SIGNAL``，所有匹配的 AP 将会按照信号强度排序，信号最好的 AP 会被首先连接。比如，如果 station 想要连接 ssid 为 “apxx” 的 AP，且扫描到两个这样的 AP。第一个 AP 的信号为 -90 dBm，第二个 AP 的信号为 -30 dBm，station 首先连接第二个 AP。除非失败，才会连接第一个。
 
-       如果设置为 WIFI_CONNECT_AP_BY_SECURITY，所有匹配的 AP 将会按照安全性排序。比如，如果 station 想要连接 ssid 为 “apxx” 的 AP，并且扫描到两个这样的 AP。第一个 AP 为开放式，第二个 AP 为 WPA2 加密，station 首先连接第二个 AP。除非失败，才会连接第一个。
+       如果设置为 ``WIFI_CONNECT_AP_BY_SECURITY``，所有匹配的 AP 将会按照安全性排序。比如，如果 station 想要连接 ssid 为 “apxx” 的 AP，并且扫描到两个这样的 AP。第一个 AP 为开放式，第二个 AP 为 WPA2 加密，station 首先连接第二个 AP。除非失败，才会连接第一个。
    * - threshold
      - 该字段用来筛选找到的 AP，如果 AP 的 RSSI 或安全模式小于配置的阈值，则不会被连接。
 
@@ -1256,14 +1343,14 @@ API :cpp:func:`esp_wifi_set_config()` 可用于配置 station。配置的参数�
 
 .. attention::
 
-    WEP/WPA 安全模式在 IEEE802.11-2016 协议中已弃用，建议不要使用。可使用 authmode 阈值代替，通过将 threshold.authmode 设置为 WIFI_AUTH_WPA2_PSK 使用 WPA2 模式
+    WEP/WPA 安全模式在 IEEE802.11-2016 协议中已弃用，建议不要使用。可使用 authmode 阈值代替，通过将 threshold.authmode 设置为 ``WIFI_AUTH_WPA2_PSK`` 使用 WPA2 模式
 
 AP 基本配置
 +++++++++++++++++++++++++++++++++++++
 
 API :cpp:func:`esp_wifi_set_config()` 可用于配置 AP。配置的参数信息会保存到 NVS 中。下表详细介绍了各个字段。
 
-.. only:: esp32 or esp32s2 or esp32s3
+.. only:: esp32 or esp32s2 or esp32s3 or esp32c3 or esp32c6
 
     .. list-table::
       :header-rows: 1
@@ -1272,45 +1359,19 @@ API :cpp:func:`esp_wifi_set_config()` 可用于配置 AP。配置的参数信息
       * - 字段
         - 描述
       * - ssid
-        - 指 AP 的 SSID。如果 ssid[0] 和 ssid[1] 均为 0xFF，AP 默认 SSID 为 ESP_aabbcc，”aabbcc” 是 AP MAC 的最后三个字节。
+        - 指 AP 的 SSID。如果 ssid[0] 和 ssid[1] 均为 0xFF，AP 默认 SSID 为 ``ESP_aabbcc``，”aabbcc” 是 AP MAC 的最后三个字节。
       * - password
-        - AP 的密码。如果身份验证模式为 WIFI_AUTH_OPEN，此字段将被忽略。
+        - AP 的密码。如果身份验证模式为 ``WIFI_AUTH_OPEN``，此字段将被忽略。
       * - ssid_len
         - SSID 的长度。如果 ssid_len 为 0，则检查 SSID 直至出现终止字符。如果 ssid_len 大于 32，请更改为 32，或者根据 ssid_len 设置 SSID 长度。
       * - channel
         - AP 的信道。如果信道超出范围，Wi-Fi 驱动程序将默认为信道 1。所以，请确保信道在要求的范围内。有关详细信息，请参阅 `Wi-Fi 国家/地区代码`_。
       * - authmode
-        - ESP AP 的身份验证模式。目前，ESP AP 不支持 AUTH_WEP。如果 authmode 是一个无效值，AP 默认该值为 WIFI_AUTH_OPEN。
+        - ESP AP 的身份验证模式。目前，ESP AP 不支持 AUTH_WEP。如果 authmode 是一个无效值，AP 默认该值为 ``WIFI_AUTH_OPEN``。
       * - ssid_hidden
         - 如果 ssid_hidden 为 1，AP 不广播 SSID。若为其他值，则广播。
       * - max_connection
-        - 允许连接 station 的最大数目，默认值是 10。ESP Wi-Fi 支持 15 (ESP_WIFI_MAX_CONN_NUM) 个 Wi-Fi 连接。请注意， ESP AP 和 ESP-NOW 共享同一块加密硬件 keys，因此 max_connection 参数将受到 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 的影响。加密硬件 keys 的总数是 17，如果 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 小于等于 2，那么 max_connection 最大可以设置为 15，否则 max_connection 最大可以设置为 (17 - :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM`)。
-      * - beacon_interval
-        - beacon 间隔。值为 100 ~ 60000 ms，默认值为 100 ms。如果该值不在上述范围，AP 默认取 100 ms。
-
-
-.. only:: esp32c3
-
-    .. list-table::
-      :header-rows: 1
-      :widths: 15 55
-
-      * - 字段
-        - 描述
-      * - ssid
-        - 指 AP 的 SSID。如果 ssid[0] 和 ssid[1] 均为 0xFF，AP 默认 SSID 为 ESP_aabbcc，”aabbcc” 是 AP MAC 的最后三个字节。
-      * - password
-        - AP 的密码。如果身份验证模式为 WIFI_AUTH_OPEN，此字段将被忽略。
-      * - ssid_len
-        - SSID 的长度。如果 ssid_len 为 0，则检查 SSID 直至出现终止字符。如果 ssid_len 大于 32，请更改为 32，或者根据 ssid_len 设置 SSID 长度。
-      * - channel
-        - AP 的信道。如果信道超出范围，Wi-Fi 驱动程序将默认为信道 1。所以，请确保信道在要求的范围内。有关详细信息，请参阅 `Wi-Fi 国家/地区代码`_。
-      * - authmode
-        - ESP AP 的身份验证模式。目前，ESP AP 不支持 AUTH_WEP。如果 authmode 是一个无效值，AP 默认该值为 WIFI_AUTH_OPEN。
-      * - ssid_hidden
-        - 如果 ssid_hidden 为 1，AP 不广播 SSID。若为其他值，则广播。
-      * - max_connection
-        - 允许连接 station 的最大数目，默认值是 10。ESP Wi-Fi 支持 10 (ESP_WIFI_MAX_CONN_NUM) 个 Wi-Fi 连接。请注意， ESP AP 和 ESP-NOW 共享同一块加密硬件 keys，因此 max_connection 参数将受到 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 的影响。加密硬件 keys 的总数是 17，如果 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 小于等于 7，那么 max_connection 最大可以设置为 10，否则 max_connection 最大可以设置为 (17 - :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM`)。
+        - 允许连接 station 的最大数目，默认值是 10。ESP Wi-Fi 支持 {IDF_TARGET_MAX_CONN_STA_NUM} (``ESP_WIFI_MAX_CONN_NUM``) 个 Wi-Fi 连接。请注意， ESP AP 和 ESP-NOW 共享同一块加密硬件 keys，因此 max_connection 参数将受到 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 的影响。加密硬件 keys 的总数是 17，如果 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 小于等于 {IDF_TARGET_SUB_MAX_NUM_FROM_KEYS}，那么 max_connection 最大可以设置为 {IDF_TARGET_MAX_CONN_STA_NUM}，否则 max_connection 最大可以设置为 (17 - :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM`)。
       * - beacon_interval
         - beacon 间隔。值为 100 ~ 60000 ms，默认值为 100 ms。如果该值不在上述范围，AP 默认取 100 ms。
 
@@ -1324,19 +1385,19 @@ API :cpp:func:`esp_wifi_set_config()` 可用于配置 AP。配置的参数信息
       * - 字段
         - 描述
       * - ssid
-        - 指 AP 的 SSID。如果 ssid[0] 和 ssid[1] 均为 0xFF，AP 默认 SSID 为 ESP_aabbcc，”aabbcc” 是 AP MAC 的最后三个字节。
+        - 指 AP 的 SSID。如果 ssid[0] 和 ssid[1] 均为 0xFF，AP 默认 SSID 为 ``ESP_aabbcc``，”aabbcc” 是 AP MAC 的最后三个字节。
       * - password
-        - AP 的密码。如果身份验证模式为 WIFI_AUTH_OPEN，此字段将被忽略。
+        - AP 的密码。如果身份验证模式为 ``WIFI_AUTH_OPEN``，此字段将被忽略。
       * - ssid_len
         - SSID 的长度。如果 ssid_len 为 0，则检查 SSID 直至出现终止字符。如果 ssid_len 大于 32，请更改为 32，或者根据 ssid_len 设置 SSID 长度。
       * - channel
         - AP 的信道。如果信道超出范围，Wi-Fi 驱动程序将默认为信道 1。所以，请确保信道在要求的范围内。有关详细信息，请参阅 `Wi-Fi 国家/地区代码`_。
       * - authmode
-        - ESP AP 的身份验证模式。目前，ESP AP 不支持 AUTH_WEP。如果 authmode 是一个无效值，AP 默认该值为 WIFI_AUTH_OPEN。
+        - ESP AP 的身份验证模式。目前，ESP AP 不支持 AUTH_WEP。如果 authmode 是一个无效值，AP 默认该值为 ``WIFI_AUTH_OPEN``。
       * - ssid_hidden
         - 如果 ssid_hidden 为 1，AP 不广播 SSID。若为其他值，则广播。
       * - max_connection
-        - 允许连接 station 的最大数目，默认值是 2。ESP Wi-Fi 支持 4 (ESP_WIFI_MAX_CONN_NUM) 个 Wi-Fi 连接。请注意， ESP AP 和 ESP-NOW 共享同一块加密硬件 keys，因此 max_connection 参数将受到 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 的影响。加密硬件 keys 的总数是 4， max_connection 最大可以设置为 (17 - :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM`)。
+        - 允许连接 station 的最大数目，默认值是 2。ESP Wi-Fi 支持 {IDF_TARGET_MAX_CONN_STA_NUM} (``ESP_WIFI_MAX_CONN_NUM``) 个 Wi-Fi 连接。请注意， ESP AP 和 ESP-NOW 共享同一块加密硬件 keys，因此 max_connection 参数将受到 :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM` 的影响。加密硬件 keys 的总数是 {IDF_TARGET_MAX_CONN_STA_NUM}， max_connection 最大可以设置为 ({IDF_TARGET_MAX_CONN_STA_NUM} - :ref:`CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM`)。
       * - beacon_interval
         - beacon 间隔。值为 100 ~ 60000 ms，默认值为 100 ms。如果该值不在上述范围，AP 默认取 100 ms。
 
@@ -1355,23 +1416,50 @@ Wi-Fi 协议模式
       * - 协议模式
         - 描述
       * - 802.11b
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B)，将 station/AP 设置为仅 802.11b 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B)``，将 station/AP 设置为仅 802.11b 模式。
       * - 802.11bg
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)，将 station/AP 设置为 802.11bg 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)``，将 station/AP 设置为 802.11bg 模式。
       * - 802.11g
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G) 和 esp_wifi_config_11b_rate(ifx, true)，将 station/AP 设置为 802.11g 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)`` 和 ``esp_wifi_config_11b_rate(ifx, true)``，将 station/AP 设置为 802.11g 模式。
       * - 802.11bgn
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)，将 station/AP 设置为 802.11bgn 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)``，将 station/AP 设置为 802.11bgn 模式。
       * - 802.11gn
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N) 和 esp_wifi_config_11b_rate(ifx, true)，将 station/AP 设置为 802.11gn 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)`` 和 ``esp_wifi_config_11b_rate(ifx, true)``，将 station/AP 设置为 802.11gn 模式。
       * - 802.11 BGNLR
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR)，将 station/AP 设置为 802.11bgn 和 LR 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR)``，将 station/AP 设置为 802.11bgn 和 LR 模式。
       * - 802.11 LR
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_LR)，将 station/AP 设置为 LR 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_LR)``，将 station/AP 设置为 LR 模式。
 
           **此模式是乐鑫的专利模式，可以达到 1 公里视线范围。请确保 station 和 AP 同时连接至 ESP 设备。**
 
+.. only:: esp32c6
 
+    .. list-table::
+      :header-rows: 1
+      :widths: 15 55
+
+      * - 协议模式
+        - 描述
+      * - 802.11b
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B)``，将 station/AP 设置为仅 802.11b 模式。
+      * - 802.11bg
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)``，将 station/AP 设置为 802.11bg 模式。
+      * - 802.11g
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)`` 和 ``esp_wifi_config_11b_rate(ifx, true)``，将 station/AP 设置为 802.11g 模式。
+      * - 802.11bgn
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)``，将 station/AP 设置为 802.11bgn 模式。
+      * - 802.11gn
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)`` 和 ``esp_wifi_config_11b_rate(ifx, true)``，将 station/AP 设置为 802.11gn 模式。
+      * - 802.11 BGNLR
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR)``，将 station/AP 设置为 802.11bgn 和 LR 模式。
+      * - 802.11bgnax
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_11AX)``，将 station/AP 设置为 802.11bgnax 模式。
+      * - 802.11 BGNAXLR
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_11AX|WIFI_PROTOCOL_LR)``，将 station/AP 设置为 802.11bgnax 和 LR 模式。
+      * - 802.11 LR
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_LR)``，将 station/AP 设置为 LR 模式。
+
+          **此模式是乐鑫的专利模式，可以达到 1 公里视线范围。请确保 station 和 AP 同时连接至 ESP 设备。**
 
 .. only:: esp32c2
 
@@ -1382,19 +1470,19 @@ Wi-Fi 协议模式
       * - 协议模式
         - 描述
       * - 802.11b
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B)，将 station/AP 设置为仅 802.11b 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B)``，将 station/AP 设置为仅 802.11b 模式。
       * - 802.11bg
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)，将 station/AP 设置为 802.11bg 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)``，将 station/AP 设置为 802.11bg 模式。
       * - 802.11g
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G) 和 esp_wifi_config_11b_rate(ifx, true)，将 station/AP 设置为 802.11g 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G)`` 和 ``esp_wifi_config_11b_rate(ifx, true)``，将 station/AP 设置为 802.11g 模式。
       * - 802.11bgn
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)，将 station/AP 设置为 802.11bgn 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)``，将 station/AP 设置为 802.11bgn 模式。
       * - 802.11gn
-        - 调用函数 esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N) 和 esp_wifi_config_11b_rate(ifx, true)，将 station/AP 设置为 802.11gn 模式。
+        - 调用函数 ``esp_wifi_set_protocol(ifx, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N)`` 和 ``esp_wifi_config_11b_rate(ifx, true)``，将 station/AP 设置为 802.11gn 模式。
 
 
 
-.. only:: esp32 or esp32s2 or esp32c3 or esp32s3
+.. only:: esp32 or esp32s2 or esp32c3 or esp32s3 or esp32c6
 
     长距离 (LR)
     +++++++++++++++++++++++++
@@ -1404,27 +1492,53 @@ Wi-Fi 协议模式
     LR 兼容性
     *************************
 
-    由于 LR 是乐鑫的独有 Wi-Fi 模式，只有 {IDF_TARGET_NAME} 设备才能传输和接收 LR 数据。也就是说，如果连接的设备不支持 LR，{IDF_TARGET_NAME} 设备则不会以 LR 数据速率传输数据。可通过配置适当的 Wi-Fi 模式使您的应用程序实现这一功能。如果协商的模式支持 LR，{IDF_TARGET_NAME} 可能会以 LR 速率传输数据，否则，{IDF_TARGET_NAME} 将以传统 Wi-Fi 数据速率传输所有数据。
+    由于 LR 是乐鑫的独有 Wi-Fi 模式，只有 ESP32 芯片系列设备（ESP32-C2 除外）才能传输和接收 LR 数据。也就是说，如果连接的设备不支持 LR，ESP32 芯片系列设备（ESP32-C2 除外）则不会以 LR 数据速率传输数据。可通过配置适当的 Wi-Fi 模式使你的应用程序实现这一功能。如果协商的模式支持 LR，ESP32 芯片系列设备（ESP32-C2 除外）可能会以 LR 速率传输数据，否则，ESP32 芯片系列设备（ESP32-C2 除外）将以传统 Wi-Fi 数据速率传输所有数据。
 
     下表是 Wi-Fi 模式协商：
 
-    +-------+-----+----+---+-------+------+-----+----+
-    | APSTA | BGN | BG | B | BGNLR | BGLR | BLR | LR |
-    +=======+=====+====+===+=======+======+=====+====+
-    | BGN   | BGN | BG | B | BGN   | BG   | B   | -  |
-    +-------+-----+----+---+-------+------+-----+----+
-    | BG    | BG  | BG | B | BG    | BG   | B   | -  |
-    +-------+-----+----+---+-------+------+-----+----+
-    | B     | B   | B  | B | B     | B    | B   | -  |
-    +-------+-----+----+---+-------+------+-----+----+
-    | BGNLR | -   | -  | - | BGNLR | BGLR | BLR | LR |
-    +-------+-----+----+---+-------+------+-----+----+
-    | BGLR  | -   | -  | - | BGLR  | BGLR | BLR | LR |
-    +-------+-----+----+---+-------+------+-----+----+
-    | BLR   | -   | -  | - | BLR   | BLR  | BLR | LR |
-    +-------+-----+----+---+-------+------+-----+----+
-    | LR    | -   | -  | - | LR    | LR   | LR  | LR |
-    +-------+-----+----+---+-------+------+-----+----+
+    .. only:: esp32 or esp32s2 or esp32c3 or esp32s3
+
+        +-------+-----+----+---+-------+------+-----+----+
+        |AP\STA | BGN | BG | B | BGNLR | BGLR | BLR | LR |
+        +=======+=====+====+===+=======+======+=====+====+
+        | BGN   | BGN | BG | B | BGN   | BG   | B   | -  |
+        +-------+-----+----+---+-------+------+-----+----+
+        | BG    | BG  | BG | B | BG    | BG   | B   | -  |
+        +-------+-----+----+---+-------+------+-----+----+
+        | B     | B   | B  | B | B     | B    | B   | -  |
+        +-------+-----+----+---+-------+------+-----+----+
+        | BGNLR | -   | -  | - | BGNLR | BGLR | BLR | LR |
+        +-------+-----+----+---+-------+------+-----+----+
+        | BGLR  | -   | -  | - | BGLR  | BGLR | BLR | LR |
+        +-------+-----+----+---+-------+------+-----+----+
+        | BLR   | -   | -  | - | BLR   | BLR  | BLR | LR |
+        +-------+-----+----+---+-------+------+-----+----+
+        | LR    | -   | -  | - | LR    | LR   | LR  | LR |
+        +-------+-----+----+---+-------+------+-----+----+
+
+    .. only:: esp32c6
+
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | AP\STA  | BGNAX | BGN | BG | B | BGNAXLR | BGNLR | BGLR | BLR | LR |
+        +=========+=======+=====+====+===+=========+=======+======+=====+====+
+        | BGNAX   | BGAX  | BGN | BG | B | BGAX    | BGN   | BG   | B   | -  |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | BGN     | BGN   | BGN | BG | B | BGN     | BGN   | BG   | B   | -  |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | BG      | BG    | BG  | BG | B | BG      | BG    | BG   | B   | -  |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | B       | B     | B   | B  | B | B       | B     | B    | B   | -  |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | BGNAXLR | -     | -   | -  | - | BGAXLR  | BGNLR | BGLR | BLR | LR |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | BGNLR   | -     | -   | -  | - | BGNLR   | BGNLR | BGLR | BLR | LR |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | BGLR    | -     | -   | -  | - | BGLR    | BGLR  | BGLR | BLR | LR |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | BLR     | -     | -   | -  | - | BLR     | BLR   | BLR  | BLR | LR |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
+        | LR      | -     | -   | -  | - | LR      | LR    | LR   | LR  | LR |
+        +---------+-------+-----+----+---+---------+-------+------+-----+----+
 
     上表中，行是 AP 的 Wi-Fi 模式，列是 station 的 Wi-Fi 模式。"-" 表示 AP 和 station 的 Wi-Fi 模式不兼容。
 
@@ -1432,7 +1546,7 @@ Wi-Fi 协议模式
 
     - 对于已使能 LR 的 {IDF_TARGET_NAME} AP，由于以 LR 模式发送 beacon，因此与传统的 802.11 模式不兼容。
     - 对于已使能 LR 且并非仅 LR 模式的 {IDF_TARGET_NAME} station，与传统 802.11 模式兼容。
-    - 如果 station 和 AP 都是 {IDF_TARGET_NAME} 设备，并且两者都使能 LR 模式，则协商的模式支持 LR。
+    - 如果 station 和 AP 都是 ESP32 芯片系列设备（ESP32-C2 除外），并且两者都使能 LR 模式，则协商的模式支持 LR。
 
     如果协商的 Wi-Fi 模式同时支持传统的 802.11 模式和 LR 模式，则 Wi-Fi 驱动程序会在不同的 Wi-Fi 模式下自动选择最佳数据速率，应用程序无需任何操作。
 
@@ -1464,7 +1578,6 @@ Wi-Fi 协议模式
     - AP 和 station 都是乐鑫设备。
     - 需要长距离 Wi-Fi 连接和数据传输。
     - 数据吞吐量要求非常小，例如远程设备控制等。
-
 
 Wi-Fi 国家/地区代码
 +++++++++++++++++++++++++
@@ -1586,20 +1699,20 @@ Wi-Fi Easy Connect™ (DPP)
 Wi-Fi Easy Connect\ :sup:`TM` （也称为设备配置协议）是一个安全且标准化的配置协议，用于配置 Wi-Fi 设备。更多信息请参考 :doc:`esp_dpp <../api-reference/network/esp_dpp>`。
 
 WPA2-Enterprise
-+++++++++++++++++++++++++++++++++
+---------------
 
 WPA2-Enterprise 是企业无线网络的安全认证机制。在连接到接入点之前，它使用 RADIUS 服务器对网络用户进行身份验证。身份验证过程基于 802.1X 标准，并有不同的扩展身份验证协议 (EAP) 方法，如 TLS、TTLS、PEAP 等。RADIUS 服务器根据用户的凭据（用户名和密码）、数字证书或两者对用户进行身份验证。当处于 station 模式的 {IDF_TARGET_NAME} 尝试连接到企业模式的 AP 时，它会向 AP 发送身份验证请求，AP 会将该请求发送到 RADIUS 服务器以对 station 进行身份验证。根据不同的 EAP 方式，可以通过 ``idf.py menuconfig`` 打开配置，并在配置中设置参数。{IDF_TARGET_NAME} 仅在 station 模式下支持 WPA2_Enterprise。
 
 为了建立安全连接，AP 和 station 协商并就要使用的最佳密码套件达成一致。{IDF_TARGET_NAME} 支持 AKM 的 802.1X/EAP (WPA) 方法和 AES-CCM（高级加密标准-带密码块链消息验证码协议的计数器模式）支持的密码套件。如果设置了 `USE_MBEDTLS_CRYPTO` 标志，{IDF_TARGET_NAME} 也支持 mbedtls 支持的密码套件。
 
 目前，{IDF_TARGET_NAME} 支持以下 EAP 方法：
-  - EAP-TLS: 这是基于证书的方法，只需要 SSID 和 EAP-IDF。
-  - PEAP: - PEAP：这是受保护的 EAP 方法。用户名和密码是必填项。
-  - EAP-TTLS: 这是基于凭据的方法。只有服务器身份验证是强制性的，而用户身份验证是可选的。用户名和密码是必填项。 它支持不同的 Phase2 方法，例如：
-     - PAP: 密码认证协议
-     - CHAP: 询问握手身份验证协议
+  - EAP-TLS：这是基于证书的方法，只需要 SSID 和 EAP-IDF。
+  - PEAP：这是受保护的 EAP 方法。用户名和密码是必填项。
+  - EAP-TTLS：这是基于凭据的方法。只有服务器身份验证是强制性的，而用户身份验证是可选的。用户名和密码是必填项。 它支持不同的 Phase2 方法，例如：
+     - PAP：密码认证协议
+     - CHAP：询问握手身份验证协议
      - MSCHAP 和 MSCHAP-V2
-  - EAP-FAST: 这是一种基于受保护的访问凭据 (PAC) 的认证方法，使用身份验证和密码。目前使用此功能时需要禁用 USE_MBEDTLS_CRYPTO 标志。
+  - EAP-FAST：这是一种基于受保护的访问凭据 (PAC) 的认证方法，使用身份验证和密码。目前使用此功能时需要禁用 USE_MBEDTLS_CRYPTO 标志。
 
 请查看 :example:`wifi/wifi_enterprise` 获取关于证书创建以及如何在 {IDF_TARGET_NAME} 上运行 wpa2_enterprise 示例的详细信息。
 
@@ -1614,7 +1727,7 @@ WPA2-Enterprise 是企业无线网络的安全认证机制。在连接到接入�
 无线资源管理
 ---------------------------
 
-无线电资源测量（802.11k）旨在改善网络内流量的分配方式。在无线局域网中，一般情况下，无线设备会连接发射信号最强的接入点 (AP)。根据用户的数量和地理位置，这种分配方式有时会导致某个接入点超负荷而其它接入点利用不足，从而导致整体网络性能下降。在符合 802.11k 规范的网络中，如果信号最强的 AP 已满负荷加载，无线设备则转移到其它未充分利用的 AP。尽管信号可能较弱，但由于更有效地利用了网络资源，总体吞吐量会更大。
+无线电资源测量 (802.11k) 旨在改善网络内流量的分配方式。在无线局域网中，一般情况下，无线设备会连接发射信号最强的接入点 (AP)。根据用户的数量和地理位置，这种分配方式有时会导致某个接入点超负荷而其它接入点利用不足，从而导致整体网络性能下降。在符合 802.11k 规范的网络中，如果信号最强的 AP 已满负荷加载，无线设备则转移到其它未充分利用的 AP。尽管信号可能较弱，但由于更有效地利用了网络资源，总体吞吐量会更大。
 
 目前 802.11k 的实现支持信标测量报告、链路测量报告和邻居请求。
 
@@ -1639,12 +1752,14 @@ WPA2-Enterprise 是企业无线网络的安全认证机制。在连接到接入�
     - {IDF_TARGET_NAME} 在 station 模式下为 FTM 发起方。
     - {IDF_TARGET_NAME} 在 AP 模式下为 FTM 响应方。
 
-    使用 RTT 的距离测量并不准确，RF 干扰、多径传播、天线方向和缺乏校准等因素会增加这些不准确度。为了获得更好的结果，建议在两个 {IDF_TARGET_NAME} 设备之间执行 FTM，这两个设备可分别设置为 station 和 AP 模式。
+    使用 RTT 的距离测量并不准确，RF 干扰、多径传播、天线方向和缺乏校准等因素会增加这些不准确度。为了获得更好的结果，建议在两个 ESP32 芯片系列设备（ESP32-C2 除外）之间执行 FTM，这两个设备可分别设置为 station 和 AP 模式。
 
-    请参考 IDF 示例 :idf_file:`examples/wifi/ftm/README.md` 了解设置和执行 FTM 的详细步骤。
+    请参考 ESP-IDF 示例 :idf_file:`examples/wifi/ftm/README.md`，了解设置和执行 FTM 的详细步骤。
 
 {IDF_TARGET_NAME} Wi-Fi 节能模式
 -----------------------------------------
+
+本小节将简单介绍Wi-Fi节能模式相关的概念和使用方式，更加详细的介绍请参考 :doc:`低功耗模式使用指南 <../api-guides/low-power-mode/index>`。
 
 station 睡眠
 ++++++++++++++++++++++
@@ -1657,7 +1772,11 @@ Modem-sleep 模式包括最小和最大节能模式。在最小节能模式下�
 
 调用 :cpp:func:`esp_wifi_init()` 后，调用 ``esp_wifi_set_ps(WIFI_PS_MIN_MODEM)`` 可使能 Modem-sleep 最小节能模式。调用 ``esp_wifi_set_ps(WIFI_PS_MAX_MODEM)`` 可使能 Modem-sleep 最大节能模式。station 连接到 AP 时，Modem-sleep 模式将启动。station 与 AP 断开连接时，Modem-sleep 模式将停止。
 
-调用 ``esp_wifi_set_ps(WIFI_PS_NONE)`` 可以完全禁用 Modem-sleep 模式。禁用会增大功耗，但可以最大限度减少实时接收 Wi-Fi 数据的延迟。使能 Modem-sleep 时，接收 Wi-Fi 数据的延迟时间可能与 DTIM 周期（最小节能模式）或监听间隔（最大节能模式）相同。在 Wi-Fi 与 Bluetooth LE 共存模式下，无法完全禁用 modem-sleep 模式。
+调用 ``esp_wifi_set_ps(WIFI_PS_NONE)`` 可以完全禁用 Modem-sleep 模式。禁用会增大功耗，但可以最大限度减少实时接收 Wi-Fi 数据的延迟。使能 Modem-sleep 模式时，接收 Wi-Fi 数据的延迟时间可能与 DTIM 周期（最小节能模式）或监听间隔（最大节能模式）相同。
+
+.. only:: SOC_SUPPORT_COEXISTENCE
+
+    注意在共存模式下, 即使调用 ``esp_wifi_set_ps(WIFI_PS_NONE)``, Wi-Fi 也仅会在 Wi-Fi 时间片内保持活动状态, 非 Wi-Fi 时间片内仍然睡眠。请参照 :ref:`共存策略 <coexist_policy-cn>`。
 
 默认的 Modem-sleep 模式是 WIFI_PS_MIN_MODEM。
 
@@ -1684,7 +1803,7 @@ AP 睡眠
 非连接模块功耗管理
 +++++++++++++++++++++++++++++++
 
-非连接模块指的是一些不依赖于 Wi-Fi 连接的 Wi-Fi 模块，例如 ESP-NOW， DPP， FTM。这些模块从 :cpp:func:`esp_wifi_start` 开始工作至 :cpp:func:`esp_wifi_stop` 结束。
+非连接模块指的是一些不依赖于 Wi-Fi 连接的 Wi-Fi 模块，例如 ESP-NOW，DPP，FTM。这些模块从 :cpp:func:`esp_wifi_start` 开始工作至 :cpp:func:`esp_wifi_stop` 结束。
 
 目前，ESP-NOW 以 station 模式工作时，既支持在连接状态下休眠，也支持在非连接状态下休眠。
 
@@ -1722,24 +1841,24 @@ AP 睡眠
 
 .. table:: 不同 Window 与 Interval 组合下的 RF, PHY and BB 使用情况
 
-    +----------------------+-------------------------------------------------+---------------------------------------------------------------------------+
-    |                      | Interval                                                                                                                    |
-    +                      +-------------------------------------------------+---------------------------------------------------------------------------+
-    |                      | ESP_WIFI_CONNECTIONLESS_INTERVAL_DEFAULT_MODE   | 1 - maximum                                                               |
-    +--------+-------------+-------------------------------------------------+---------------------------------------------------------------------------+
-    | Window | 0           | not used                                                                                                                    |
-    +        +-------------+-------------------------------------------------+---------------------------------------------------------------------------+
-    |        | 1 - maximum | default mode                                    | used periodically (Window < Interval) / used all time (Window ≥ Interval) |
-    +--------+-------------+-------------------------------------------------+---------------------------------------------------------------------------+
+    +----------------------+-----------------------------------------------------+---------------------------------------------------------------------------+
+    |                      | Interval                                                                                                                        |
+    +                      +-----------------------------------------------------+---------------------------------------------------------------------------+
+    |                      | ``ESP_WIFI_CONNECTIONLESS_INTERVAL_DEFAULT_MODE``   | 1 - maximum                                                               |
+    +--------+-------------+-----------------------------------------------------+---------------------------------------------------------------------------+
+    | Window | 0           | not used                                                                                                                        |
+    +        +-------------+-----------------------------------------------------+---------------------------------------------------------------------------+
+    |        | 1 - maximum | default mode                                        | used periodically (Window < Interval) / used all time (Window ≥ Interval) |
+    +--------+-------------+-----------------------------------------------------+---------------------------------------------------------------------------+
 
 默认模式
 *******************************
 
 当 `Interval` 参数被配置为 `ESP_WIFI_CONNECTIONLESS_INTERVAL_DEFAULT_MODE` ，且有非零的 `Window` 参数时，非连接模块功耗管理将会按默认模式运行。
 
-在没有与非 Wi-Fi 协议共存时，RF, PHY and BB 将会在默认模式下被一直打开。
+在没有与非 Wi-Fi 协议共存时，RF、PHY 和 BB 将会在默认模式下被一直打开。
 
-在与非 Wi-Fi 协议共存时，RF, PHY and BB 资源被共存模块分时划给 Wi-Fi 非连接模块和非 Wi-Fi 协议使用。在默认模式下， Wi-Fi 非连接模块被允许周期性使用 RF, PHY and BB ，并且具有稳定性能。
+在与非 Wi-Fi 协议共存时，RF、PHY 和 BB 资源被共存模块分时划给 Wi-Fi 非连接模块和非 Wi-Fi 协议使用。在默认模式下，Wi-Fi 非连接模块被允许周期性使用 RF、PHY 和 BB，并且具有稳定性能。
 
 推荐在与非 Wi-Fi 协议共存时将非连接模块功耗管理配置为默认模式。
 
@@ -1880,6 +1999,50 @@ AP 睡眠
 
     使用 iperf example 测试吞吐量时，sdkconfig 是 :idf_file:`examples/wifi/iperf/sdkconfig.defaults.esp32c3`。
 
+.. only:: esp32c6
+
+     .. list-table::
+        :header-rows: 1
+        :widths: 10 10 10 15 20
+
+        * - 类型/吞吐量
+          - 实验室空气状况
+          - 屏蔽箱
+          - 测试工具
+          - IDF 版本 (commit ID)
+        * - 原始 802.11 数据包接收数据
+          - N/A
+          - **130 MBit/s**
+          - 内部工具
+          - N/A
+        * - 原始 802.11 数据包发送数据
+          - N/A
+          - **130 MBit/s**
+          - 内部工具
+          - N/A
+        * - UDP 接收数据
+          - 30 MBit/s
+          - 45 MBit/s
+          - iperf example
+          - 420ebd20
+        * - UDP 发送数据
+          - 30 MBit/s
+          - 40 MBit/s
+          - iperf example
+          - 420ebd20
+        * - TCP 接收数据
+          - 20 MBit/s
+          - 30 MBit/s
+          - iperf example
+          - 420ebd20
+        * - TCP 发送数据
+          - 20 MBit/s
+          - 31 MBit/s
+          - iperf example
+          - 420ebd20
+
+    使用 iperf example 测试吞吐量时，sdkconfig 是 :idf_file:`examples/wifi/iperf/sdkconfig.defaults.esp32c6`。
+
 .. only:: esp32s3
 
      .. list-table::
@@ -1938,7 +2101,7 @@ Wi-Fi 80211 数据包发送
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  - Wi-Fi 模式为 station 模式，AP 模式，或 station/AP 共存模式。
- - API esp_wifi_set_promiscuous(true) 或 :cpp:func:`esp_wifi_start()`，或者二者都返回 ESP_OK。这是为确保在调用函数 :cpp:func:`esp_wifi_80211_tx()` 前，Wi-Fi 硬件已经初始化。对于 {IDF_TARGET_NAME}，esp_wifi_set_promiscuous(true) 和 :cpp:func:`esp_wifi_start()` 都可以触发 Wi-Fi 硬件初始化。
+ - API esp_wifi_set_promiscuous(true) 或 :cpp:func:`esp_wifi_start()`，或者二者都返回 :c:macro:`ESP_OK`。这是为确保在调用函数 :cpp:func:`esp_wifi_80211_tx()` 前，Wi-Fi 硬件已经初始化。对于 {IDF_TARGET_NAME}，esp_wifi_set_promiscuous(true) 和 :cpp:func:`esp_wifi_start()` 都可以触发 Wi-Fi 硬件初始化。
  - 提供正确的 :cpp:func:`esp_wifi_80211_tx()` 参数。
 
 传输速率
@@ -1960,22 +2123,22 @@ Wi-Fi 80211 数据包发送
    * - 场景
      - 描述
    * - 无 Wi-Fi 连接
-     - 在这种情况下，因为没有 Wi-Fi 连接，Wi-Fi 驱动程序不会受到副作用影响。如果 en_sys_seq==true，则 Wi-Fi 驱动程序负责序列控制。如果 en_sys_seq==false，应用程序需要确保缓冲区的序列正确。
+     - 在这种情况下，因为没有 Wi-Fi 连接，Wi-Fi 驱动程序不会受到副作用影响。如果 ``en_sys_seq==true``，则 Wi-Fi 驱动程序负责序列控制。如果 ``en_sys_seq==false``，应用程序需要确保缓冲区的序列正确。
 
        理论上，MAC 地址可以是任何地址。但是，这样可能会影响其他使用相同 MAC/BSSID 的 station/AP。
 
-       例如，AP 模式下，应用程序调用函数 esp_wifi_80211_tx() 发送带有 BSSID == mac_x 的 beacon，但是 mac_x 并非 AP 接口的 MAC。而且，还有另一个 AP（我们称之为 “other-AP”）的 bssid 是 mac_x。因此，连接到 “other-AP” 的 station 无法分辨 beacon 来自 “other-AP” 还是 esp_wifi_80211_tx()，就会出现 “意外行为”。
+       例如，AP 模式下，应用程序调用函数 :cpp:func:`esp_wifi_80211_tx` 发送带有 BSSID == mac_x 的 beacon，但是 mac_x 并非 AP 接口的 MAC。而且，还有另一个 AP（我们称之为 “other-AP”）的 bssid 是 mac_x。因此，连接到 “other-AP” 的 station 无法分辨 beacon 来自 “other-AP” 还是 :cpp:func:`esp_wifi_80211_tx`，就会出现 “意外行为”。
 
        为了避免上述副作用，我们建议：
 
-       - 如果在 station 模式下调用函数 esp_wifi_80211_tx()，第一个 MAC 应该是组播 MAC 或是目标设备的 MAC，第二个 MAC 应该是 station 接口的 MAC。
+       - 如果在 station 模式下调用函数 :cpp:func:`esp_wifi_80211_tx`，第一个 MAC 应该是组播 MAC 或是目标设备的 MAC，第二个 MAC 应该是 station 接口的 MAC。
 
-       - 如果在 AP 模式下调用函数 esp_wifi_80211_tx，第一个 MAC 应该是组播 MAC 或是目标设备的 MAC，第二个 MAC 应该是 AP 接口的 MAC。
+       - 如果在 AP 模式下调用函数 :cpp:func:`esp_wifi_80211_tx`，第一个 MAC 应该是组播 MAC 或是目标设备的 MAC，第二个 MAC 应该是 AP 接口的 MAC。
 
        上述建议仅供避免副作用，在有充分理由的情况下可以忽略。
 
    * - 有 Wi-Fi 连接
-     - 当 Wi-Fi 已连接，且序列由应用程序控制，应用程序可能会影响整个 Wi-Fi 连接的序列控制。 因此，en_sys_seq 要为 true，否则将返回 ESP_ERR_WIFI_ARG。
+     - 当 Wi-Fi 已连接，且序列由应用程序控制，应用程序可能会影响整个 Wi-Fi 连接的序列控制。 因此，en_sys_seq 要为 true，否则将返回 ``ESP_ERR_INVALID_ARG``。
 
        “无 Wi-Fi 连接”情况下的 MAC 地址建议也适用于此情况。
 
@@ -1987,7 +2150,7 @@ Wi-Fi 80211 数据包发送
 
        - 如果数据包是从 station 发送到 AP，或从 AP 到 station，Power Management、More Data 和 Re-Transmission 位应该为 0，否则，Wi-Fi 驱动程序不接受该数据包。
 
-       如果任何检查失败，将返回 ESP_ERR_WIFI_ARG。
+       如果任何检查失败，将返回 ``ESP_ERR_INVALID_ARG``。
 
 
 Wi-Fi Sniffer 模式
@@ -2005,78 +2168,22 @@ Wi-Fi Sniffer 模式可以通过 :cpp:func:`esp_wifi_set_promiscuous()` 使能�
 
  - 802.11 其它错误帧
 
-对于 Sniffer 模式 **可以** 转储的帧，应用程序可以另外使用 :cpp:func:`esp_wifi_set_promiscuous_filter()` 和 :cpp:func:`esp_wifi_set_promiscuous_ctrl_filter()` 决定筛选哪些特定类型的数据包。应用程序默认筛选所有 802.11 数据和管理帧。
+对于 Sniffer 模式 **可以** 转储的帧，应用程序可以另外使用 :cpp:func:`esp_wifi_set_promiscuous_filter()` 和 :cpp:func:`esp_wifi_set_promiscuous_ctrl_filter()` 决定筛选哪些特定类型的数据包。应用程序默认筛选所有 802.11 数据和管理帧。如果你想要筛选 802.11 控制帧，:cpp:func:`esp_wifi_set_promiscuous_filter()` 中的 filter 参数需要包含 “WIFI_PROMIS_FILTER_MASK_CTRL” 类型， 如果你想进一步区分 802.11 控制帧，那么调用 :cpp:func:`esp_wifi_set_promiscuous_ctrl_filter()`。
 
 可以在 WIFI_MODE_NULL、WIFI_MODE_STA、WIFI_MODE_AP、WIFI_MODE_APSTA 等 Wi-Fi 模式下使能 Wi-Fi Sniffer 模式。也就是说，当 station 连接到 AP，或者 AP 有 Wi-Fi 连接时，就可以使能。请注意，Sniffer 模式对 station/AP Wi-Fi 连接的吞吐量有 **很大影响**。通常，除非有特别原因，当 station/AP Wi-Fi 连接出现大量流量，不应使能。
 
-该模式下还应注意回调函数 wifi_promiscuous_cb_t 的使用。该回调将直接在 Wi-Fi 驱动程序任务中进行，所以如果应用程序需处理大量过滤的数据包，建议在回调中向应用程序任务发布一个事件，把真正的工作推迟到应用程序任务中完成。
+该模式下还应注意回调函数 :cpp:type:`wifi_promiscuous_cb_t` 的使用。该回调将直接在 Wi-Fi 驱动程序任务中进行，所以如果应用程序需处理大量过滤的数据包，建议在回调中向应用程序任务发布一个事件，把真正的工作推迟到应用程序任务中完成。
 
 Wi-Fi 多根天线
 --------------------------
-下图描述 Wi-Fi 多根天线的选择过程::
-
-                    __________
-                   |Enabled   |
-                ___|Antenna 0 |\\                                              _________
-                   |__________| \\        GPIO[0] <----> antenna_select[0] ---|         | --- antenna 0
-    RX/TX ___                    \\____\  GPIO[1] <----> antenna_select[1] ---| Antenna | --- antenna 1
-             \      __________   //    /  GPIO[2] <----> antenna_select[2] ---| Switch  | ...  ...
-              \ ___|Enabled   | //        GPIO[3] <----> antenna_select[3] ---|_________| --- antenna 15
-               \   |Antenna 1 |//
-                   |__________|
-
-
-{IDF_TARGET_NAME} 通过外部天线开关，最多支持 16 根天线。天线开关最多可由四个地址管脚控制 - antenna_select[0:3]。向 antenna_select[0:3] 输入不同的值，以选择不同的天线。例如，输入值 '0b1011' 表示选中天线 11 。antenna_select[3:0] 的默认值为 "0b0000"，表示默认选择了天线 0。
-
-四个高电平有效 antenna_select 管脚有多达四个 GPIO 连接。{IDF_TARGET_NAME} 可以通过控制 GPIO[0:3] 选择天线。API :cpp:func:`esp_wifi_set_ant_gpio()` 用于配置 antenna_selects 连接哪些 GPIO。如果 GPIO[x] 连接到 antenna_select[x]，gpio_config->gpio_cfg[x].gpio_select 应设置为 1，且要提供 gpio_config->gpio_cfg[x].gpio_num 的值。
-
-天线开关的具体实现不同，`antenna_select[0:3]` 的输入值中可能存在非法值，即 {IDF_TARGET_NAME} 通过外部天线开关支持的天线数可能小于 16 根。例如，ESP32-WROOM-DA 使用 RTC6603SP 作为天线开关，仅支持 2 根天线。两个天线选择输入管脚为高电平有效，连接到两个 GPIO。'0b01' 表示选中天线 0，'0b10' 表示选中天线 1。输入值 '0b00' 和 '0b11' 为非法值。
-
-尽管最多支持 16 根天线，发送和接收数据时，最多仅能同时使能两根天线。API :cpp:func:`esp_wifi_set_ant()` 用于配置使能哪些天线。
-
-使能天线后，选择算法的过程同样可由 :cpp:func:`esp_wifi_set_ant()` 配置。接收/发送数据源的天线模式可以是 WIFI_ANT_MODE_ANT0、WIFI_ANT_MODE_ANT1 或 WIFI_ANT_MODE_AUTO。如果天线模式为 WIFI_ANT_MODE_ANT0，使能的天线 0 用于接收/发送数据。如果天线模式为 WIFI_ANT_MODE_ANT1，使能天线 1 用于接收/发送数据。否则，Wi-Fi 会自动选择使能天线中信号较好的天线。
-
-如果接收数据的天线模式为 WIFI_ANT_MODE_AUTO，还需要设置默认天线模式。只有在满足某些条件时，接收数据天线才会切换，例如，如果 RSSI 低于 -65 dBm，或另一根天线信号更好。如果条件不满足，接收数据使用默认天线。如果默认天线模式为 WIFI_ANT_MODE_ANT1，则使能的天线 1 是默认接收数据天线，否则是使能的天线 0。
-
-有一些限制情况需要考虑：
-
- - 因为发送数据天线基于 WIFI_ANT_MODE_AUTO 类型的接收数据天线选择算法，只有接收数据的天线模式为 WIFI_ANT_MODE_AUTO 时，发送数据天线才能设置为 WIFI_ANT_MODE_AUTO。
- - 目前，Bluetooth® 不支持多根天线功能，请不要使用与多根天线有关的 API。
-
-推荐在以下场景中使用多根天线：
-
- - Wi-Fi 模式 WIFI_MODE_STA 下，接收/发送数据的天线模式均配置为 WIFI_ANT_MODE_AUTO。Wi-Fi 驱动程序自动选择更好的接收/发送数据天线。
- - 接收数据天线模式配置为 WIFI_ANT_MODE_AUTO。发送数据的天线模式配置为 WIFI_ANT_MODE_ANT0 或 WIFI_ANT_MODE_ANT1。应用程序可以始终选择指定的天线用于发送数据，也可以执行自身发送数据天线选择算法，如根据信道切换信息选择发送数据的天线模式等。
- - 接收/发送数据的天线模式均配置为 WIFI_ANT_MODE_ANT0 或 WIFI_ANT_MODE_ANT1。
-
-
-Wi-Fi 多根天线配置
-+++++++++++++++++++++++++++++++++++++
-
-通常，可以执行以下步骤来配置多根天线：
-
- - 配置 antenna_selects 连接哪些 GPIOs，例如，如果支持四根天线，且 GPIO20/GPIO21 连接到 antenna_select[0]/antenna_select[1]，配置如下所示::
-
-     wifi_ant_gpio_config_t config = {
-         { .gpio_select = 1, .gpio_num = 20 },
-         { .gpio_select = 1, .gpio_num = 21 }
-     };
- - 配置使能哪些天线、以及接收/发送数据如何使用使能的天线，例如，如果使能了天线 1 和天线 3，接收数据需要自动选择较好的天线，并将天线 1 作为默认天线，发送数据始终选择天线 3。配置如下所示::
-
-     wifi_ant_config_t config = {
-         .rx_ant_mode = WIFI_ANT_MODE_AUTO,
-         .rx_ant_default = WIFI_ANT_ANT0,
-         .tx_ant_mode = WIFI_ANT_MODE_ANT1,
-         .enabled_ant0 = 1,
-         .enabled_ant1 = 3
-     };
+具体请参考 :doc:`PHY <../api-guides/phy>`。
 
 .. only:: SOC_WIFI_CSI_SUPPORT
 
     Wi-Fi 信道状态信息
     ------------------------------------
 
-    信道状态信息 (CSI) 是指 Wi-Fi 连接的信道信息。{IDF_TARGET_NAME} 中，CSI由子载波的信道频率响应组成，CSI从发送端接收数据包时开始估计。每个子载波信道频率响由两个字节的有符号字符记录，第一个字节是虚部，第二个字节是实部。根据接收数据包的类型，信道频率响应最多有三个字段。分别是 LLTF、HT-LTF 和 STBC-HT-LTF。对于在不同状态的信道上接收到的不同类型的数据包，CSI 的子载波索引和总字节数如下表所示。
+    信道状态信息 (CSI) 是指 Wi-Fi 连接的信道信息。{IDF_TARGET_NAME} 中，CSI 由子载波的信道频率响应组成，CSI 从发送端接收数据包时开始估计。每个子载波信道频率响由两个字节的有符号字符记录，第一个字节是虚部，第二个字节是实部。根据接收数据包的类型，信道频率响应最多有三个字段。分别是 LLTF、HT-LTF 和 STBC-HT-LTF。对于在不同状态的信道上接收到的不同类型的数据包，CSI 的子载波索引和总字节数如下表所示。
 
     +------------+-------------+-----------------------------------------+-----------------------------------------------------+--------------------------------------------------------+
     | 信道       | 辅助信道    |                                         | 下                                                  | 上                                                     |
@@ -2104,19 +2211,19 @@ Wi-Fi 多根天线配置
         - STBC 指 rx_ctrl 字段的 stbc 字段。
         - 总字节数指 len 字段。
         - 每个长训练字段 (LTF) 类型对应的 CSI 数据存储在从 buf 字段开始的缓冲区中。每个元素以两个字节的形式存储：虚部和实部。每个元素的顺序与表中的子载波相同。LTF 的顺序是 LLTF、HT-LTF 和 STBC-HT-LTF。但是，根据信道和数据包的信息，3 个 LTF 可能都不存在（见上文）。
-        - 如果 wifi_csi_info_t 的 first_word_invalid 字段为 true，表示由于 {IDF_TARGET_NAME} 的硬件限制，CSI 数据的前四个字节无效。
+        - 如果 :cpp:type:`wifi_csi_info_t` 的 first_word_invalid 字段为 true，表示由于 {IDF_TARGET_NAME} 的硬件限制，CSI 数据的前四个字节无效。
         - 更多信息，如 RSSI，射频的噪声底，接收时间和天线 rx_ctrl 领域。
 
     子载波的虚部和实部的使用请参考下表。
 
     +----------------+-------------------+------------------------------+------------------------------+
-    | PHY 标准       | 子载波范围        | 导频子载波                   | 子载波个数(总数/数据子载波)  |
+    | PHY 标准       | 子载波范围        | 导频子载波                   | 子载波个数（总数/数据子载波）|
     +================+===================+==============================+==============================+
     | 802.11a/g      | -26 to +26        | -21, -7, +7, +21             | 52 total, 48 usable          |
     +----------------+-------------------+------------------------------+------------------------------+
-    | 802.11n, 20MHz | -28 to +28        | -21, -7, +7, +21             | 56 total, 52 usable          |
+    | 802.11n, 20 MHz| -28 to +28        | -21, -7, +7, +21             | 56 total, 52 usable          |
     +----------------+-------------------+------------------------------+------------------------------+
-    | 802.11n, 40MHz | -57 to +57        | -53, -25, -11, +11, +25, +53 | 114 total, 108 usable        |
+    | 802.11n, 40 MHz| -57 to +57        | -53, -25, -11, +11, +25, +53 | 114 total, 108 usable        |
     +----------------+-------------------+------------------------------+------------------------------+
 
     .. note ::
@@ -2130,7 +2237,7 @@ Wi-Fi 多根天线配置
 
     要使用 Wi-Fi CSI，需要执行以下步骤。
 
-        - 在菜单配置中选择 Wi-Fi CSI。方法是“菜单配置 - > 组件配置 -- > Wi-Fi -- > Wi-Fi CSI（信道状态信息）”。
+        - 在菜单配置中选择 Wi-Fi CSI。方法是 ``Menuconfig`` > ``Components config`` > ``Wi-Fi`` > ``Wi-Fi CSI (Channel State Information)``。
         - 调用 API :cpp:func:`esp_wifi_set_csi_rx_cb()` 设置 CSI 接收回调函数。
         - 调用 API :cpp:func:`esp_wifi_set_csi_config()` 配置 CSI。
         - 调用 API :cpp:func:`esp_wifi_set_csi()` 使能 CSI。
@@ -2140,7 +2247,7 @@ Wi-Fi 多根天线配置
 Wi-Fi HT20/40
 -------------------------
 
-.. only:: esp32 or esp32s2 or esp32c3 or esp32s3
+.. only:: esp32 or esp32s2 or esp32c3 or esp32s3 or esp32c6
 
     {IDF_TARGET_NAME} 支持 Wi-Fi 带宽 HT20 或 HT40，不支持 HT20/40 共存，调用函数 :cpp:func:`esp_wifi_set_bandwidth()` 可改变 station/AP 的默认带宽。{IDF_TARGET_NAME} station 和 AP 的默认带宽为 HT40。
 
@@ -2161,7 +2268,7 @@ Wi-Fi QoS
 
 {IDF_TARGET_NAME} 支持 WFA Wi-Fi QoS 认证所要求的所有必备功能。
 
-Wi-Fi 协议中定义了四个 AC （访问类别），每个 AC 有各自的优先级访问 Wi-Fi 信道。此外，还定义了映射规则以映射其他协议的 QoS 优先级，例如 802.11D 或 TCP/IP 到 Wi-Fi AC。
+Wi-Fi 协议中定义了四个 AC（访问类别），每个 AC 有各自的优先级访问 Wi-Fi 信道。此外，还定义了映射规则以映射其他协议的 QoS 优先级，例如 802.11D 或 TCP/IP 到 Wi-Fi AC。
 
 下表描述 {IDF_TARGET_NAME} 中 IP 优先级如何映射到 Wi-Fi AC，还指明此 AC 是否支持 AMPDU。该表按优先级降序排列，即 AC_VO 拥有最高优先级。
 
@@ -2208,7 +2315,7 @@ Wi-Fi 分片
 
     支持 Wi-Fi 接收分片，但不支持 Wi-Fi 发送分片。
 
-.. only:: esp32c3 or esp32s3
+.. only:: esp32c3 or esp32s3 or esp32c6
 
     {IDF_TARGET_NAME} 支持 Wi-Fi 接收和发送分片。
 
@@ -2251,14 +2358,16 @@ Wi-Fi 动态缓冲区峰值
 Wi-Fi 驱动程序支持多种类型的缓冲区（参考 `Wi-Fi 缓冲区配置`_ ）。但本节只介绍 Wi-Fi 动态缓冲的使用方法
 Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大内存**。通常，该内存峰值取决于：
 
- - 配置的动态接收数据缓冲区数：wifi_rx_dynamic_buf_num
- - 配置的动态发送数据缓冲区数：wifi_tx_dynamic_buf_num
- - Wi-Fi 驱动程序可以接收的最大数据包：wifi_rx_pkt_size_max
- - Wi-Fi 驱动程序可以发送的最大数据包：wifi_tx_pkt_size_max
+- :math:`b_{rx}` 配置的动态接收数据缓冲区数
+- :math:`b_{tx}` 配置的动态发送数据缓冲区数
+- :math:`m_{rx}` Wi-Fi 驱动程序可以接收的最大数据包
+- :math:`m_{tx}` Wi-Fi 驱动程序可以发送的最大数据包
 
-因此，Wi-Fi 驱动程序消耗的内存峰值可以用下面的公式计算：
+因此，Wi-Fi 驱动程序消耗的内存峰值（:math:`p`）可以用下面的公式计算：
 
-  wifi_dynamic_peek_memory = (wifi_rx_dynamic_buf_num * wifi_rx_pkt_size_max) + (wifi_tx_dynamic_buf_num * wifi_tx_pkt_size_max)
+.. math::
+
+    p = (b_{rx} * m_{rx}) + (b_{tx} * m_{tx})
 
 一般情况下，不需要关心动态发送数据长缓冲区和超长缓冲区，因为它们是管理帧，对系统的影响很小。
 
@@ -2269,7 +2378,7 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
 
 {IDF_TARGET_NAME} Wi-Fi 的性能受许多参数的影响，各参数之间存在相互制约。如果配置地合理，不仅可以提高性能，还可以增加应用程序的可用内存，提高稳定性。
 
-在本节中，我们将简单介绍 Wi-Fi/LWIP 协议栈的工作模式，并说明各个参数的作用。我们将推荐几种配置等级，您可以根据使用场景选择合适的等级。
+在本节中，我们将简单介绍 Wi-Fi/LWIP 协议栈的工作模式，并说明各个参数的作用。我们将推荐几种配置等级，你可以根据使用场景选择合适的等级。
 
 协议栈工作模式
 ++++++++++++++++++++++++++++++++++
@@ -2288,7 +2397,7 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
 参数
 ++++++++++++++
 
-适当增加上述缓冲区的大小或数量，可以提高 Wi-Fi 性能，但同时，会减少应用程序的可用内存。下面我们将介绍您需要配置的参数：
+适当增加上述缓冲区的大小或数量，可以提高 Wi-Fi 性能，但同时，会减少应用程序的可用内存。下面我们将介绍你需要配置的参数：
 
 **接收数据方向：**
 
@@ -2327,6 +2436,17 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
 
  - :ref:`CONFIG_LWIP_IRAM_OPTIMIZATION`
     如果使能该选项，一些 LWIP 功能将被移至 IRAM，从而提高吞吐量，IRAM 使用量将增加 13 kB。
+
+.. only:: esp32c6
+
+    - :ref:`CONFIG_ESP_WIFI_IRAM_OPT`
+        如果使能该选项，一些 Wi-Fi 功能将被移至 IRAM，从而提高吞吐量，IRAM 使用量将增加 13 kB。
+
+    - :ref:`CONFIG_ESP_WIFI_RX_IRAM_OPT`
+        如果使能该选项，一些 Wi-Fi 接收数据功能将被移至 IRAM，从而提高吞吐量，IRAM 使用量将增加 7 kB。
+
+ - :ref:`CONFIG_LWIP_IRAM_OPTIMIZATION`
+    如果使能该选项，一些 LWIP 功能将被移至 IRAM，从而提高吞吐量，IRAM 使用量将增加 14 kB。
 
 .. only:: esp32s2
 
@@ -2368,7 +2488,7 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
 
 {IDF_TARGET_NAME} 的内存由协议栈和应用程序共享。
 
-在这里，我们给出了几种配置等级。在大多数情况下，您应根据应用程序所占用内存的大小，选择合适的等级进行参数配置。
+在这里，我们给出了几种配置等级。在大多数情况下，应根据应用程序所占用内存的大小，选择合适的等级进行参数配置。
 
 下表中未提及的参数应设置为默认值。
 
@@ -2443,29 +2563,29 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 12
           - 8
         * - WIFI_IRAM_OPT
-          - 15
-          - 15
-          - 15
-          - 15
-          - 15
-          - 15
-          - 15
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
         * - WIFI_RX_IRAM_OPT
-          - 16
-          - 16
-          - 16
-          - 16
-          - 16
-          - 16
-          - 16
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 13
-          - 13
-          - 13
-          - 13
-          - 13
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 74.6
           - 50.8
@@ -2555,23 +2675,23 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 8
           - 6
         * - WIFI_IRAM_OPT
-          - 15
-          - 15
-          - 15
-          - 15
-          - 0
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 关闭
         * - WIFI_RX_IRAM_OPT
-          - 16
-          - 16
-          - 16
-          - 0
-          - 0
+          - 开启
+          - 开启
+          - 开启
+          - 关闭
+          - 关闭
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
-          - 0
-          - 0
+          - 开启
+          - 开启
+          - 关闭
+          - 关闭
+          - 关闭
         * - INSTRUCTION_CACHE
           - 16
           - 16
@@ -2648,9 +2768,9 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 16
           - 6
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 38.1
           - 27.2
@@ -2667,6 +2787,65 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 52.4
           - 44.5
           - 44.2
+
+.. only:: esp32c6
+
+     .. list-table::
+        :header-rows: 1
+        :widths: 10 10 10 15
+
+        * - 等级
+          - Iperf
+          - 默认
+          - 最小
+        * - 可用内存 (KB)
+          - 223
+          - 276
+          - 299
+        * - WIFI_STATIC_RX_BUFFER_NUM
+          - 20
+          - 8
+          - 3
+        * - WIFI_DYNAMIC_RX_BUFFER_NUM
+          - 40
+          - 16
+          - 6
+        * - WIFI_DYNAMIC_TX_BUFFER_NUM
+          - 40
+          - 16
+          - 6
+        * - WIFI_RX_BA_WIN
+          - 32
+          - 16
+          - 6
+        * - TCP_SND_BUF_DEFAULT (KB)
+          - 40
+          - 16
+          - 6
+        * - TCP_WND_DEFAULT (KB)
+          - 40
+          - 16
+          - 6
+        * - LWIP_IRAM_OPTIMIZATION
+          - 开启
+          - 开启
+          - 关闭
+        * - TCP 发送数据吞吐量 (Mbit/s)
+          - 30.5
+          - 25.9
+          - 16.4
+        * - TCP 接收数据吞吐量 (Mbit/s)
+          - 27.8
+          - 21.6
+          - 14.3
+        * - UDP 发送数据吞吐量 (Mbit/s)
+          - 37.8
+          - 36.1
+          - 34.6
+        * - UDP 接收数据吞吐量 (Mbit/s)
+          - 41.5
+          - 36.8
+          - 36.7
 
 .. only:: esp32c2
 
@@ -2707,9 +2886,9 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 14
           - 6
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 21.6
           - 21.4
@@ -2766,17 +2945,17 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 32
           - 6
         * - WIFI_IRAM_OPT
-          - 15
-          - 15
-          - 15
+          - 开启
+          - 开启
+          - 开启
         * - WIFI_RX_IRAM_OPT
-          - 16
-          - 16
-          - 16
+          - 开启
+          - 开启
+          - 开启
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - INSTRUCTION_CACHE
           - 32
           - 32
@@ -2824,6 +3003,12 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
         以上结果使用华硕 RT-N66U 路由器，在屏蔽箱中进行单流测试得出。
         {IDF_TARGET_NAME} 的 CPU 为单核，频率为 160 MHz，flash 为 QIO 模式，频率为 80 MHz。
 
+.. only:: esp32c6
+
+    .. note::
+        以上结果使用小米 AX6000 路由器，在屏蔽箱中进行单流测试得出。
+        {IDF_TARGET_NAME} 的 CPU 为单核，频率为 160 MHz，flash 为 QIO 模式，频率为 80 MHz。
+
 .. only:: esp32c2
 
     .. note::
@@ -2838,7 +3023,7 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
         {IDF_TARGET_NAME} 的极端性能等级，用于测试极端性能。
 
      - **高性能等级**
-        {IDF_TARGET_NAME} 的高性能配置等级，适用于应用程序占用内存较少且有高性能要求的场景。在该等级中，您可以根据使用场景选择使用接收数据优先等级或发送数据优先等级。
+        {IDF_TARGET_NAME} 的高性能配置等级，适用于应用程序占用内存较少且有高性能要求的场景。在该等级中，可以根据使用场景选择使用接收数据优先等级或发送数据优先等级。
 
      - **默认等级**
         {IDF_TARGET_NAME} 的默认配置等级、兼顾可用内存和性能。
@@ -2868,7 +3053,7 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
      - **最小等级**
         {IDF_TARGET_NAME} 的最小配置等级。协议栈只使用运行所需的内存。适用于对性能没有要求，而应用程序需要大量内存的场景。
 
-.. only:: esp32c3 or esp32s3
+.. only:: esp32c3 or esp32s3 or esp32c6
 
     **等级：**
 
@@ -2936,20 +3121,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 65
                - 65
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - TCP 发送数据吞吐量 (Mbit/s)
                - 37.5
                - 31.7
@@ -3018,20 +3203,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 32
                - 32
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - INSTRUCTION_CACHE
                - 16
                - 16
@@ -3125,20 +3310,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 32
                - 32
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - LWIP_UDP_RECVMBOX_SIZE
                - 16
                - 16
@@ -3242,20 +3427,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 32
                - 32
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - LWIP_UDP_RECVMBOX_SIZE
                - 16
                - 16
@@ -3319,7 +3504,7 @@ Wi-Fi Menuconfig
 Wi-Fi 缓冲区配置
 +++++++++++++++++++++++
 
-如果您要修改默认的缓冲区数量或类型，最好也了解缓冲区在数据路径中是如何分配或释放的。下图显示了发送数据方向的这一过程。
+如果要修改默认的缓冲区数量或类型，最好也了解缓冲区在数据路径中如何分配或释放。下图显示了发送数据方向的过程。
 
 .. blockdiag::
     :caption: TX Buffer Allocation
@@ -3461,6 +3646,7 @@ Wi-Fi AMPDU
 
 通常，应使能 AMPDU。禁用 AMPDU 通常用于调试目的。
 
+
 故障排除
 ---------------
 
@@ -3470,3 +3656,4 @@ Wi-Fi AMPDU
     :hidden:
 
     wireshark-user-guide
+

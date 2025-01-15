@@ -129,6 +129,9 @@ void advanced_ota_example_task(void *pvParameter)
         .cert_pem = (char *)server_cert_pem_start,
         .timeout_ms = CONFIG_EXAMPLE_OTA_RECV_TIMEOUT,
         .keep_alive_enable = true,
+#ifdef CONFIG_EXAMPLE_ENABLE_PARTIAL_HTTP_DOWNLOAD
+        .save_client_session = true,
+#endif
     };
 
 #ifdef CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL_FROM_STDIN
@@ -168,7 +171,7 @@ void advanced_ota_example_task(void *pvParameter)
     esp_app_desc_t app_desc;
     err = esp_https_ota_get_img_desc(https_ota_handle, &app_desc);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_https_ota_read_img_desc failed");
+        ESP_LOGE(TAG, "esp_https_ota_get_img_desc failed");
         goto ota_end;
     }
     err = validate_image_header(&app_desc);
@@ -272,7 +275,7 @@ void app_main(void)
 #endif // CONFIG_BT_ENABLED
 #endif // CONFIG_EXAMPLE_CONNECT_WIFI
 
-#if CONFIG_BT_BLE_ENABLED || CONFIG_BT_NIMBLE_ENABLED
+#if CONFIG_BT_CONTROLLER_ENABLED && (CONFIG_BT_BLE_ENABLED || CONFIG_BT_NIMBLE_ENABLED)
     ESP_ERROR_CHECK(esp_ble_helper_init());
 #endif
 

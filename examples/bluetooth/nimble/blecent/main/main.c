@@ -28,7 +28,29 @@
 #include "services/gap/ble_svc_gap.h"
 #include "blecent.h"
 
-/*** The UUID of the service containing the subscribable characterstic ***/
+#if CONFIG_EXAMPLE_USE_CI_ADDRESS
+#ifdef CONFIG_IDF_TARGET_ESP32
+#define TEST_CI_ADDRESS_CHIP_OFFSET (0)
+#elif CONFIG_IDF_TARGET_ESP32C2
+#define TEST_CI_ADDRESS_CHIP_OFFSET (1)
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define TEST_CI_ADDRESS_CHIP_OFFSET (2)
+#elif CONFIG_IDF_TARGET_ESP32C6
+#define TEST_CI_ADDRESS_CHIP_OFFSET (3)
+#elif CONFIG_IDF_TARGET_ESP32C5
+#define TEST_CI_ADDRESS_CHIP_OFFSET (4)
+#elif CONFIG_IDF_TARGET_ESP32H2
+#define TEST_CI_ADDRESS_CHIP_OFFSET (5)
+#elif CONFIG_IDF_TARGET_ESP32P4
+#define TEST_CI_ADDRESS_CHIP_OFFSET (6)
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define TEST_CI_ADDRESS_CHIP_OFFSET (7)
+#elif CONFIG_IDF_TARGET_ESP32C61
+#define TEST_CI_ADDRESS_CHIP_OFFSET (8)
+#endif
+#endif
+
+/*** The UUID of the service containing the subscribable characteristic ***/
 static const ble_uuid_t * remote_svc_uuid =
     BLE_UUID128_DECLARE(0x2d, 0x71, 0xa2, 0x59, 0xb4, 0x58, 0xc8, 0x12,
                      	0x99, 0x99, 0x43, 0x95, 0x12, 0x2f, 0x46, 0x59);
@@ -42,11 +64,12 @@ static const char *tag = "NimBLE_BLE_CENT";
 static int blecent_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t peer_addr[6];
 
-void ble_store_config_init(void);
-
-#if MYNEWT_VAL(BLE_POWER_CONTROL)
-static struct ble_gap_event_listener power_control_event_listener;
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+static uint16_t cids[MYNEWT_VAL(BLE_EATT_CHAN_NUM)];
+static uint16_t bearers;
 #endif
+
+void ble_store_config_init(void);
 
 /**
  * Application Callback. Called when the custom subscribable chatacteristic
@@ -187,7 +210,7 @@ blecent_custom_gatt_operations(const struct peer* peer)
                              remote_chr_uuid,
                              BLE_UUID16_DECLARE(BLE_GATT_DSC_CLT_CFG_UUID16));
     if (dsc == NULL) {
-        MODLOG_DFLT(ERROR, "Error: Peer lacks a CCCD for the subscribable characterstic\n");
+        MODLOG_DFLT(ERROR, "Error: Peer lacks a CCCD for the subscribable characteristic\n");
         goto err;
     }
 
@@ -459,17 +482,27 @@ ext_blecent_should_connect(const struct ble_gap_ext_disc_desc *disc)
 {
     int offset = 0;
     int ad_struct_len = 0;
+#if CONFIG_EXAMPLE_USE_CI_ADDRESS
+    uint32_t *addr_offset;
+#endif // CONFIG_EXAMPLE_USE_CI_ADDRESS
 
     if (disc->legacy_event_type != BLE_HCI_ADV_RPT_EVTYPE_ADV_IND &&
             disc->legacy_event_type != BLE_HCI_ADV_RPT_EVTYPE_DIR_IND) {
         return 0;
     }
     if (strlen(CONFIG_EXAMPLE_PEER_ADDR) && (strncmp(CONFIG_EXAMPLE_PEER_ADDR, "ADDR_ANY", strlen    ("ADDR_ANY")) != 0)) {
+#if !CONFIG_EXAMPLE_USE_CI_ADDRESS
         ESP_LOGI(tag, "Peer address from menuconfig: %s", CONFIG_EXAMPLE_PEER_ADDR);
         /* Convert string to address */
         sscanf(CONFIG_EXAMPLE_PEER_ADDR, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                &peer_addr[5], &peer_addr[4], &peer_addr[3],
                &peer_addr[2], &peer_addr[1], &peer_addr[0]);
+#else
+        addr_offset = (uint32_t *)&peer_addr[1];
+        *addr_offset = atoi(CONFIG_EXAMPLE_PEER_ADDR);
+        peer_addr[5] = 0xC3;
+        peer_addr[0] = TEST_CI_ADDRESS_CHIP_OFFSET;
+#endif // !CONFIG_EXAMPLE_USE_CI_ADDRESS
         if (memcmp(peer_addr, disc->addr.val, sizeof(disc->addr.val)) != 0) {
             return 0;
         }
@@ -505,6 +538,9 @@ blecent_should_connect(const struct ble_gap_disc_desc *disc)
     struct ble_hs_adv_fields fields;
     int rc;
     int i;
+#if CONFIG_EXAMPLE_USE_CI_ADDRESS
+    uint32_t *addr_offset;
+#endif // CONFIG_EXAMPLE_USE_CI_ADDRESS
 
     /* The device has to be advertising connectability. */
     if (disc->event_type != BLE_HCI_ADV_RPT_EVTYPE_ADV_IND &&
@@ -515,15 +551,22 @@ blecent_should_connect(const struct ble_gap_disc_desc *disc)
 
     rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
     if (rc != 0) {
-        return rc;
+        return 0;
     }
 
     if (strlen(CONFIG_EXAMPLE_PEER_ADDR) && (strncmp(CONFIG_EXAMPLE_PEER_ADDR, "ADDR_ANY", strlen("ADDR_ANY")) != 0)) {
         ESP_LOGI(tag, "Peer address from menuconfig: %s", CONFIG_EXAMPLE_PEER_ADDR);
+#if !CONFIG_EXAMPLE_USE_CI_ADDRESS
         /* Convert string to address */
         sscanf(CONFIG_EXAMPLE_PEER_ADDR, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                &peer_addr[5], &peer_addr[4], &peer_addr[3],
                &peer_addr[2], &peer_addr[1], &peer_addr[0]);
+#else
+        addr_offset = (uint32_t *)&peer_addr[1];
+        *addr_offset = atoi(CONFIG_EXAMPLE_PEER_ADDR);
+        peer_addr[5] = 0xC3;
+        peer_addr[0] = TEST_CI_ADDRESS_CHIP_OFFSET;
+#endif // !CONFIG_EXAMPLE_USE_CI_ADDRESS
         if (memcmp(peer_addr, disc->addr.val, sizeof(disc->addr.val)) != 0) {
             return 0;
         }
@@ -565,12 +608,14 @@ blecent_connect_if_interesting(void *disc)
     }
 #endif
 
+#if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
     /* Scanning must be stopped before a connection can be initiated. */
     rc = ble_gap_disc_cancel();
     if (rc != 0) {
         MODLOG_DFLT(DEBUG, "Failed to cancel scan; rc=%d\n", rc);
         return;
     }
+#endif
 
     /* Figure out address to use for connect (no privacy for now) */
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
@@ -615,36 +660,6 @@ static void blecent_power_control(uint16_t conn_handle)
     rc = ble_gap_set_path_loss_reporting_enable(conn_handle, 0x01);
     assert (rc == 0);
 }
-
-static int
-blecent_gap_power_event(struct ble_gap_event *event, void *arg)
-{
-
-    switch(event->type) {
-    case BLE_GAP_EVENT_TRANSMIT_POWER:
-	MODLOG_DFLT(INFO, "Transmit power event : status=%d conn_handle=%d reason=%d "
-                          "phy=%d power_level=%x power_level_flag=%d delta=%d",
-		    event->transmit_power.status,
-		    event->transmit_power.conn_handle,
-		    event->transmit_power.reason,
-		    event->transmit_power.phy,
-		    event->transmit_power.transmit_power_level,
-		    event->transmit_power.transmit_power_level_flag,
-		    event->transmit_power.delta);
-	return 0;
-
-    case BLE_GAP_EVENT_PATHLOSS_THRESHOLD:
-	MODLOG_DFLT(INFO, "Pathloss threshold event : conn_handle=%d current path loss=%d "
-                          "zone_entered =%d",
-		    event->pathloss_threshold.conn_handle,
-		    event->pathloss_threshold.current_path_loss,
-		    event->pathloss_threshold.zone_entered);
-	return 0;
-
-    default:
-	return 0;
-    }
-}
 #endif
 
 /**
@@ -666,6 +681,11 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 {
     struct ble_gap_conn_desc desc;
     struct ble_hs_adv_fields fields;
+#if MYNEWT_VAL(BLE_HCI_VS)
+#if MYNEWT_VAL(BLE_POWER_CONTROL)
+    struct ble_gap_set_auto_pcl_params params;
+#endif
+#endif
     int rc;
 
     switch (event->type) {
@@ -676,36 +696,48 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
             return 0;
         }
 
-        /* An advertisment report was received during GAP discovery. */
+        /* An advertisement report was received during GAP discovery. */
         print_adv_fields(&fields);
 
         /* Try to connect to the advertiser if it looks interesting. */
         blecent_connect_if_interesting(&event->disc);
         return 0;
 
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed. */
-        if (event->connect.status == 0) {
+        if (event->link_estab.status == 0) {
             /* Connection successfully established. */
             MODLOG_DFLT(INFO, "Connection established ");
 
-            rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+            rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
             print_conn_desc(&desc);
             MODLOG_DFLT(INFO, "\n");
 
             /* Remember peer. */
-            rc = peer_add(event->connect.conn_handle);
+            rc = peer_add(event->link_estab.conn_handle);
             if (rc != 0) {
                 MODLOG_DFLT(ERROR, "Failed to add peer; rc=%d\n", rc);
                 return 0;
             }
 
 #if MYNEWT_VAL(BLE_POWER_CONTROL)
-            blecent_power_control(event->connect.conn_handle);
+            blecent_power_control(event->link_estab.conn_handle);
+#endif
 
-            ble_gap_event_listener_register(&power_control_event_listener,
-                                       blecent_gap_power_event, NULL);
+#if MYNEWT_VAL(BLE_HCI_VS)
+#if MYNEWT_VAL(BLE_POWER_CONTROL)
+	    memset(&params, 0x0, sizeof(struct ble_gap_set_auto_pcl_params));
+	    params.conn_handle = event->link_estab.conn_handle;
+            rc = ble_gap_set_auto_pcl_param(&params);
+            if (rc != 0) {
+                MODLOG_DFLT(INFO, "Failed to send VSC  %x \n", rc);
+                return 0;
+            }
+            else {
+               MODLOG_DFLT(INFO, "Successfully issued VSC , rc = %d \n", rc);
+	    }
+#endif
 #endif
 
 #if CONFIG_EXAMPLE_ENCRYPTION
@@ -715,17 +747,17 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
              * Encryption (Enable encryption)
              * Will invoke event BLE_GAP_EVENT_ENC_CHANGE
              **/
-            rc = ble_gap_security_initiate(event->connect.conn_handle);
+            rc = ble_gap_security_initiate(event->link_estab.conn_handle);
             if (rc != 0) {
                 MODLOG_DFLT(INFO, "Security could not be initiated, rc = %d\n", rc);
-                return ble_gap_terminate(event->connect.conn_handle,
+                return ble_gap_terminate(event->link_estab.conn_handle,
                                          BLE_ERR_REM_USER_CONN_TERM);
             } else {
                 MODLOG_DFLT(INFO, "Connection secured\n");
             }
 #else
             /* Perform service discovery */
-            rc = peer_disc_all(event->connect.conn_handle,
+            rc = peer_disc_all(event->link_estab.conn_handle,
                         blecent_on_disc_complete, NULL);
             if(rc != 0) {
                 MODLOG_DFLT(ERROR, "Failed to discover services; rc=%d\n", rc);
@@ -735,7 +767,7 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
         } else {
             /* Connection attempt failed; resume scanning. */
             MODLOG_DFLT(ERROR, "Error: Connection failed; status=%d\n",
-                        event->connect.status);
+                        event->link_estab.status);
             blecent_scan();
         }
 
@@ -749,6 +781,14 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 
         /* Forget about peer. */
         peer_delete(event->disconnect.conn.conn_handle);
+
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+        /* Reset EATT config */
+        bearers = 0;
+        for (int i = 0; i < MYNEWT_VAL(BLE_EATT_CHAN_NUM); i++) {
+            cids[i] = 0;
+        }
+#endif
 
         /* Resume scanning. */
         blecent_scan();
@@ -766,14 +806,16 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         print_conn_desc(&desc);
+#if !MYNEWT_VAL(BLE_EATT_CHAN_NUM)
 #if CONFIG_EXAMPLE_ENCRYPTION
         /*** Go for service discovery after encryption has been successfully enabled ***/
-        rc = peer_disc_all(event->connect.conn_handle,
+        rc = peer_disc_all(event->enc_change.conn_handle,
                            blecent_on_disc_complete, NULL);
         if (rc != 0) {
             MODLOG_DFLT(ERROR, "Failed to discover services; rc=%d\n", rc);
             return 0;
         }
+#endif
 #endif
         return 0;
 
@@ -817,13 +859,80 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 
 #if CONFIG_EXAMPLE_EXTENDED_ADV
     case BLE_GAP_EVENT_EXT_DISC:
-        /* An advertisment report was received during GAP discovery. */
+        /* An advertisement report was received during GAP discovery. */
         ext_print_adv_report(&event->disc);
 
         blecent_connect_if_interesting(&event->disc);
         return 0;
 #endif
 
+#if MYNEWT_VAL(BLE_POWER_CONTROL)
+    case BLE_GAP_EVENT_TRANSMIT_POWER:
+	MODLOG_DFLT(INFO, "Transmit power event : status=%d conn_handle=%d reason=%d "
+                          "phy=%d power_level=%d power_level_flag=%d delta=%d",
+		    event->transmit_power.status,
+		    event->transmit_power.conn_handle,
+		    event->transmit_power.reason,
+		    event->transmit_power.phy,
+		    event->transmit_power.transmit_power_level,
+		    event->transmit_power.transmit_power_level_flag,
+		    event->transmit_power.delta);
+	return 0;
+
+    case BLE_GAP_EVENT_PATHLOSS_THRESHOLD:
+	MODLOG_DFLT(INFO, "Pathloss threshold event : conn_handle=%d current path loss=%d "
+                          "zone_entered =%d",
+		    event->pathloss_threshold.conn_handle,
+		    event->pathloss_threshold.current_path_loss,
+		    event->pathloss_threshold.zone_entered);
+	return 0;
+#endif
+
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+    case BLE_GAP_EVENT_EATT:
+    int i;
+    MODLOG_DFLT(INFO, "EATT %s : conn_handle=%d cid=%d",
+            event->eatt.status ? "disconnected" : "connected",
+            event->eatt.conn_handle,
+            event->eatt.cid);
+    if (event->eatt.status) {
+        /* Remove CID from the list of saved CIDs */
+        for (i = 0; i < bearers; i++) {
+            if (cids[i] == event->eatt.cid) {
+                break;
+            }
+        }
+        while (i < (bearers - 1)) {
+            cids[i] = cids[i + 1];
+            i += 1;
+        }
+        cids[i] = 0;
+
+        /* Now Abort */
+        return 0;
+    }
+    cids[bearers] = event->eatt.cid;
+    bearers += 1;
+    if (bearers != MYNEWT_VAL(BLE_EATT_CHAN_NUM)) {
+        /* Wait until all EATT bearers are connected before proceeding */
+        return 0;
+    }
+    /* Set the default bearer to use for further procedures */
+    rc = ble_att_set_default_bearer_using_cid(event->eatt.conn_handle, cids[0]);
+    if (rc != 0) {
+        MODLOG_DFLT(INFO, "Cannot set default EATT bearer, rc = %d\n", rc);
+        return rc;
+    }
+
+    /* Perform service discovery */
+    rc = peer_disc_all(event->eatt.conn_handle,
+                blecent_on_disc_complete, NULL);
+    if(rc != 0) {
+        MODLOG_DFLT(ERROR, "Failed to discover services; rc=%d\n", rc);
+        return 0;
+    }
+#endif
+        return 0;
     default:
         return 0;
     }
@@ -843,6 +952,7 @@ blecent_on_sync(void)
     /* Make sure we have proper identity address set (public preferred) */
     rc = ble_hs_util_ensure_addr(0);
     assert(rc == 0);
+
 
 #if !CONFIG_EXAMPLE_INIT_DEINIT_LOOP
     /* Begin scanning for a peripheral to connect to. */
@@ -933,6 +1043,13 @@ app_main(void)
 
 #if CONFIG_EXAMPLE_INIT_DEINIT_LOOP
     stack_init_deinit();
+#endif
+
+#if MYNEWT_VAL(BLE_EATT_CHAN_NUM) > 0
+    bearers = 0;
+    for (int i = 0; i < MYNEWT_VAL(BLE_EATT_CHAN_NUM); i++) {
+        cids[i] = 0;
+    }
 #endif
 
 }

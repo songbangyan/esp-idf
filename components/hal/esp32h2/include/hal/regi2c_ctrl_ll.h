@@ -1,20 +1,70 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "soc/soc.h"
 #include "soc/regi2c_defs.h"
 #include "soc/i2c_ana_mst_reg.h"
-
+#include "modem/modem_lpcon_struct.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @brief Enable analog I2C master clock
+ */
+static inline __attribute__((always_inline)) void _regi2c_ctrl_ll_master_enable_clock(bool en)
+{
+    MODEM_LPCON.clk_conf.clk_i2c_mst_en = en;
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_RC_ATOMIC_ENV variable in advance
+#define regi2c_ctrl_ll_master_enable_clock(...) (void)__DECLARE_RCC_RC_ATOMIC_ENV; _regi2c_ctrl_ll_master_enable_clock(__VA_ARGS__)
+
+/**
+ * @brief Check whether analog I2C master clock is enabled
+ */
+static inline __attribute__((always_inline)) bool regi2c_ctrl_ll_master_is_clock_enabled(void)
+{
+    return MODEM_LPCON.clk_conf.clk_i2c_mst_en;
+}
+
+/**
+ * @brief Reset analog I2C master
+ */
+static inline __attribute__((always_inline)) void _regi2c_ctrl_ll_master_reset(void)
+{
+    MODEM_LPCON.rst_conf.rst_i2c_mst = 1;
+    MODEM_LPCON.rst_conf.rst_i2c_mst = 0;
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_RC_ATOMIC_ENV variable in advance
+#define regi2c_ctrl_ll_master_reset(...) (void)__DECLARE_RCC_RC_ATOMIC_ENV; _regi2c_ctrl_ll_master_reset(__VA_ARGS__)
+
+/**
+ * @brief Force enable analog I2C master clock
+ */
+static inline __attribute__((always_inline)) void regi2c_ctrl_ll_master_force_enable_clock(bool en)
+{
+    MODEM_LPCON.clk_conf_force_on.clk_i2c_mst_fo = en;
+}
+
+/**
+ * @brief Configure analog I2C master clock
+ */
+static inline __attribute__((always_inline)) void regi2c_ctrl_ll_master_configure_clock(void)
+{
+    // Nothing to configure
+}
 
 /**
  * @brief Start BBPLL self-calibration

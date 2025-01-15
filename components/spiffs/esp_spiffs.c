@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,7 +9,6 @@
 #include "spiffs_nucleus.h"
 #include "esp_log.h"
 #include "esp_partition.h"
-#include "spi_flash_mmap.h"
 #include "esp_image_format.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -58,6 +57,7 @@ static ssize_t vfs_spiffs_read(void* ctx, int fd, void * dst, size_t size);
 static int vfs_spiffs_close(void* ctx, int fd);
 static off_t vfs_spiffs_lseek(void* ctx, int fd, off_t offset, int mode);
 static int vfs_spiffs_fstat(void* ctx, int fd, struct stat * st);
+static int vfs_spiffs_fsync(void* ctx, int fd);
 #ifdef CONFIG_VFS_SUPPORT_DIR
 static int vfs_spiffs_stat(void* ctx, const char * path, struct stat * st);
 static int vfs_spiffs_unlink(void* ctx, const char *path);
@@ -203,7 +203,7 @@ static esp_err_t esp_spiffs_init(const esp_vfs_spiffs_conf_t* conf)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_spiffs_t * efs = calloc(sizeof(esp_spiffs_t), 1);
+    esp_spiffs_t * efs = calloc(1, sizeof(esp_spiffs_t));
     if (efs == NULL) {
         ESP_LOGE(TAG, "esp_spiffs could not be malloced");
         return ESP_ERR_NO_MEM;
@@ -228,7 +228,7 @@ static esp_err_t esp_spiffs_init(const esp_vfs_spiffs_conf_t* conf)
     }
 
     efs->fds_sz = conf->max_files * sizeof(spiffs_fd);
-    efs->fds = calloc(efs->fds_sz, 1);
+    efs->fds = calloc(1, efs->fds_sz);
     if (efs->fds == NULL) {
         ESP_LOGE(TAG, "fd buffer could not be allocated");
         esp_spiffs_free(&efs);
@@ -238,7 +238,7 @@ static esp_err_t esp_spiffs_init(const esp_vfs_spiffs_conf_t* conf)
 #if SPIFFS_CACHE
     efs->cache_sz = sizeof(spiffs_cache) + conf->max_files * (sizeof(spiffs_cache_page)
                           + efs->cfg.log_page_size);
-    efs->cache = calloc(efs->cache_sz, 1);
+    efs->cache = calloc(1, efs->cache_sz);
     if (efs->cache == NULL) {
         ESP_LOGE(TAG, "cache buffer could not be allocated");
         esp_spiffs_free(&efs);
@@ -247,14 +247,14 @@ static esp_err_t esp_spiffs_init(const esp_vfs_spiffs_conf_t* conf)
 #endif
 
     const uint32_t work_sz = efs->cfg.log_page_size * 2;
-    efs->work = calloc(work_sz, 1);
+    efs->work = calloc(1, work_sz);
     if (efs->work == NULL) {
         ESP_LOGE(TAG, "work buffer could not be allocated");
         esp_spiffs_free(&efs);
         return ESP_ERR_NO_MEM;
     }
 
-    efs->fs = calloc(sizeof(spiffs), 1);
+    efs->fs = calloc(1, sizeof(spiffs));
     if (efs->fs == NULL) {
         ESP_LOGE(TAG, "spiffs could not be allocated");
         esp_spiffs_free(&efs);
@@ -399,39 +399,46 @@ esp_err_t esp_spiffs_gc(const char* partition_label, size_t size_to_gc)
     return ESP_OK;
 }
 
+#ifdef CONFIG_VFS_SUPPORT_DIR
+static const esp_vfs_dir_ops_t s_vfs_spiffs_dir = {
+    .stat_p = &vfs_spiffs_stat,
+    .link_p = &vfs_spiffs_link,
+    .unlink_p = &vfs_spiffs_unlink,
+    .rename_p = &vfs_spiffs_rename,
+    .opendir_p = &vfs_spiffs_opendir,
+    .closedir_p = &vfs_spiffs_closedir,
+    .readdir_p = &vfs_spiffs_readdir,
+    .readdir_r_p = &vfs_spiffs_readdir_r,
+    .seekdir_p = &vfs_spiffs_seekdir,
+    .telldir_p = &vfs_spiffs_telldir,
+    .mkdir_p = &vfs_spiffs_mkdir,
+    .rmdir_p = &vfs_spiffs_rmdir,
+    .truncate_p = &vfs_spiffs_truncate,
+    .ftruncate_p = &vfs_spiffs_ftruncate,
+#ifdef CONFIG_SPIFFS_USE_MTIME
+    .utime_p = &vfs_spiffs_utime,
+#else
+    .utime_p = NULL,
+#endif // CONFIG_SPIFFS_USE_MTIME
+};
+#endif // CONFIG_VFS_SUPPORT_DIR
+
+static const esp_vfs_fs_ops_t s_vfs_spiffs = {
+    .write_p = &vfs_spiffs_write,
+    .lseek_p = &vfs_spiffs_lseek,
+    .read_p = &vfs_spiffs_read,
+    .open_p = &vfs_spiffs_open,
+    .close_p = &vfs_spiffs_close,
+    .fstat_p = &vfs_spiffs_fstat,
+    .fsync_p = &vfs_spiffs_fsync,
+#ifdef CONFIG_VFS_SUPPORT_DIR
+    .dir = &s_vfs_spiffs_dir,
+#endif // CONFIG_VFS_SUPPORT_DIR
+};
+
 esp_err_t esp_vfs_spiffs_register(const esp_vfs_spiffs_conf_t * conf)
 {
     assert(conf->base_path);
-    const esp_vfs_t vfs = {
-        .flags = ESP_VFS_FLAG_CONTEXT_PTR,
-        .write_p = &vfs_spiffs_write,
-        .lseek_p = &vfs_spiffs_lseek,
-        .read_p = &vfs_spiffs_read,
-        .open_p = &vfs_spiffs_open,
-        .close_p = &vfs_spiffs_close,
-        .fstat_p = &vfs_spiffs_fstat,
-#ifdef CONFIG_VFS_SUPPORT_DIR
-        .stat_p = &vfs_spiffs_stat,
-        .link_p = &vfs_spiffs_link,
-        .unlink_p = &vfs_spiffs_unlink,
-        .rename_p = &vfs_spiffs_rename,
-        .opendir_p = &vfs_spiffs_opendir,
-        .closedir_p = &vfs_spiffs_closedir,
-        .readdir_p = &vfs_spiffs_readdir,
-        .readdir_r_p = &vfs_spiffs_readdir_r,
-        .seekdir_p = &vfs_spiffs_seekdir,
-        .telldir_p = &vfs_spiffs_telldir,
-        .mkdir_p = &vfs_spiffs_mkdir,
-        .rmdir_p = &vfs_spiffs_rmdir,
-        .truncate_p = &vfs_spiffs_truncate,
-        .ftruncate_p = &vfs_spiffs_ftruncate,
-#ifdef CONFIG_SPIFFS_USE_MTIME
-        .utime_p = &vfs_spiffs_utime,
-#else
-        .utime_p = NULL,
-#endif // CONFIG_SPIFFS_USE_MTIME
-#endif // CONFIG_VFS_SUPPORT_DIR
-    };
 
     esp_err_t err = esp_spiffs_init(conf);
     if (err != ESP_OK) {
@@ -443,8 +450,13 @@ esp_err_t esp_vfs_spiffs_register(const esp_vfs_spiffs_conf_t * conf)
         return ESP_ERR_INVALID_STATE;
     }
 
+    int vfs_flags = ESP_VFS_FLAG_CONTEXT_PTR | ESP_VFS_FLAG_STATIC;
+    if (_efs[index]->partition->readonly) {
+        vfs_flags |= ESP_VFS_FLAG_READONLY_FS;
+    }
+
     strlcat(_efs[index]->base_path, conf->base_path, ESP_VFS_PATH_MAX + 1);
-    err = esp_vfs_register(conf->base_path, &vfs, _efs[index]);
+    err = esp_vfs_register_fs(conf->base_path, &s_vfs_spiffs, vfs_flags, _efs[index]);
     if (err != ESP_OK) {
         esp_spiffs_free(&_efs[index]);
         return err;
@@ -609,6 +621,18 @@ static int vfs_spiffs_fstat(void* ctx, int fd, struct stat * st)
     st->st_atime = 0;
     st->st_ctime = 0;
     return res;
+}
+
+static int vfs_spiffs_fsync(void* ctx, int fd)
+{
+    esp_spiffs_t * efs = (esp_spiffs_t *)ctx;
+    int res = SPIFFS_fflush(efs->fs, fd);
+    if (res < 0) {
+        errno = spiffs_res_to_errno(SPIFFS_errno(efs->fs));
+        SPIFFS_clearerr(efs->fs);
+        return -1;
+    }
+    return ESP_OK;
 }
 
 #ifdef CONFIG_VFS_SUPPORT_DIR

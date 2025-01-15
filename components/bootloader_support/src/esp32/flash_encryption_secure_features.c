@@ -35,7 +35,7 @@ esp_err_t esp_flash_encryption_enable_secure_features(void)
         crypt_config = EFUSE_FLASH_CRYPT_CONFIG;
         esp_efuse_write_field_blob(ESP_EFUSE_ENCRYPT_CONFIG, &crypt_config, 4);
     } else if (crypt_config != EFUSE_FLASH_CRYPT_CONFIG) {
-        ESP_LOGE(TAG, "EFUSE_ENCRYPT_CONFIG should be set 0xF but it is 0x%x", crypt_config);
+        ESP_LOGE(TAG, "EFUSE_ENCRYPT_CONFIG should be set 0xF but it is 0x%" PRIx32, crypt_config);
     }
 
 #ifndef CONFIG_SECURE_FLASH_UART_BOOTLOADER_ALLOW_ENC
@@ -77,6 +77,14 @@ esp_err_t esp_flash_encryption_enable_secure_features(void)
     // This bit is set when enabling Secure Boot V2, but we can't enable it until this later point in the first boot
     // otherwise the Flash Encryption key cannot be read protected
     esp_efuse_write_field_bit(ESP_EFUSE_WR_DIS_EFUSE_RD_DISABLE);
+#endif
+
+#ifndef CONFIG_SECURE_FLASH_SKIP_WRITE_PROTECTION_CACHE
+    // Set write-protection for DIS_ICACHE to prevent bricking chip in case it will be set accidentally.
+    // esp32 has DIS_ICACHE. Write-protection bit = 3.
+    // List of eFuses with the same write protection bit:
+    // MAC, MAC_CRC, DISABLE_APP_CPU, DISABLE_BT, DIS_CACHE, VOL_LEVEL_HP_INV.
+    esp_efuse_write_field_bit(ESP_EFUSE_WR_DIS_DIS_CACHE);
 #endif
 
     return ESP_OK;

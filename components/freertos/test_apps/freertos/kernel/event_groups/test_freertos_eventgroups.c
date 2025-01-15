@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
-
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -35,7 +35,7 @@ static void task_event_group_call_response(void *param)
     for (int i = 0; i < COUNT; i++) {
         /* Wait until the common "call" bit is set, starts off all tasks
            (clear on return) */
-        TEST_ASSERT( xEventGroupWaitBits(eg, BIT_CALL(task_num), true, false, portMAX_DELAY) );
+        TEST_ASSERT(xEventGroupWaitBits(eg, BIT_CALL(task_num), true, false, portMAX_DELAY));
 
         /* Set our individual "response" bit */
         xEventGroupSetBits(eg, BIT_RESPONSE(task_num));
@@ -61,7 +61,7 @@ TEST_CASE("FreeRTOS Event Groups", "[freertos]")
        signal it, or they get out of sync.
      */
     for (int c = 0; c < NUM_TASKS; c++) {
-        xTaskCreatePinnedToCore(task_event_group_call_response, "tsk_call_resp", 4096, (void *)c, configMAX_PRIORITIES - 1, &task_handles[c], c % portNUM_PROCESSORS);
+        xTaskCreatePinnedToCore(task_event_group_call_response, "tsk_call_resp", 4096, (void *)c, configMAX_PRIORITIES - 1, &task_handles[c], c % CONFIG_FREERTOS_NUMBER_OF_CORES);
     }
 
     /* Tasks all start instantly, but this task will resume running at the same time as the higher priority tasks on the
@@ -78,7 +78,7 @@ TEST_CASE("FreeRTOS Event Groups", "[freertos]")
 
     /* Ensure all tasks have suspend themselves */
     for (int c = 0; c < NUM_TASKS; c++) {
-        TEST_ASSERT( xSemaphoreTake(done_sem, 100 / portTICK_PERIOD_MS) );
+        TEST_ASSERT(xSemaphoreTake(done_sem, 100 / portTICK_PERIOD_MS));
     }
 
     for (int c = 0; c < NUM_TASKS; c++) {
@@ -115,21 +115,72 @@ TEST_CASE("FreeRTOS Event Group Sync", "[freertos]")
     done_sem = xSemaphoreCreateCounting(NUM_TASKS, 0);
 
     for (int c = 0; c < NUM_TASKS; c++) {
-        xTaskCreatePinnedToCore(task_test_sync, "task_test_sync", 4096, (void *)c, configMAX_PRIORITIES - 1, NULL, c % portNUM_PROCESSORS);
+        xTaskCreatePinnedToCore(task_test_sync, "task_test_sync", 4096, (void *)c, configMAX_PRIORITIES - 1, NULL, c % CONFIG_FREERTOS_NUMBER_OF_CORES);
     }
 
     for (int c = 0; c < NUM_TASKS; c++) {
         printf("Waiting on %d (0x%08x)\n", c, BIT_RESPONSE(c));
-        TEST_ASSERT( xEventGroupWaitBits(eg, BIT_RESPONSE(c), false, false, portMAX_DELAY) );
+        TEST_ASSERT(xEventGroupWaitBits(eg, BIT_RESPONSE(c), false, false, portMAX_DELAY));
     }
 
     /* Ensure all tasks cleaned up correctly */
     for (int c = 0; c < NUM_TASKS; c++) {
-        TEST_ASSERT( xSemaphoreTake(done_sem, 100 / portTICK_PERIOD_MS) );
+        TEST_ASSERT(xSemaphoreTake(done_sem, 100 / portTICK_PERIOD_MS));
     }
 
     vSemaphoreDelete(done_sem);
     vEventGroupDelete(eg);
+}
+
+static TaskHandle_t run_order[2];
+static uint32_t run_order_index = 0;
+
+void task_test_eg_prio(void *arg)
+{
+    TaskHandle_t main_task_hdl = (TaskHandle_t)arg;
+
+    /* Notify the main task that this task has been created */
+    xTaskNotifyGive(main_task_hdl);
+
+    /* Wait for the event group bits to be set */
+    TEST_ASSERT_EQUAL(1, xEventGroupWaitBits(eg, 1, pdTRUE, pdTRUE, portMAX_DELAY));
+
+    /* Record the task handle in the run order array */
+    run_order[run_order_index++] = xTaskGetCurrentTaskHandle();
+
+    /* Suspend the task */
+    vTaskSuspend(NULL);
+}
+
+TEST_CASE("FreeRTOS Event Groups do not cause priority inversion when higher priority task is unblocked", "[freertos]")
+{
+    run_order[0] = NULL;
+    run_order[1] = NULL;
+    run_order_index = 0;
+
+    /* Initialize the event group */
+    eg = xEventGroupCreate();
+
+    /* Create a task with higher priority than the task that will set the event group bits */
+    TaskHandle_t higher_prio_hdl;
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(task_test_eg_prio, "task_test_eg_prio", 2048, (void *)xTaskGetCurrentTaskHandle(), CONFIG_UNITY_FREERTOS_PRIORITY + 1, &higher_prio_hdl, CONFIG_UNITY_FREERTOS_CPU));
+
+    /* Wait for the task to be created */
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    /* Set the event group bits */
+    xEventGroupSetBits(eg, 1);
+
+    /* Record the task handle in the run order array */
+    run_order[run_order_index++] = xTaskGetCurrentTaskHandle();
+
+    /* Verify that the higher priority task was unblocked and immediately scheduled and the lower priority task was preempted */
+    TEST_ASSERT_EQUAL(higher_prio_hdl, run_order[0]);
+    TEST_ASSERT_EQUAL(xTaskGetCurrentTaskHandle(), run_order[1]);
+
+    /* Clean up */
+    vEventGroupDelete(eg);
+    vTaskDelete(higher_prio_hdl);
 }
 
 /*-----------------Test case for event group trace facilities-----------------*/
@@ -147,7 +198,7 @@ static bool test_clear_bits;
 
 static bool on_timer_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
 {
-    portBASE_TYPE task_woken = pdFALSE;
+    BaseType_t task_woken = pdFALSE;
 
     gptimer_stop(timer);
 

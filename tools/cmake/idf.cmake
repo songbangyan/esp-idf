@@ -47,8 +47,10 @@ if(NOT __idf_env_set)
     include(targets)
     include(ldgen)
     include(dfu)
-    include(uf2)
     include(version)
+    include(gdbinit)
+    include(prefix_map)
+    include(openocd)
 
     __build_init("${idf_path}")
 

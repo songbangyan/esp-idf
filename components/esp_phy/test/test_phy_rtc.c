@@ -11,9 +11,10 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include "soc/soc_caps.h"
+#include "esp_private/esp_modem_clock.h"
 #include "esp_private/wifi.h"
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32C6, ESP32H2)
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32H2)
 //IDF-5046
 
 #include "esp_phy_init.h"
@@ -45,9 +46,15 @@ static void test_phy_rtc_init(void)
         ret = nvs_flash_init();
     }
     TEST_ESP_OK(ret);
-
-    esp_phy_enable();
-
+#if CONFIG_ESP_WIFI_ENABLED
+    esp_phy_enable(PHY_MODEM_WIFI);
+#endif
+#if CONFIG_BT_ENABLED
+    esp_phy_enable(PHY_MODEM_BT);
+#endif
+#if CONFIG_IEEE802154_ENABLED
+    esp_phy_enable(PHY_MODEM_IEEE802154);
+#endif
     //must run here, not blocking in above code
     TEST_ASSERT(1);
     nvs_flash_deinit();
@@ -57,7 +64,9 @@ static IRAM_ATTR void test_phy_rtc_cache_task(void *arg)
 {
     //power up wifi and bt mac bb power domain
     esp_wifi_power_domain_on();
-
+#if CONFIG_IDF_TARGET_ESP32C6
+    modem_clock_module_enable(PERIPH_PHY_MODULE);
+#endif // CONFIG_IDF_TARGET_ESP32C6
     test_phy_rtc_init();
 
 #if CONFIG_IDF_TARGET_ESP32
@@ -97,6 +106,9 @@ static IRAM_ATTR void test_phy_rtc_cache_task(void *arg)
 
 #endif //SOC_BT_SUPPORTED
 
+#if CONFIG_IDF_TARGET_ESP32C6
+    modem_clock_module_disable(PERIPH_PHY_MODULE);
+#endif // CONFIG_IDF_TARGET_ESP32C6
     //power down wifi and bt mac bb power domain
     esp_wifi_power_domain_off();
 

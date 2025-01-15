@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,9 @@
 #include "esp_efuse_table.h"
 #include "esp_flash_encrypt.h"
 #include "esp_secure_boot.h"
+#include "hal/efuse_hal.h"
+#include "hal/spi_flash_encrypt_hal.h"
+#include "soc/soc_caps.h"
 
 #if CONFIG_IDF_TARGET_ESP32
 #define CRYPT_CNT ESP_EFUSE_FLASH_CRYPT_CNT
@@ -81,15 +84,14 @@ void esp_flash_encryption_init_checks()
  */
 bool IRAM_ATTR esp_flash_encryption_enabled(void)
 {
-    uint32_t flash_crypt_cnt = 0;
 #ifndef CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH
-    flash_crypt_cnt = efuse_ll_get_flash_crypt_cnt();
+    return efuse_hal_flash_encryption_enabled();
 #else
+    uint32_t flash_crypt_cnt = 0;
 #if CONFIG_IDF_TARGET_ESP32
     esp_efuse_read_field_blob(ESP_EFUSE_FLASH_CRYPT_CNT, &flash_crypt_cnt, ESP_EFUSE_FLASH_CRYPT_CNT[0]->bit_count);
 #else
     esp_efuse_read_field_blob(ESP_EFUSE_SPI_BOOT_CRYPT_CNT, &flash_crypt_cnt, ESP_EFUSE_SPI_BOOT_CRYPT_CNT[0]->bit_count);
-#endif
 #endif
     /* __builtin_parity is in flash, so we calculate parity inline */
     bool enabled = false;
@@ -100,6 +102,7 @@ bool IRAM_ATTR esp_flash_encryption_enabled(void)
         flash_crypt_cnt >>= 1;
     }
     return enabled;
+#endif // CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH
 }
 
 void esp_flash_write_protect_crypt_cnt(void)
@@ -136,6 +139,9 @@ esp_flash_enc_mode_t esp_get_flash_encryption_mode(void)
             }
 #else
             if (esp_efuse_read_field_bit(ESP_EFUSE_DIS_DOWNLOAD_MANUAL_ENCRYPT)
+#if SOC_EFUSE_DIS_DOWNLOAD_MSPI
+                && esp_efuse_read_field_bit(ESP_EFUSE_SPI_DOWNLOAD_MSPI_DIS)
+#endif
 #if SOC_EFUSE_DIS_DOWNLOAD_ICACHE
                 && esp_efuse_read_field_bit(ESP_EFUSE_DIS_DOWNLOAD_ICACHE)
 #endif
@@ -186,6 +192,9 @@ void esp_flash_encryption_set_release_mode(void)
     esp_efuse_write_field_bit(ESP_EFUSE_DISABLE_DL_DECRYPT);
 #else
     esp_efuse_write_field_bit(ESP_EFUSE_DIS_DOWNLOAD_MANUAL_ENCRYPT);
+#if SOC_EFUSE_DIS_DOWNLOAD_MSPI
+    esp_efuse_write_field_bit(ESP_EFUSE_SPI_DOWNLOAD_MSPI_DIS);
+#endif
 #if SOC_EFUSE_DIS_DOWNLOAD_ICACHE
     esp_efuse_write_field_bit(ESP_EFUSE_DIS_DOWNLOAD_ICACHE);
 #endif
@@ -198,6 +207,19 @@ void esp_flash_encryption_set_release_mode(void)
     // Burning WR_DIS_CRYPT_CNT, blocks further changing of eFuses: DIS_DOWNLOAD_MANUAL_ENCRYPT, SPI_BOOT_CRYPT_CNT, [XTS_KEY_LENGTH_256], SECURE_BOOT_EN.
     esp_efuse_write_field_bit(WR_DIS_CRYPT_CNT);
 #endif // CONFIG_SOC_FLASH_ENCRYPTION_XTS_AES_128_DERIVED
+#endif // !CONFIG_IDF_TARGET_ESP32
+
+#ifdef SOC_FLASH_ENCRYPTION_XTS_AES_SUPPORT_PSEUDO_ROUND
+    uint8_t xts_pseudo_level = ESP_XTS_AES_PSEUDO_ROUNDS_LOW;
+    esp_efuse_write_field_blob(ESP_EFUSE_XTS_DPA_PSEUDO_LEVEL, &xts_pseudo_level, ESP_EFUSE_XTS_DPA_PSEUDO_LEVEL[0]->bit_count);
+#endif
+
+#ifdef CONFIG_IDF_TARGET_ESP32
+    esp_efuse_write_field_bit(ESP_EFUSE_WR_DIS_DIS_CACHE);
+#else
+#if SOC_EFUSE_DIS_ICACHE
+    esp_efuse_write_field_bit(ESP_EFUSE_WR_DIS_DIS_ICACHE);
+#endif
 #endif // !CONFIG_IDF_TARGET_ESP32
 
 #if CONFIG_SOC_SUPPORTS_SECURE_DL_MODE
@@ -272,6 +294,12 @@ bool esp_flash_encryption_cfg_verify_release_mode(void)
         ESP_LOGW(TAG, "Not disabled ROM BASIC interpreter fallback (set CONSOLE_DEBUG_DISABLE->1)");
     }
 
+    secure = esp_efuse_read_field_bit(ESP_EFUSE_WR_DIS_DIS_CACHE);
+    result &= secure;
+    if (!secure) {
+        ESP_LOGW(TAG, "Not write-protected DIS_CACHE (set WR_DIS_DIS_CACHE->1)");
+    }
+
     secure = esp_efuse_read_field_bit(ESP_EFUSE_RD_DIS_BLK1);
     result &= secure;
     if (!secure) {
@@ -320,6 +348,13 @@ bool esp_flash_encryption_cfg_verify_release_mode(void)
     }
 #endif
 
+#if SOC_EFUSE_DIS_DOWNLOAD_MSPI
+    secure = esp_efuse_read_field_bit(ESP_EFUSE_SPI_DOWNLOAD_MSPI_DIS);
+    result &= secure;
+    if (!secure) {
+        ESP_LOGW(TAG, "Not disabled UART bootloader download mspi (set DIS_DOWNLOAD_MSPI->1)");
+    }
+#endif
 #if SOC_EFUSE_DIS_DOWNLOAD_ICACHE
     secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_DOWNLOAD_ICACHE);
     result &= secure;
@@ -327,36 +362,53 @@ bool esp_flash_encryption_cfg_verify_release_mode(void)
         ESP_LOGW(TAG, "Not disabled UART bootloader cache (set DIS_DOWNLOAD_ICACHE->1)");
     }
 #endif
-
-#if SOC_EFUSE_DIS_PAD_JTAG
-    secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_PAD_JTAG);
-    result &= secure;
-    if (!secure) {
-        ESP_LOGW(TAG, "Not disabled JTAG PADs (set DIS_PAD_JTAG->1)");
+    bool soft_dis_jtag_complete = false;
+#if SOC_EFUSE_SOFT_DIS_JTAG
+    size_t soft_dis_jtag_cnt_val = 0;
+    esp_efuse_read_field_cnt(ESP_EFUSE_SOFT_DIS_JTAG, &soft_dis_jtag_cnt_val);
+    soft_dis_jtag_complete = (soft_dis_jtag_cnt_val == ESP_EFUSE_SOFT_DIS_JTAG[0]->bit_count);
+    if (soft_dis_jtag_complete) {
+        bool hmac_key_found = false;
+        hmac_key_found = esp_efuse_find_purpose(ESP_EFUSE_KEY_PURPOSE_HMAC_DOWN_JTAG, NULL);
+        hmac_key_found |= esp_efuse_find_purpose(ESP_EFUSE_KEY_PURPOSE_HMAC_DOWN_ALL, NULL);
+        if (!hmac_key_found) {
+            ESP_LOGW(TAG, "SOFT_DIS_JTAG is set but HMAC key with respective purpose not found");
+            soft_dis_jtag_complete = false;
+        }
     }
+#endif
+
+    if (!soft_dis_jtag_complete) {
+#if SOC_EFUSE_DIS_PAD_JTAG
+        secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_PAD_JTAG);
+        result &= secure;
+        if (!secure) {
+            ESP_LOGW(TAG, "Not disabled JTAG PADs (set DIS_PAD_JTAG->1)");
+        }
 #endif
 
 #if SOC_EFUSE_DIS_USB_JTAG
-    secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_USB_JTAG);
-    result &= secure;
-    if (!secure) {
-        ESP_LOGW(TAG, "Not disabled USB JTAG (set DIS_USB_JTAG->1)");
-    }
+        secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_USB_JTAG);
+        result &= secure;
+        if (!secure) {
+            ESP_LOGW(TAG, "Not disabled USB JTAG (set DIS_USB_JTAG->1)");
+        }
 #endif
+
+#if SOC_EFUSE_HARD_DIS_JTAG
+        secure = esp_efuse_read_field_bit(ESP_EFUSE_HARD_DIS_JTAG);
+        result &= secure;
+        if (!secure) {
+            ESP_LOGW(TAG, "Not disabled JTAG (set HARD_DIS_JTAG->1)");
+        }
+#endif
+    }
 
 #if SOC_EFUSE_DIS_DIRECT_BOOT
     secure = esp_efuse_read_field_bit(ESP_EFUSE_DIS_DIRECT_BOOT);
     result &= secure;
     if (!secure) {
         ESP_LOGW(TAG, "Not disabled direct boot mode (set DIS_DIRECT_BOOT->1)");
-    }
-#endif
-
-#if SOC_EFUSE_HARD_DIS_JTAG
-    secure = esp_efuse_read_field_bit(ESP_EFUSE_HARD_DIS_JTAG);
-    result &= secure;
-    if (!secure) {
-        ESP_LOGW(TAG, "Not disabled JTAG (set HARD_DIS_JTAG->1)");
     }
 #endif
 
@@ -373,6 +425,14 @@ bool esp_flash_encryption_cfg_verify_release_mode(void)
     result &= secure;
     if (!secure) {
         ESP_LOGW(TAG, "Not disabled Legcy SPI boot (set DIS_LEGACY_SPI_BOOT->1)");
+    }
+#endif
+
+#if SOC_EFUSE_DIS_ICACHE
+    secure = esp_efuse_read_field_bit(ESP_EFUSE_WR_DIS_DIS_ICACHE);
+    result &= secure;
+    if (!secure) {
+        ESP_LOGW(TAG, "Not write-protected DIS_ICACHE (set WR_DIS_DIS_ICACHE->1)");
     }
 #endif
 
@@ -414,6 +474,15 @@ bool esp_flash_encryption_cfg_verify_release_mode(void)
         }
     }
     result &= secure;
+
+#if SOC_FLASH_ENCRYPTION_XTS_AES_SUPPORT_PSEUDO_ROUND
+    uint8_t xts_pseudo_level = 0;
+    esp_efuse_read_field_blob(ESP_EFUSE_XTS_DPA_PSEUDO_LEVEL, &xts_pseudo_level, ESP_EFUSE_XTS_DPA_PSEUDO_LEVEL[0]->bit_count);
+    if (!xts_pseudo_level) {
+        result &= false;
+        ESP_LOGW(TAG, "Not enabled XTS-AES pseudo rounds function (set XTS_DPA_PSEUDO_LEVEL->1 or more)");
+    }
+#endif
 
     return result;
 }

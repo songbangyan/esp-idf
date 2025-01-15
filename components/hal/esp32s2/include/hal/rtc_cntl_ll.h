@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,9 +7,9 @@
 #pragma once
 
 #include "soc/soc.h"
-#include "soc/rtc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "esp_attr.h"
+#include "hal/assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,11 +34,18 @@ FORCE_INLINE_ATTR uint32_t rtc_cntl_ll_ext1_get_wakeup_status(void)
     return REG_GET_FIELD(RTC_CNTL_EXT_WAKEUP1_STATUS_REG, RTC_CNTL_EXT_WAKEUP1_STATUS);
 }
 
-FORCE_INLINE_ATTR void rtc_cntl_ll_ext1_set_wakeup_pins(uint32_t mask, int mode)
+FORCE_INLINE_ATTR void rtc_cntl_ll_ext1_set_wakeup_pins(uint32_t io_mask, uint32_t mode_mask)
 {
-    REG_SET_FIELD(RTC_CNTL_EXT_WAKEUP1_REG, RTC_CNTL_EXT_WAKEUP1_SEL, mask);
-    SET_PERI_REG_BITS(RTC_CNTL_EXT_WAKEUP_CONF_REG, 0x1,
-            mode, RTC_CNTL_EXT_WAKEUP1_LV_S);
+    // The target only supports a unified trigger mode among all EXT1 wakeup IOs
+    HAL_ASSERT((io_mask & mode_mask) == io_mask || (io_mask & mode_mask) == 0);
+    REG_SET_FIELD(RTC_CNTL_EXT_WAKEUP1_REG, RTC_CNTL_EXT_WAKEUP1_SEL, io_mask);
+    if ((io_mask & mode_mask) == io_mask) {
+        SET_PERI_REG_BITS(RTC_CNTL_EXT_WAKEUP_CONF_REG, 0x1,
+                1, RTC_CNTL_EXT_WAKEUP1_LV_S);
+    } else {
+        SET_PERI_REG_BITS(RTC_CNTL_EXT_WAKEUP_CONF_REG, 0x1,
+                0, RTC_CNTL_EXT_WAKEUP1_LV_S);
+    }
 }
 
 FORCE_INLINE_ATTR void rtc_cntl_ll_ext1_clear_wakeup_pins(void)
@@ -84,12 +91,6 @@ FORCE_INLINE_ATTR uint64_t rtc_cntl_ll_get_rtc_time(void)
     uint64_t t = READ_PERI_REG(RTC_CNTL_TIME0_REG);
     t |= ((uint64_t) READ_PERI_REG(RTC_CNTL_TIME1_REG)) << 32;
     return t;
-}
-
-FORCE_INLINE_ATTR uint64_t rtc_cntl_ll_time_to_count(uint64_t time_in_us)
-{
-    uint32_t slow_clk_value = REG_READ(RTC_CNTL_STORE1_REG);
-    return ((time_in_us * (1 << RTC_CLK_CAL_FRACT)) / slow_clk_value);
 }
 
 FORCE_INLINE_ATTR uint32_t rtc_cntl_ll_get_wakeup_cause(void)

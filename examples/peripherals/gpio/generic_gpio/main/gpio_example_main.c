@@ -1,11 +1,9 @@
-/* GPIO Example
+/*
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,8 +18,8 @@
  * This test code shows how to configure gpio and how to use gpio interrupt.
  *
  * GPIO status:
- * GPIO18: output (ESP32C2/ESP32H2/ESP32H4 uses GPIO8 as the second output pin)
- * GPIO19: output (ESP32C2/ESP32H2/ESP32H4 uses GPIO9 as the second output pin)
+ * GPIO18: output (ESP32C2/ESP32H2 uses GPIO8 as the second output pin)
+ * GPIO19: output (ESP32C2/ESP32H2 uses GPIO9 as the second output pin)
  * GPIO4:  input, pulled up, interrupt from rising edge and falling edge
  * GPIO5:  input, pulled up, interrupt from rising edge.
  *
@@ -38,9 +36,23 @@
 #define GPIO_OUTPUT_IO_0    CONFIG_GPIO_OUTPUT_0
 #define GPIO_OUTPUT_IO_1    CONFIG_GPIO_OUTPUT_1
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0) | (1ULL<<GPIO_OUTPUT_IO_1))
+/*
+ * Let's say, GPIO_OUTPUT_IO_0=18, GPIO_OUTPUT_IO_1=19
+ * In binary representation,
+ * 1ULL<<GPIO_OUTPUT_IO_0 is equal to 0000000000000000000001000000000000000000 and
+ * 1ULL<<GPIO_OUTPUT_IO_1 is equal to 0000000000000000000010000000000000000000
+ * GPIO_OUTPUT_PIN_SEL                0000000000000000000011000000000000000000
+ * */
 #define GPIO_INPUT_IO_0     CONFIG_GPIO_INPUT_0
 #define GPIO_INPUT_IO_1     CONFIG_GPIO_INPUT_1
 #define GPIO_INPUT_PIN_SEL  ((1ULL<<GPIO_INPUT_IO_0) | (1ULL<<GPIO_INPUT_IO_1))
+/*
+ * Let's say, GPIO_INPUT_IO_0=4, GPIO_INPUT_IO_1=5
+ * In binary representation,
+ * 1ULL<<GPIO_INPUT_IO_0 is equal to 0000000000000000000000000000000000010000 and
+ * 1ULL<<GPIO_INPUT_IO_1 is equal to 0000000000000000000000000000000000100000
+ * GPIO_INPUT_PIN_SEL                0000000000000000000000000000000000110000
+ * */
 #define ESP_INTR_FLAG_DEFAULT 0
 
 static QueueHandle_t gpio_evt_queue = NULL;
@@ -54,8 +66,8 @@ static void IRAM_ATTR gpio_isr_handler(void* arg)
 static void gpio_task_example(void* arg)
 {
     uint32_t io_num;
-    for(;;) {
-        if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+    for (;;) {
+        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             printf("GPIO[%"PRIu32"] intr, val: %d\n", io_num, gpio_get_level(io_num));
         }
     }
@@ -111,7 +123,7 @@ void app_main(void)
     printf("Minimum free heap size: %"PRIu32" bytes\n", esp_get_minimum_free_heap_size());
 
     int cnt = 0;
-    while(1) {
+    while (1) {
         printf("cnt: %d\n", cnt++);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
         gpio_set_level(GPIO_OUTPUT_IO_0, cnt % 2);

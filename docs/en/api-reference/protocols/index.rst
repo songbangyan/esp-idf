@@ -1,5 +1,6 @@
 Application Protocols
 *********************
+
 :link_to_translation:`zh_CN:[中文]`
 
 .. toctree::
@@ -18,7 +19,7 @@ Application Protocols
     icmp_echo
     mdns
     mbedtls
-    
+
 Code examples for this API section are provided in the :example:`protocols` directory of ESP-IDF examples.
 
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -12,9 +12,13 @@
 /* Most development boards have "boot" button attached to GPIO0.
  * You can also change this to another pin.
  */
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32H4 \
-    || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32H2 \
+    || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
 #define BOOT_BUTTON_NUM         9
+#elif CONFIG_IDF_TARGET_ESP32C5
+#define BOOT_BUTTON_NUM         28
+#elif CONFIG_IDF_TARGET_ESP32P4
+#define BOOT_BUTTON_NUM         35
 #else
 #define BOOT_BUTTON_NUM         0
 #endif

@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <sys/time.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
@@ -44,16 +45,16 @@ typedef void (*esp_sntp_time_cb_t)(struct timeval *tv);
  *
  */
 #define ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(servers_in_list, list_of_servers)   {   \
-            .smooth_sync = false,                   \
-            .server_from_dhcp = false,              \
-            .wait_for_sync = true,                  \
-            .start = true,                          \
-            .sync_cb = NULL,                        \
-            .renew_servers_after_new_IP = false,    \
-            .ip_event_to_renew = 0,                 \
-            .index_of_first_server = 0,             \
-            .num_of_servers = (servers_in_list),    \
-            .servers = list_of_servers,             \
+            .smooth_sync = false,                       \
+            .server_from_dhcp = false,                  \
+            .wait_for_sync = true,                      \
+            .start = true,                              \
+            .sync_cb = NULL,                            \
+            .renew_servers_after_new_IP = false,        \
+            .ip_event_to_renew = IP_EVENT_STA_GOT_IP,   \
+            .index_of_first_server = 0,                 \
+            .num_of_servers = (servers_in_list),        \
+            .servers = list_of_servers,                 \
 }
 
 /**
@@ -101,11 +102,22 @@ void esp_netif_sntp_deinit(void);
 /**
  * @brief Wait for time sync event
  * @param tout Specified timeout in RTOS ticks
- * @return ESP_TIMEOUT if sync event didn't came withing the timeout
+ * @return ESP_TIMEOUT if sync event didn't came within the timeout
  *         ESP_ERR_NOT_FINISHED if the sync event came, but we're in smooth update mode and still in progress (SNTP_SYNC_STATUS_IN_PROGRESS)
  *         ESP_OK if time sync'ed
  */
 esp_err_t esp_netif_sntp_sync_wait(TickType_t tout);
+
+/**
+ * @brief Returns SNTP server's reachability shift register as described in RFC 5905.
+ *
+ * @param index Index of the SERVER
+ * @param reachability reachability shift register
+ * @return ESP_OK on success,
+ *         ESP_ERR_INVALID_STATE if SNTP not initialized
+ *         ESP_ERR_INVALID_ARG if invalid arguments
+ */
+esp_err_t esp_netif_sntp_reachability(unsigned int index, unsigned int *reachability);
 
 /**
  * @}

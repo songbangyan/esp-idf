@@ -311,7 +311,7 @@ int wpa_write_rsnxe(struct wpa_auth_config *conf, u8 *buf, size_t len)
 		capab |= BIT(WLAN_RSNX_CAPAB_SAE_H2E);
 	}
 
-	flen = (capab & 0xff00) ? 2 : 1;
+	flen = 1;
 	if (!capab)
 		return 0; /* no supported extended RSN capabilities */
 	if (len < 2 + flen)
@@ -321,9 +321,6 @@ int wpa_write_rsnxe(struct wpa_auth_config *conf, u8 *buf, size_t len)
 	*pos++ = WLAN_EID_RSNX;
 	*pos++ = flen;
 	*pos++ = capab & 0x00ff;
-	capab >>= 8;
-	if (capab)
-		*pos++ = capab;
 
 	return pos - buf;
 }
@@ -390,6 +387,7 @@ u8 * wpa_add_kde(u8 *pos, u32 kde, const u8 *data, size_t data_len,
 	}
 	return pos;
 }
+
 
 enum wpa_validate_result
 wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
@@ -566,12 +564,24 @@ wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
 			return WPA_MGMT_FRAME_PROTECTION_VIOLATION;
 		}
 
-		if (data.mgmt_group_cipher != WPA_CIPHER_AES_128_CMAC) {
-			wpa_printf( MSG_DEBUG, "Unsupported management group "
+		if (data.mgmt_group_cipher != wpa_auth->conf.group_mgmt_cipher)
+		{
+			wpa_printf(MSG_DEBUG, "Unsupported management group "
 				   "cipher %d", data.mgmt_group_cipher);
 			return WPA_INVALID_MGMT_GROUP_CIPHER;
 		}
 	}
+
+#ifdef CONFIG_SAE
+	if (wpa_auth->conf.ieee80211w == MGMT_FRAME_PROTECTION_OPTIONAL &&
+	    wpa_auth->conf.sae_require_mfp &&
+	    wpa_key_mgmt_sae(sm->wpa_key_mgmt) &&
+	    !(data.capabilities & WPA_CAPABILITY_MFPC)) {
+		wpa_printf(MSG_DEBUG,
+			   "Management frame protection required with SAE, but client did not enable it");
+		return WPA_MGMT_FRAME_PROTECTION_VIOLATION;
+	}
+#endif /* CONFIG_SAE */
 
 	if (wpa_auth->conf.ieee80211w == NO_MGMT_FRAME_PROTECTION ||
 	    !(data.capabilities & WPA_CAPABILITY_MFPC))

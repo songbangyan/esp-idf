@@ -15,13 +15,13 @@
 extern "C" {
 #endif
 
-
 #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
 /*---------------------------------------------------------------
             Curve Fitting Calibration Scheme
 ---------------------------------------------------------------*/
 typedef struct {
     adc_unit_t unit_id;         ///< ADC unit
+    adc_channel_t chan;         ///< ADC channel, for chips with SOC_ADC_CALIB_CHAN_COMPENS_SUPPORTED, calibration can be per channel
     adc_atten_t atten;          ///< ADC attenuation
     adc_bitwidth_t bitwidth;    ///< ADC raw output bitwidth
 } adc_cali_curve_fitting_config_t;
@@ -54,7 +54,6 @@ esp_err_t adc_cali_create_scheme_curve_fitting(const adc_cali_curve_fitting_conf
  */
 esp_err_t adc_cali_delete_scheme_curve_fitting(adc_cali_handle_t handle);
 #endif  //  #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
-
 
 #if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
 /*---------------------------------------------------------------

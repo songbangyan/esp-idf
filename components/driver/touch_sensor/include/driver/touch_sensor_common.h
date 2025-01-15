@@ -8,7 +8,7 @@
 
 #include "esp_err.h"
 #include "esp_intr_alloc.h"
-#include "hal/touch_sensor_types.h"
+#include "hal/touch_sensor_legacy_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -129,7 +129,6 @@ esp_err_t touch_pad_set_fsm_mode(touch_fsm_mode_t mode);
  *      - ESP_OK on success
  */
 esp_err_t touch_pad_get_fsm_mode(touch_fsm_mode_t *mode);
-
 
 /**
  * @brief To clear the touch sensor channel active status.

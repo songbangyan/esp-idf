@@ -1,8 +1,17 @@
 JTAG Debugging
 ==============
+
 :link_to_translation:`zh_CN:[中文]`
 
-This document provides a guide to installing OpenOCD for {IDF_TARGET_NAME} and debugging using GDB. The document is structured as follows:
+This document provides a guide to installing OpenOCD for {IDF_TARGET_NAME} and debugging using GDB.
+
+.. note::
+
+    You can also debug your {IDF_TARGET_NAME} without needing to setup JTAG or OpenOCD by using ``idf.py monitor``. See: :doc:`../../api-guides/tools/idf-monitor` and :ref:`CONFIG_ESP_SYSTEM_GDBSTUB_RUNTIME`.
+
+.. highlight:: none
+
+The document is structured as follows:
 
 :ref:`jtag-debugging-introduction`
     Introduction to the purpose of this guide.
@@ -40,13 +49,13 @@ Introduction
 
     The downside of the ease of programming is that debugging without the right tools is harder: figuring out a bug that is caused by two threads, running even simultaneously on two different CPU cores, can take a long time when all you have are ``printf()`` statements. A better (and in many cases quicker) way to debug such problems is by using a debugger, connected to the processors over a debug port.
 
-Espressif has ported OpenOCD to support the {IDF_TARGET_NAME} processor and the multi-core FreeRTOS （which is the foundation of most {IDF_TARGET_NAME} apps). Additionally, some extra tools have been written to provide extra features that OpenOCD does not support natively.
+Espressif has ported OpenOCD to support the {IDF_TARGET_NAME} processor and the multi-core FreeRTOS  (which is the foundation of most {IDF_TARGET_NAME} apps). Additionally, some extra tools have been written to provide extra features that OpenOCD does not support natively.
 
 This document provides a guide to installing OpenOCD for {IDF_TARGET_NAME} and debugging using GDB under Linux, Windows and macOS. Except for OS specific installation procedures, the s/w user interface and use procedures are the same across all supported operating systems.
 
 .. note::
 
-    Screenshots presented in this document have been made for Eclipse Neon 3 running on Ubuntu 16.04 LTS. There may be some small differences in what a particular user interface looks like, depending on whether you are using Windows, macOS or Linux and / or a different release of Eclipse.
+    Screenshots presented in this document have been made for Eclipse Neon 3 running on Ubuntu 16.04 LTS. There may be some small differences in what a particular user interface looks like, depending on whether you are using Windows, macOS or Linux and/or a different release of Eclipse.
 
 .. _jtag-debugging-how-it-works:
 
@@ -78,7 +87,7 @@ Likewise, the "Application Loading and Monitoring" label indicates the key softw
 
     .. note::
 
-        Debugging through the USB interface implemented in {IDF_TARGET_NAME} requires to have a chip with revision 3 or newer. Please use other debugging options (e.g. with ESP-Prog) for chip revision 1 and 2. The easiest way to determine the chip revision is to look for the ``Chip is ESP32-C3 (revision 3)`` message near the end of a successful chip flashing done by ``idf.py flash``.
+        Debugging through the USB interface implemented in {IDF_TARGET_NAME} requires to have a chip with revision 0.3 or newer. Please use other debugging options (e.g., with ESP-Prog) for chip revisions 0.1 and 0.2. The easiest way to determine the chip revision is to look for the ``boot: chip revision: v0.3`` message at the beginning of the boot log. See `SoC errata <https://www.espressif.com/sites/default/files/documentation/esp32-c3_errata_en.pdf>`_ for more details.
 
 .. _jtag-debugging-selecting-jtag-adapter:
 
@@ -87,17 +96,17 @@ Selecting JTAG Adapter
 
 .. only:: esp32 or esp32s2
 
-    The quickest and most convenient way to start with JTAG debugging is by using |devkit-name-with-link|. Each version of this development board has JTAG interface already built in. No need for an external JTAG adapter and extra wiring / cable to connect JTAG to {IDF_TARGET_NAME}. |devkit-name| is using FT2232H JTAG interface operating at 20 MHz clock speed, which is difficult to achieve with an external adapter.
+    The quickest and most convenient way to start with JTAG debugging is by using |devkit-name-with-link|. Each version of this development board has JTAG interface already built in. No need for an external JTAG adapter and extra wiring/cable to connect JTAG to {IDF_TARGET_NAME}. |devkit-name| is using FT2232H JTAG interface operating at 20 MHz clock speed, which is difficult to achieve with an external adapter.
 
 .. only:: SOC_USB_SERIAL_JTAG_SUPPORTED
 
-    The quickest and most convenient way to start with JTAG debugging is through a USB cable connected to the D+/D- USB pins of {IDF_TARGET_NAME}. No need for an external JTAG adapter and extra wiring / cable to connect JTAG to {IDF_TARGET_NAME}.
+    The quickest and most convenient way to start with JTAG debugging is through a USB cable connected to the D+/D- USB pins of {IDF_TARGET_NAME}. No need for an external JTAG adapter and extra wiring/cable to connect JTAG to {IDF_TARGET_NAME}.
 
 If you decide to use separate JTAG adapter, look for one that is compatible with both the voltage levels on the {IDF_TARGET_NAME} as well as with the OpenOCD software. The JTAG port on the {IDF_TARGET_NAME} is an industry-standard JTAG port which lacks (and does not need) the TRST pin. The JTAG I/O pins all are powered from the VDD_3P3_RTC pin (which normally would be powered by a 3.3 V rail) so the JTAG adapter needs to be able to work with JTAG pins in that voltage range.
 
-On the software side, OpenOCD supports a fair amount of JTAG adapters. See https://openocd.org/doc/html/Debug-Adapter-Hardware.html for an (unfortunately slightly incomplete) list of the adapters OpenOCD works with. This page lists SWD-compatible adapters as well; take note that the {IDF_TARGET_NAME} does not support SWD. JTAG adapters that are hardcoded to a specific product line, e.g. ST-LINK debugging adapters for STM32 families, will not work.
+On the software side, OpenOCD supports a fair amount of JTAG adapters. See https://openocd.org/doc/html/Debug-Adapter-Hardware.html for an (unfortunately slightly incomplete) list of the adapters OpenOCD works with. This page lists SWD-compatible adapters as well; take note that the {IDF_TARGET_NAME} does not support SWD. JTAG adapters that are hardcoded to a specific product line, e.g., ST-LINK debugging adapters for STM32 families, will not work.
 
-The minimal signalling to get a working JTAG connection are TDI, TDO, TCK, TMS and GND. Some JTAG debuggers also need a connection from the {IDF_TARGET_NAME} power line to a line called e.g. Vtar to set the working voltage. SRST can optionally be connected to the CH_PD of the {IDF_TARGET_NAME}, although for now, support in OpenOCD for that line is pretty minimal.
+The minimal signalling to get a working JTAG connection are TDI, TDO, TCK, TMS and GND. Some JTAG debuggers also need a connection from the {IDF_TARGET_NAME} power line to a line called e.g., Vtar to set the working voltage. SRST can optionally be connected to the CH_PD of the {IDF_TARGET_NAME}, although for now, support in OpenOCD for that line is pretty minimal.
 
 `ESP-Prog <https://docs.espressif.com/projects/espressif-esp-iot-solution/en/latest/hw-reference/ESP-Prog_guide.html>`_ is an example for using an external board for debugging by connecting it to the JTAG pins of {IDF_TARGET_NAME}.
 
@@ -108,22 +117,26 @@ Setup of OpenOCD
 
 .. highlight:: bash
 
-If you have already set up ESP-IDF with CMake build system according to the :doc:`Getting Started Guide <../../get-started/index>`, then OpenOCD is already installed. After :ref:`setting up the environment <get-started-set-up-env>` in your terminal, you should be able to run OpenOCD. Check this by executing the following command::
+If you have already set up ESP-IDF with CMake build system according to the :doc:`Getting Started Guide <../../get-started/index>`, then OpenOCD is already installed. After :ref:`setting up the environment <get-started-set-up-env>` in your terminal, you should be able to run OpenOCD. Check this by executing the following command:
+
+.. code-block:: none
 
     openocd --version
 
 .. highlight:: none
 
-The output should be as follows (although the version may be more recent than listed here)::
+The output should be as follows (although the version may be more recent than listed here):
 
-    Open On-Chip Debugger  v0.10.0-esp32-20190708 (2019-07-08-11:04)
+.. code-block:: none
+
+    Open On-Chip Debugger v0.12.0-esp32-20240318 (2024-03-18-18:25)
     Licensed under GNU GPL v2
     For bug reports, read
-        https://openocd.org/doc/doxygen/bugs.html
+            http://openocd.org/doc/doxygen/bugs.html
 
 You may also verify that OpenOCD knows where its configuration scripts are located by printing the value of ``OPENOCD_SCRIPTS`` environment variable, by typing ``echo $OPENOCD_SCRIPTS`` (for Linux and macOS) or ``echo %OPENOCD_SCRIPTS%`` (for Windows). If a valid path is printed, then OpenOCD is set up correctly.
 
-If any of these steps do not work, please go back to the :ref:`setting up the tools <get-started-set-up-tools>` section of the Getting Started Guide.
+If any of these steps do not work, please go back to the :ref:`setting up the tools <get-started-set-up-tools>` section (for Linux and macOS) or :ref:`ESP-IDF Tools Installer <get-started-windows-tools-installer>` (for Windows) section of the Getting Started Guide.
 
 .. note::
 
@@ -142,7 +155,7 @@ Once OpenOCD is installed, you can proceed to configuring the {IDF_TARGET_NAME} 
 
 .. _jtag-debugging-configure-and-connect-JTAG-interface:
 
-Configure and connect JTAG interface
+Configure and Connect JTAG Interface
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This step depends on the JTAG and {IDF_TARGET_NAME} board you are using (see the two cases described below).
@@ -165,13 +178,13 @@ Once target is configured and connected to computer, you are ready to launch Ope
 
 .. highlight:: bash
 
-Open a terminal and set it up for using the ESP-IDF as described in the :ref:`setting up the environment <get-started-set-up-env>` section of the Getting Started Guide. Then run OpenOCD (this command works on Windows, Linux, and macOS):
+Open a terminal and set it up for using the ESP-IDF as described in the :ref:`setting up the environment <get-started-set-up-env>` section of the Getting Started Guide. To run OpenOCD for a specific board, you must pass the board-specific configuration. The default configuration for the built project can be found in the ``debug_arguments_openocd`` field of the ``build/project_description.json`` file. There is an example to run OpenOCD (this command works on Windows, Linux, and macOS):
 
 .. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: run-openocd
    :end-before: ---
 
-{IDF_TARGET_FTDI_CONFIG:default="Not Updated!", esp32s3="board/esp32s3-ftdi.cfg", esp32c3="board/esp32c3-ftdi.cfg", esp32c6="board/esp32c6-ftdi.cfg", esp32h2="board/esp32h2-ftdi.cfg"}
+{IDF_TARGET_FTDI_CONFIG:default="Not Updated!", esp32s3="board/esp32s3-ftdi.cfg", esp32c3="board/esp32c3-ftdi.cfg", esp32c6="board/esp32c6-ftdi.cfg", esp32h2="board/esp32h2-ftdi.cfg", esp32p4="board/esp32p4-ftdi.cfg", esp32c5="board/esp32c5-ftdi.cfg", esp32c61="board/esp32c61-ftdi.cfg"}
 
 .. note::
 
@@ -190,12 +203,12 @@ You should now see similar output (this log is for |run-openocd-device-name|):
    :end-before: ---
 
 * If there is an error indicating permission problems, please see section on "Permissions delegation" in the OpenOCD README file located in the ``~/esp/openocd-esp32`` directory.
-* In case there is an error in finding the configuration files, e.g. |run-openocd-cfg-file-err|, check if the ``OPENOCD_SCRIPTS`` environment variable is set correctly. This variable is used by OpenOCD to look for the files specified after the ``-f`` option. See :ref:`jtag-debugging-setup-openocd` section for details. Also check if the file is indeed under the provided path.
+* In case there is an error in finding the configuration files, e.g., |run-openocd-cfg-file-err|, check if the ``OPENOCD_SCRIPTS`` environment variable is set correctly. This variable is used by OpenOCD to look for the files specified after the ``-f`` option. See :ref:`jtag-debugging-setup-openocd` section for details. Also check if the file is indeed under the provided path.
 * If you see JTAG errors (e.g., ``...all ones`` or ``...all zeroes``), please check your JTAG connections, whether other signals are connected to JTAG besides {IDF_TARGET_NAME}'s pins, and see if everything is powered on correctly.
 
 .. _jtag-upload-app-debug:
 
-Upload application for debugging
+Upload Application for Debugging
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Build and upload your application to {IDF_TARGET_NAME} as usual, see :ref:`get-started-build`.
@@ -213,10 +226,12 @@ OpenOCD flashing command ``program_esp`` has the following format:
  - ``image_file`` - Path to program image file.
  - ``offset`` - Offset in flash bank to write image.
  - ``verify`` - Optional. Verify flash contents after writing.
- - ``reset`` - Optional. Reset target after programing.
+ - ``reset`` - Optional. Reset target after programming.
  - ``exit`` - Optional. Finally exit OpenOCD.
  - ``compress`` - Optional. Compress image file before programming.
  - ``encrypt`` - Optional. Encrypt binary before writing to flash. Same functionality with ``idf.py encrypted-flash``
+ - ``no_clock_boost`` - Optional. Disable setting target clock frequency to its maximum possible value before programming. Clock boost is enabled by default.
+ - ``restore_clock`` - Optional. Restore clock frequency to its initial value after programming. Disabled by default.
 
 You are now ready to start application debugging. Follow the steps described in the section below.
 
@@ -228,10 +243,11 @@ Launching Debugger
 
 The toolchain for {IDF_TARGET_NAME} features GNU Debugger, in short GDB. It is available with other toolchain programs under filename: {IDF_TARGET_TOOLCHAIN_PREFIX}-gdb. GDB can be called and operated directly from command line in a terminal. Another option is to call it from within IDE (like Eclipse, Visual Studio Code, etc.) and operate indirectly with help of GUI instead of typing commands in a terminal.
 
-Both options of using debugger are discussed under links below.
+The options of using debugger are discussed under links below.
 
 * :ref:`jtag-debugging-using-debugger-eclipse`
 * :ref:`jtag-debugging-using-debugger-command-line`
+* `Configuration for Visual Studio Code Debug <https://github.com/espressif/vscode-esp-idf-extension/blob/master/docs/DEBUGGING.md>`__
 
 It is recommended to first check if debugger works from :ref:`jtag-debugging-using-debugger-command-line` and then move to using :ref:`jtag-debugging-using-debugger-eclipse`.
 
@@ -264,7 +280,7 @@ Before proceeding to examples, set up your {IDF_TARGET_NAME} target and load it 
 .. _jtag-debugging-building-openocd:
 
 Building OpenOCD from Sources
----------------------------------
+-----------------------------
 
 Please refer to separate documents listed below, that describe build process.
 
@@ -306,7 +322,7 @@ and Windows:
 .. _jtag-debugging-tips-and-quirks:
 
 Tips and Quirks
-------------------
+---------------
 
 This section provides collection of links to all tips and quirks referred to from various parts of this guide.
 
@@ -317,7 +333,7 @@ This section provides collection of links to all tips and quirks referred to fro
 
 
 Related Documents
----------------------
+-----------------
 
 .. toctree::
     :hidden:

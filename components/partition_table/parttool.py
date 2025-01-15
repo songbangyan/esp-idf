@@ -3,10 +3,8 @@
 # parttool is used to perform partition level operations - reading,
 # writing, erasing and getting info about the partition.
 #
-# SPDX-FileCopyrightText: 2018-2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
-from __future__ import division, print_function
-
 import argparse
 import os
 import re
@@ -16,7 +14,7 @@ import tempfile
 
 import gen_esp32part as gen
 
-__version__ = '2.0'
+__version__ = '2.2'
 
 COMPONENTS_PATH = os.path.expandvars(os.path.join('$IDF_PATH', 'components'))
 ESPTOOL_PY = os.path.join(COMPONENTS_PATH, 'esptool_py', 'esptool', 'esptool.py')
@@ -58,12 +56,14 @@ PARTITION_BOOT_DEFAULT = _PartitionId()
 
 class ParttoolTarget():
 
-    def __init__(self, port=None, baud=None, partition_table_offset=PARTITION_TABLE_OFFSET, partition_table_file=None,
-                 esptool_args=[], esptool_write_args=[], esptool_read_args=[], esptool_erase_args=[]):
+    def __init__(self, port=None, baud=None, partition_table_offset=PARTITION_TABLE_OFFSET, primary_bootloader_offset=None, recovery_bootloader_offset=None,
+                 partition_table_file=None, esptool_args=[], esptool_write_args=[], esptool_read_args=[], esptool_erase_args=[]):
         self.port = port
         self.baud = baud
 
         gen.offset_part_table = partition_table_offset
+        gen.primary_bootloader_offset = primary_bootloader_offset
+        gen.recovery_bootloader_offset = recovery_bootloader_offset
 
         def parse_esptool_args(esptool_args):
             results = list()
@@ -92,7 +92,7 @@ class ParttoolTarget():
                     partition_table = gen.PartitionTable.from_binary(f.read())
 
             if partition_table is None:
-                with open(partition_table_file, 'r') as f:
+                with open(partition_table_file, 'r', encoding='utf-8') as f:
                     f.seek(0)
                     partition_table = gen.PartitionTable.from_csv(f.read())
         else:
@@ -158,10 +158,13 @@ class ParttoolTarget():
         partition = self.get_partition_info(partition_id)
         self._call_esptool(['read_flash', str(partition.offset), str(partition.size), output] + self.esptool_read_args)
 
-    def write_partition(self, partition_id, input):
-        self.erase_partition(partition_id)
-
+    def write_partition(self, partition_id, input, ignore_readonly=False):
         partition = self.get_partition_info(partition_id)
+
+        if partition.readonly and not ignore_readonly:
+            raise SystemExit(f'"{partition.name}" partition is read-only, (use the --ignore-readonly flag to skip it)')
+
+        self.erase_partition(partition_id)
 
         with open(input, 'rb') as input_file:
             content_len = len(input_file.read())
@@ -172,8 +175,8 @@ class ParttoolTarget():
         self._call_esptool(['write_flash', str(partition.offset), input] + self.esptool_write_args)
 
 
-def _write_partition(target, partition_id, input):
-    target.write_partition(partition_id, input)
+def _write_partition(target, partition_id, input, ignore_readonly=False):
+    target.write_partition(partition_id, input, ignore_readonly)
     partition = target.get_partition_info(partition_id)
     status("Written contents of file '{}' at offset 0x{:x}".format(input, partition.offset))
 
@@ -209,7 +212,8 @@ def _get_partition_info(target, partition_id, info):
                 'subtype': '{}'.format(p.subtype),
                 'offset': '0x{:x}'.format(p.offset),
                 'size': '0x{:x}'.format(p.size),
-                'encrypted': '{}'.format(p.encrypted)
+                'encrypted': '{}'.format(p.encrypted),
+                'readonly': '{}'.format(p.readonly)
             }
             for i in info:
                 infos += [info_dict[i]]
@@ -237,6 +241,8 @@ def main():
     parser.add_argument('--baud', '-b', help='baudrate to use', type=int)
 
     parser.add_argument('--partition-table-offset', '-o', help='offset to read the partition table from', type=str)
+    parser.add_argument('--primary-bootloader-offset', help='offset for primary bootloader', type=str)
+    parser.add_argument('--recovery-bootloader-offset', help='offset for recovery bootloader', type=str)
     parser.add_argument('--partition-table-file', '-f', help='file (CSV/binary) to read the partition table from; \
                                                             overrides device attached to specified port as the partition table source when defined')
 
@@ -264,12 +270,14 @@ def main():
     write_part_subparser = subparsers.add_parser('write_partition', help='write contents of a binary file to partition on device',
                                                  parents=[partition_selection_parser])
     write_part_subparser.add_argument('--input', help='file whose contents are to be written to the partition offset')
+    write_part_subparser.add_argument('--ignore-readonly', help='Ignore read-only attribute', action='store_true')
 
     subparsers.add_parser('erase_partition', help='erase the contents of a partition on the device', parents=[partition_selection_parser])
 
     print_partition_info_subparser = subparsers.add_parser('get_partition_info', help='get partition information', parents=[partition_selection_parser])
     print_partition_info_subparser.add_argument('--info', help='type of partition information to get',
-                                                choices=['name', 'type', 'subtype', 'offset', 'size', 'encrypted'], default=['offset', 'size'], nargs='+')
+                                                choices=['name', 'type', 'subtype', 'offset', 'size', 'encrypted', 'readonly'],
+                                                default=['offset', 'size'], nargs='+')
     print_partition_info_subparser.add_argument('--part_list', help='Get a list of partitions suitable for a given type', action='store_true')
 
     args = parser.parse_args()
@@ -309,6 +317,12 @@ def main():
     if args.partition_table_offset:
         target_args['partition_table_offset'] = int(args.partition_table_offset, 0)
 
+    if args.primary_bootloader_offset:
+        target_args['primary_bootloader_offset'] = int(args.primary_bootloader_offset, 0)
+
+    if args.recovery_bootloader_offset:
+        target_args['recovery_bootloader_offset'] = int(args.recovery_bootloader_offset, 0)
+
     if args.esptool_args:
         target_args['esptool_args'] = args.esptool_args
 
@@ -329,10 +343,10 @@ def main():
     # Create the operation table and execute the operation
     common_args = {'target':target, 'partition_id':partition_id}
     parttool_ops = {
-        'erase_partition':(_erase_partition, []),
-        'read_partition':(_read_partition, ['output']),
-        'write_partition':(_write_partition, ['input']),
-        'get_partition_info':(_get_partition_info, ['info'])
+        'erase_partition': (_erase_partition, []),
+        'read_partition': (_read_partition, ['output']),
+        'write_partition': (_write_partition, ['input', 'ignore_readonly']),
+        'get_partition_info': (_get_partition_info, ['info'])
     }
 
     (op, op_args) = parttool_ops[args.operation]

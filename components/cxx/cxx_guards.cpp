@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -68,7 +68,7 @@ static void wait_for_guard_obj(guard_t* g)
     s_static_init_waiting_count++;
 #ifndef _NDEBUG
     s_static_init_max_waiting_count = std::max(s_static_init_waiting_count,
-            s_static_init_max_waiting_count);
+                                               s_static_init_max_waiting_count);
 #endif
 
     do {
@@ -91,7 +91,7 @@ static void wait_for_guard_obj(guard_t* g)
         /* Semaphore may have been given because some other guard object became ready.
          * Check the guard object we need and wait again if it is still pending.
          */
-    } while(g->pending);
+    } while (g->pending);
     s_static_init_waiting_count--;
 }
 
@@ -209,6 +209,12 @@ extern "C" void __cxa_guard_abort(__guard* pg) throw()
         static_cast<void>(result);
     }
 }
+
+/* Originally, this should come with crtbegin.o from the toolchain (if GCC is configured with --enable-__cxa_atexit).
+   Since we do not link with crtbegin.o and have not configured GCC with --enable-__cxa_atexit, it is declared here.
+   Note: It should have a unique value in every shared object; in the main program its value is zero. */
+extern "C" void *__dso_handle __attribute__((__visibility__("hidden")));
+void *__dso_handle = 0;
 
 /**
  * Dummy function used to force linking this file instead of the same one in libstdc++.

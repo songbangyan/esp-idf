@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,6 +15,7 @@
 #include "hal/sdm_ll.h"
 #include "hal/gpio_hal.h"
 #include "esp_rom_gpio.h"
+#include "esp_private/gpio.h"
 
 static const char *TAG = "sdm(legacy)";
 
@@ -51,7 +52,7 @@ static inline esp_err_t _sigmadelta_set_pin(sigmadelta_port_t sigmadelta_port, s
 {
     SIGMADELTA_OBJ_CHECK(sigmadelta_port);
 
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[gpio_num], PIN_FUNC_GPIO);
+    gpio_func_sel(gpio_num, PIN_FUNC_GPIO);
     gpio_set_direction(gpio_num, GPIO_MODE_OUTPUT);
     esp_rom_gpio_connect_out_signal(gpio_num, sigma_delta_periph_signals.channels[channel].sd_sig, 0, 0);
     return ESP_OK;
@@ -128,3 +129,21 @@ esp_err_t sigmadelta_config(const sigmadelta_config_t *config)
     }
     return _sigmadelta_config(SIGMADELTA_PORT_0, config);
 }
+
+#if !CONFIG_SDM_SKIP_LEGACY_CONFLICT_CHECK
+/**
+ * @brief This function will be called during start up, to check that sdm driver is not running along with the legacy sdm driver
+ */
+__attribute__((constructor))
+static void check_sdm_driver_conflict(void)
+{
+    // This function was declared as weak here. sdm driver has one implementation.
+    // So if sdm driver is not linked in, then `sdm_new_channel` should be NULL at runtime.
+    extern __attribute__((weak)) esp_err_t sdm_new_channel(const void *config, void **ret_unit);
+    if ((void *)sdm_new_channel != NULL) {
+        ESP_EARLY_LOGE(TAG, "CONFLICT! driver_ng is not allowed to be used with the legacy driver");
+        abort();
+    }
+    ESP_EARLY_LOGW(TAG, "legacy driver is deprecated, please migrate to `driver/sdm.h`");
+}
+#endif //CONFIG_PCNT_SKIP_LEGACY_CONFLICT_CHECK

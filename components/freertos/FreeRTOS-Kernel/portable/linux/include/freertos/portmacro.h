@@ -58,8 +58,8 @@ extern "C" {
 #define portPOINTER_SIZE_TYPE intptr_t
 
 typedef portSTACK_TYPE StackType_t;
-typedef long BaseType_t;
-typedef unsigned long UBaseType_t;
+typedef portBASE_TYPE BaseType_t;
+typedef unsigned portBASE_TYPE UBaseType_t;
 
 typedef unsigned long TickType_t;
 #define portMAX_DELAY ( TickType_t ) ULONG_MAX
@@ -91,17 +91,19 @@ extern void vPortEnableInterrupts( void );
 #define portSET_INTERRUPT_MASK()        ( vPortDisableInterrupts() )
 #define portCLEAR_INTERRUPT_MASK()      ( vPortEnableInterrupts() )
 
-extern portBASE_TYPE xPortSetInterruptMask( void );
-extern void vPortClearInterruptMask( portBASE_TYPE xMask );
+extern BaseType_t xPortSetInterruptMask( void );
+extern void vPortClearInterruptMask( BaseType_t xMask );
 
-extern void vPortEnterCritical( void );
-extern void vPortExitCritical( void );
+void vPortEnterCritical( void );
+void vPortExitCritical( void );
 #define portSET_INTERRUPT_MASK_FROM_ISR()       xPortSetInterruptMask()
 #define portCLEAR_INTERRUPT_MASK_FROM_ISR(x)    vPortClearInterruptMask(x)
 #define portDISABLE_INTERRUPTS()                portSET_INTERRUPT_MASK()
 #define portENABLE_INTERRUPTS()                 portCLEAR_INTERRUPT_MASK()
 #define portENTER_CRITICAL(mux)                 {(void)mux;  vPortEnterCritical();}
 #define portEXIT_CRITICAL(mux)                  {(void)mux;  vPortExitCritical();}
+#define portENTER_CRITICAL_SAFE(mux)            {(void)mux;  vPortEnterCritical();}
+#define portEXIT_CRITICAL_SAFE(mux)             {(void)mux;  vPortExitCritical();}
 #define portENTER_CRITICAL_ISR(mux)             portENTER_CRITICAL(mux)
 #define portEXIT_CRITICAL_ISR(mux)              portEXIT_CRITICAL(mux)
 
@@ -122,7 +124,7 @@ extern void vPortCancelThread( void *pxTaskToDelete );
  * are always a full memory barrier. ISRs are emulated as signals
  * which also imply a full memory barrier.
  *
- * Thus, only a compilier barrier is needed to prevent the compiler
+ * Thus, only a compiler barrier is needed to prevent the compiler
  * reordering.
  */
 #define portMEMORY_BARRIER() __asm volatile( "" ::: "memory" )
@@ -137,5 +139,7 @@ extern unsigned long ulPortGetRunTime( void );
 
 // We need additional definitions for ESP-IDF code
 #include "portmacro_idf.h"
+
+void vPortSetStackWatchpoint(void *pxStackStart);
 
 #endif /* PORTMACRO_H */

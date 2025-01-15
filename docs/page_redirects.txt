@@ -69,6 +69,7 @@ api-guides/ulps2_instruction_set                api-reference/system/ulp_instruc
 api-guides/ulp_macros                           api-reference/system/ulp_macros
 api-guides/ulp-risc-v                           api-reference/system/ulp-risc-v
 api-guides/console                              api-reference/system/console
+api-guides/event-handling                       api-reference/system/esp_event
 
 api-reference/network/tcpip_adapter             migration-guides/tcpip-adapter
 api-reference/system/system                     api-reference/system/misc_system_api
@@ -79,6 +80,7 @@ api-reference/peripherals/sigmadelta            api-reference/peripherals/sdm
 
 # The 'secure boot' guides are now 'secure boot v1' guides
 security/secure-boot                           security/secure-boot-v1
+security/host-based-security-workflows         security/security-features-enablement-workflows
 
 # Since ESP32-S2, hw-reference URLs are now namespaced by chip
 hw-reference/get-started-devkitc                hw-reference/esp32/get-started-devkitc
@@ -103,3 +105,6 @@ get-started/macos-setup-scratch                 get-started/linux-macos-setup
 get-started/toolchain-setup-scratch             get-started/index
 get-started/eclipse-setup                       get-started/index
 get-started/vscode-setup                        get-started/index
+
+# Kconfig documentation got pretty serious file structure changes
+api-reference/kconfig                          api-reference/kconfig-reference

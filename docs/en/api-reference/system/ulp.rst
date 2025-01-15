@@ -1,9 +1,9 @@
-ULP Coprocessor programming
+ULP Coprocessor Programming
 =============================
 
 :link_to_translation:`zh_CN:[中文]`
 
-The Ultra Low Power (ULP) coprocessor is a simple finite state machine (FSM) which is designed to perform measurements using the ADC, temperature sensor, and external I2C sensors, while the main processors are in deep sleep mode. The ULP coprocessor can access the RTC_SLOW_MEM memory region, and registers in the RTC_CNTL, RTC_IO, and SARADC peripherals. The ULP coprocessor uses fixed-width 32-bit instructions, 32-bit memory addressing, and has 4 general-purpose 16-bit registers. This coprocessor is referred to as `ULP FSM` in ESP-IDF.
+The Ultra Low Power (ULP) coprocessor is a simple finite state machine (FSM) which is designed to perform measurements using the ADC, temperature sensor, and external I2C sensors, while the main processors are in Deep-sleep mode. The ULP coprocessor can access the ``RTC_SLOW_MEM`` memory region, and registers in the ``RTC_CNTL``, ``RTC_IO``, and ``SARADC`` peripherals. The ULP coprocessor uses fixed-width 32-bit instructions, 32-bit memory addressing, and has 4 general-purpose 16-bit registers. This coprocessor is referred to as ``ULP FSM`` in ESP-IDF.
 
 .. only:: esp32s2 or esp32s3
 
@@ -19,7 +19,7 @@ If you have already set up ESP-IDF with CMake build system according to the :doc
 Programming ULP FSM
 -------------------
 
-The ULP FSM can be programmed using the supported instruction set. Alternatively, the ULP FSM coprocessor can also be programmed using C Macros on the main CPU. Theses two methods are described in the following section:
+The ULP FSM can be programmed using the supported instruction set. Alternatively, the ULP FSM coprocessor can also be programmed using C Macros on the main CPU. These two methods are described in the following section:
 
 .. toctree::
    :maxdepth: 1
@@ -32,9 +32,11 @@ Compiling the ULP Code
 
 To compile the ULP FSM code as part of the component, the following steps must be taken:
 
-1. The ULP FSM code, written in assembly, must be added to one or more files with `.S` extension. These files must be placed into a separate directory inside the component directory, for instance, `ulp/`.
+1. The ULP FSM code, written in assembly, must be added to one or more files with ``.S`` extension. These files must be placed into a separate directory inside the component directory, for instance, ``ulp/``.
 
-.. note:: When registering the component (via ``idf_component_register``), this directory should not be added to the ``SRC_DIRS`` argument. The logic behind this is that the ESP-IDF build system will compile files found in ``SRC_DIRS`` based on their extensions. For ``.S`` files, ``{IDF_TARGET_TOOLCHAIN_PREFIX}-as`` assembler is used. This is not desirable for ULP FSM assembly files, so the easiest way to achieve the distinction is by placing ULP FSM assembly files into a separate directory. The ULP FSM assembly source files should also **not** be added to ``SRCS`` for the same reason. See the step below for how to properly add ULP FSM assembly source files.
+.. note::
+
+    When registering the component (via ``idf_component_register``), this directory should not be added to the ``SRC_DIRS`` argument. The logic behind this is that the ESP-IDF build system will compile files found in ``SRC_DIRS`` based on their extensions. For ``.S`` files, ``{IDF_TARGET_TOOLCHAIN_PREFIX}-as`` assembler is used. This is not desirable for ULP FSM assembly files, so the easiest way to achieve the distinction is by placing ULP FSM assembly files into a separate directory. The ULP FSM assembly source files should also **not** be added to ``SRCS`` for the same reason. See the steps below for how to properly add ULP FSM assembly source files.
 
 2. Call ``ulp_embed_binary`` from the component CMakeLists.txt after registration. For example::
 
@@ -49,7 +51,23 @@ To compile the ULP FSM code as part of the component, the following steps must b
 
 The first argument to ``ulp_embed_binary`` specifies the ULP FSM binary name. The name specified here will also be used by other generated artifacts such as the ELF file, map file, header file and linker export file. The second argument specifies the ULP FSM assembly source files. Finally, the third argument specifies the list of component source files which include the header file to be generated. This list is needed to build the dependencies correctly and ensure that the generated header file will be created before any of these files are compiled. See the section below for the concept of generated header files for ULP applications.
 
-3. Build the application as usual (e.g. `idf.py app`).
+Variables in the ULP code will be prefixed with ``ulp_`` (default value) in this generated header file.
+
+If you need to embed multiple ULP programs, you may add a custom prefix in order to avoid conflicting variable names like this:
+
+.. code-block:: cmake
+
+    idf_component_register()
+
+    set(ulp_app_name ulp_${COMPONENT_NAME})
+    set(ulp_sources "ulp/ulp_c_source_file.c" "ulp/ulp_assembly_source_file.S")
+    set(ulp_exp_dep_srcs "ulp_c_source_file.c")
+
+    ulp_embed_binary(${ulp_app_name} "${ulp_sources}" "${ulp_exp_dep_srcs}" PREFIX "ULP::")
+
+The additional PREFIX argument can be a C style prefix (like ``ulp2_``) or a C++ style prefix (like ``ULP::``).
+
+3. Build the application as usual (e.g., ``idf.py app``).
 
    Inside, the build system will take the following steps to build ULP FSM program:
 
@@ -74,7 +92,7 @@ Accessing the ULP FSM Program Variables
 
 Global symbols defined in the ULP FSM program may be used inside the main program.
 
-For example, the ULP FSM program may define a variable ``measurement_count`` which will define the number of ADC measurements the program needs to make before waking up the chip from deep sleep::
+For example, the ULP FSM program may define a variable ``measurement_count`` which will define the number of ADC measurements the program needs to make before waking up the chip from Deep-sleep::
 
                             .global measurement_count
     measurement_count:      .long 0
@@ -106,7 +124,7 @@ To access the ULP program variables from the main program, the generated header 
 
 .. only:: esp32
 
-    Note that the ULP FSM program can only use the lower 16 bits of each 32-bit word in RTC memory, because the registers are 16-bit, and there is no instruction to load from the high part of the word. Likewise, the ULP store instruction writes register values into the lower 16 bits of the 32-bit word in RTC memory. The upper 16 bits are written with a value which depends on the address of the store instruction, thus when reading variables written by the ULP coprocessor, the main application needs to mask the upper 16 bits, e.g.::
+    Note that the ULP FSM program can only use the lower 16 bits of each 32-bit word in RTC memory, because the registers are 16-bit, and there is no instruction to load from the high part of the word. Likewise, the ULP store instruction writes register values into the lower 16 bits of the 32-bit word in RTC memory. The upper 16 bits are written with a value which depends on the address of the store instruction, thus when reading variables written by the ULP coprocessor, the main application needs to mask the upper 16 bits, e.g.,::
 
         printf("Last measurement value: %d\n", ulp_last_measurement & UINT16_MAX);
 
@@ -142,7 +160,7 @@ Declaration of the entry point symbol comes from the generated header file menti
 
 .. only:: esp32
 
-    ESP32 ULP program flow
+    ESP32 ULP Program Flow
     -----------------------
 
     ESP32 ULP coprocessor is started by a timer. The timer is started once :cpp:func:`ulp_run` is called. The timer counts a number of RTC_SLOW_CLK ticks (by default, produced by an internal 150 kHz RC oscillator). The number of ticks is set using ``SENS_ULP_CP_SLEEP_CYCx_REG`` registers (x = 0..4). When starting the ULP for the first time, ``SENS_ULP_CP_SLEEP_CYC0_REG`` will be used to set the number of timer ticks. Later the ULP program can select another ``SENS_ULP_CP_SLEEP_CYCx_REG`` register using ``sleep`` instruction.
@@ -158,7 +176,7 @@ Declaration of the entry point symbol comes from the generated header file menti
 
 .. only:: esp32s2 or esp32s3
 
-    {IDF_TARGET_NAME} ULP program flow
+    {IDF_TARGET_NAME} ULP Program Flow
     ----------------------------------
 
     {IDF_TARGET_NAME} ULP coprocessor is started by a timer. The timer is started once :cpp:func:`ulp_run` is called. The timer counts a number of RTC_SLOW_CLK ticks (by default, produced by an internal 90 kHz RC oscillator). The number of ticks is set using ``RTC_CNTL_ULP_CP_TIMER_1_REG`` register.
@@ -174,14 +192,16 @@ Declaration of the entry point symbol comes from the generated header file menti
 Application Examples
 --------------------
 
-* ULP FSM Coprocessor counts pulses on an IO while main CPU is in deep sleep: :example:`system/ulp_fsm/ulp`.
-* ULP FSM Coprocessor polls ADC in while main CPU is in deep sleep: :example:`system/ulp_fsm/ulp_adc`.
+* :example:`system/ulp/ulp_fsm/ulp` demonstrates how to program the ULP FSM coprocessor to count pulses on an IO while the main CPUs are running other code or are in deep sleep, with the pulse count saved into NVS upon wakeup.
+
+.. only:: esp32 or esp32s3
+
+    * :example:`system/ulp/ulp_fsm/ulp_adc` demonstrates how to use the ULP FSM coprocessor to periodically measure input voltage on a specific ADC channel during deep sleep, compare it to the set threshold, and wake up the system if the voltage is outside the threshold.
 
 API Reference
 -------------
 
 .. include-build-file:: inc/ulp_fsm_common.inc
 .. include-build-file:: inc/ulp_common.inc
-.. include-build-file:: inc/ulp_common_defs.inc
 
 .. _binutils-esp32ulp toolchain: https://github.com/espressif/binutils-gdb

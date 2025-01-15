@@ -1,18 +1,11 @@
-# SPDX-FileCopyrightText: 2018-2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 #
-
-from __future__ import print_function
-
 import socket
+from http.client import HTTPConnection
+from http.client import HTTPSConnection
 
-from future.utils import tobytes
-
-try:
-    from http.client import HTTPConnection, HTTPSConnection
-except ImportError:
-    # Python 2 fallback
-    from httplib import HTTPConnection, HTTPSConnection  # type: ignore
+from utils import str_to_bytes
 
 from .transport import Transport
 
@@ -20,7 +13,7 @@ from .transport import Transport
 class Transport_HTTP(Transport):
     def __init__(self, hostname, ssl_context=None):
         try:
-            socket.gethostbyname(hostname.split(':')[0])
+            socket.getaddrinfo(hostname.split(':')[0], None)
         except socket.gaierror:
             raise RuntimeError(f'Unable to resolve hostname: {hostname}')
 
@@ -36,13 +29,14 @@ class Transport_HTTP(Transport):
         self.headers = {'Content-type': 'application/x-www-form-urlencoded','Accept': 'text/plain'}
 
     def _send_post_request(self, path, data):
+        data = str_to_bytes(data) if isinstance(data, str) else data
         try:
-            self.conn.request('POST', path, tobytes(data), self.headers)
+            self.conn.request('POST', path, data, self.headers)
             response = self.conn.getresponse()
             # While establishing a session, the device sends the Set-Cookie header
             # with value 'session=cookie_session_id' in its first response of the session to the tool.
             # To maintain the same session, successive requests from the tool should include
-            # an additional 'Cookie' header with the above recieved value.
+            # an additional 'Cookie' header with the above received value.
             for hdr_key, hdr_val in response.getheaders():
                 if hdr_key == 'Set-Cookie':
                     self.headers['Cookie'] = hdr_val

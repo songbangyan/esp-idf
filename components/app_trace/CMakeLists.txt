@@ -1,7 +1,18 @@
+idf_build_get_property(target IDF_TARGET)
+
+if(${target} STREQUAL "linux")
+    return() # This component is not supported by the POSIX/Linux simulator
+endif()
+
 set(srcs
     "app_trace.c"
     "app_trace_util.c"
     "host_file_io.c")
+
+if(CONFIG_ESP_DEBUG_STUBS_ENABLE)
+    list(APPEND srcs
+        "debug_stubs.c")
+endif()
 
 if(CONFIG_APPTRACE_GCOV_ENABLE)
     if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
@@ -49,16 +60,15 @@ endif()
 
 if(CONFIG_HEAP_TRACING_TOHOST)
     list(APPEND srcs "heap_trace_tohost.c")
-    set_source_files_properties(heap_trace_tohost.c
-        PROPERTIES COMPILE_FLAGS
-        -Wno-frame-address)
+    if(CONFIG_IDF_TARGET_ARCH_XTENSA)
+        set_source_files_properties(heap_trace_tohost.c PROPERTIES COMPILE_FLAGS -Wno-frame-address)
+    endif()
 endif()
 
 idf_component_register(SRCS "${srcs}"
                        INCLUDE_DIRS "${include_dirs}"
                        PRIV_INCLUDE_DIRS "${priv_include_dirs}"
-                       # Requires "driver" for GPTimer in "SEGGER_SYSVIEW_Config_FreeRTOS.c"
-                       PRIV_REQUIRES soc driver
+                       PRIV_REQUIRES esp_driver_gptimer esp_driver_gpio esp_driver_uart
                        REQUIRES esp_timer
                        LDFRAGMENTS linker.lf)
 
@@ -66,6 +76,12 @@ idf_component_register(SRCS "${srcs}"
 idf_component_get_property(app_trace app_trace COMPONENT_LIB)
 
 if(CONFIG_APPTRACE_GCOV_ENABLE)
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        # Coverage info is not supported when clang is used
+        # TODO: LLVM-214
+        message(FATAL_ERROR "Coverage info is not supported when building with Clang!")
+    endif()
+
     # The original Gcov library from toolchain will be objcopy with symbols redefinitions (see file gcov/io_sym.map).
     # This needs because ESP has no file-system onboard, and redefined functions solves this problem and transmits
     # output file to host PC.
@@ -104,17 +120,4 @@ if(CONFIG_APPTRACE_GCOV_ENABLE)
     target_link_libraries(${COMPONENT_LIB} INTERFACE ${GCOV_LIB} $<TARGET_FILE:${app_trace}> c)
 else()
     target_link_libraries(${COMPONENT_LIB} INTERFACE $<TARGET_FILE:${app_trace}> c)
-endif()
-
-# This function adds a dependency on the given component if the component is included into the build.
-function(maybe_add_component component_name)
-    idf_build_get_property(components BUILD_COMPONENTS)
-    if(${component_name} IN_LIST components)
-        idf_component_get_property(lib_name ${component_name} COMPONENT_LIB)
-        target_link_libraries(${COMPONENT_LIB} PUBLIC ${lib_name})
-    endif()
-endfunction()
-
-if(CONFIG_APPTRACE_DEST_UART0 OR CONFIG_APPTRACE_DEST_UART1 OR CONFIG_APPTRACE_DEST_UART2)
-    maybe_add_component(driver)
 endif()

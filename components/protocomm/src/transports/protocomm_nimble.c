@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -69,6 +69,7 @@ typedef struct _protocomm_ble {
     ssize_t g_nu_lookup_count;
     uint16_t gatt_mtu;
     unsigned ble_link_encryption:1;
+    unsigned ble_notify:1;
 } _protocomm_ble_internal_t;
 
 static _protocomm_ble_internal_t *protoble_internal;
@@ -79,6 +80,7 @@ static struct ble_hs_adv_fields adv_data, resp_data;
 static uint8_t *protocomm_ble_mfg_data;
 static size_t protocomm_ble_mfg_data_len;
 
+static uint8_t *protocomm_ble_addr;
 /**********************************************************************
 * Maintain database of uuid_name addresses to free memory afterwards  *
 **********************************************************************/
@@ -130,6 +132,12 @@ typedef struct {
     unsigned ble_sm_sc:1;
     /** BLE Link Encryption flag */
     unsigned ble_link_encryption:1;
+    /** BLE address */
+    uint8_t *ble_addr;
+    /**  Flag to keep BLE on */
+    unsigned keep_ble_on:1;
+    /** BLE Characteristic notify flag */
+    unsigned ble_notify:1;
 } simple_ble_cfg_t;
 
 static simple_ble_cfg_t *ble_cfg_p;
@@ -256,11 +264,19 @@ simple_ble_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_MTU:
-        ESP_LOGI(TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d\n",
+        ESP_LOGI(TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d",
                  event->mtu.conn_handle,
                  event->mtu.channel_id,
                  event->mtu.value);
         transport_simple_ble_set_mtu(event, arg);
+        return 0;
+    case BLE_GAP_EVENT_NOTIFY_TX:
+        ESP_LOGI(TAG, "notify_tx event; conn_handle=%d attr_handle=%d "
+                    "status=%d is_indication=%d",
+                    event->notify_tx.conn_handle,
+                    event->notify_tx.attr_handle,
+                    event->notify_tx.status,
+                    event->notify_tx.indication);
         return 0;
     }
     return 0;
@@ -323,8 +339,8 @@ gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         rc = simple_ble_gatts_get_attr_value(attr_handle, &temp_outlen,
                                              &temp_outbuf);
         if (rc != 0) {
-            ESP_LOGE(TAG, "Failed to read characteristic with attr_handle = %d", attr_handle);
-            return rc;
+            ESP_LOGE(TAG, "Characteristic with attr_handle = %d is not added to the list", attr_handle);
+            return 0;
         }
 
         rc = os_mbuf_append(ctxt->om, temp_outbuf, temp_outlen);
@@ -453,7 +469,7 @@ gatt_svr_init(const simple_ble_cfg_t *config)
 static void
 simple_ble_on_reset(int reason)
 {
-    ESP_LOGE(TAG, "Resetting state; reason=%d\n", reason);
+    ESP_LOGE(TAG, "Resetting state; reason=%d", reason);
 }
 
 static void
@@ -461,16 +477,31 @@ simple_ble_on_sync(void)
 {
     int rc;
 
-    rc = ble_hs_util_ensure_addr(0);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "Error loading address");
-        return;
+    if (protocomm_ble_addr) {
+         rc = ble_hs_id_set_rnd(protocomm_ble_addr);
+	 if (rc != 0) {
+             ESP_LOGE(TAG,"Error in setting address");
+	     return;
+	 }
+
+         rc = ble_hs_util_ensure_addr(1);
+	 if (rc != 0) {
+             ESP_LOGE(TAG,"Error loading address");
+	     return;
+	 }
+    }
+    else {
+        rc = ble_hs_util_ensure_addr(0);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "Error loading address");
+            return;
+        }
     }
 
     /* Figure out address to use while advertising (no privacy for now) */
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0) {
-        ESP_LOGE(TAG, "error determining address type; rc=%d\n", rc);
+        ESP_LOGE(TAG, "error determining address type; rc=%d", rc);
         return;
     }
 
@@ -556,13 +587,12 @@ static void transport_simple_ble_disconnect(struct ble_gap_event *event, void *a
     ESP_LOGD(TAG, "Inside disconnect w/ session - %d",
              event->disconnect.conn.conn_handle);
 
-#ifdef CONFIG_WIFI_PROV_KEEP_BLE_ON_AFTER_PROV
     /* Ignore BLE events received after protocomm layer is stopped */
     if (protoble_internal == NULL) {
         ESP_LOGI(TAG,"Protocomm layer has already stopped");
         return;
     }
-#endif
+
     if (protoble_internal->pc_ble->sec &&
             protoble_internal->pc_ble->sec->close_transport_session) {
         ret =
@@ -570,7 +600,14 @@ static void transport_simple_ble_disconnect(struct ble_gap_event *event, void *a
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "error closing the session after disconnect");
         } else {
-            if (esp_event_post(PROTOCOMM_TRANSPORT_BLE_EVENT, PROTOCOMM_TRANSPORT_BLE_DISCONNECTED, NULL, 0, portMAX_DELAY) != ESP_OK) {
+            protocomm_ble_event_t ble_event = {};
+            /* Assign the event type */
+            ble_event.evt_type = PROTOCOMM_TRANSPORT_BLE_DISCONNECTED;
+            /* Set the Disconnection handle */
+            ble_event.conn_handle = event->disconnect.conn.conn_handle;
+            ble_event.disconnect_reason = event->disconnect.reason;
+
+            if (esp_event_post(PROTOCOMM_TRANSPORT_BLE_EVENT, PROTOCOMM_TRANSPORT_BLE_DISCONNECTED, &ble_event, sizeof(protocomm_ble_event_t), portMAX_DELAY) != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to post transport disconnection event");
             }
         }
@@ -582,6 +619,13 @@ static void transport_simple_ble_connect(struct ble_gap_event *event, void *arg)
 {
     esp_err_t ret;
     ESP_LOGD(TAG, "Inside BLE connect w/ conn_id - %d", event->connect.conn_handle);
+
+    /* Ignore BLE events received after protocomm layer is stopped */
+    if (protoble_internal == NULL) {
+        ESP_LOGI(TAG,"Protocomm layer has already stopped");
+        return;
+    }
+
     if (protoble_internal->pc_ble->sec &&
             protoble_internal->pc_ble->sec->new_transport_session) {
         ret =
@@ -589,7 +633,14 @@ static void transport_simple_ble_connect(struct ble_gap_event *event, void *arg)
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "error creating the session");
         } else {
-            if (esp_event_post(PROTOCOMM_TRANSPORT_BLE_EVENT, PROTOCOMM_TRANSPORT_BLE_CONNECTED, NULL, 0, portMAX_DELAY) != ESP_OK) {
+            protocomm_ble_event_t ble_event = {};
+            /* Assign the event type */
+            ble_event.evt_type = PROTOCOMM_TRANSPORT_BLE_CONNECTED;
+            /* Set the Connection handle */
+            ble_event.conn_handle = event->connect.conn_handle;
+            ble_event.conn_status = event->connect.status;
+
+            if (esp_event_post(PROTOCOMM_TRANSPORT_BLE_EVENT, PROTOCOMM_TRANSPORT_BLE_CONNECTED, &ble_event, sizeof(protocomm_ble_event_t), portMAX_DELAY) != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to post transport pairing event");
             }
         }
@@ -677,6 +728,10 @@ ble_gatt_add_characteristics(struct ble_gatt_chr_def *characteristics, int idx)
                                         BLE_GATT_CHR_F_WRITE_ENC;
     }
 
+    if (protoble_internal->ble_notify) {
+        (characteristics + idx)->flags |= BLE_GATT_CHR_F_NOTIFY;
+    }
+
     (characteristics + idx)->access_cb = gatt_svr_chr_access;
 
     /* Out of 128 bit UUID, 16 bits from g_nu_lookup table. Currently
@@ -707,7 +762,7 @@ ble_gatt_add_primary_svcs(struct ble_gatt_svc_def *gatt_db_svcs, int char_count)
     gatt_db_svcs->type = BLE_GATT_SVC_TYPE_PRIMARY;
 
     /* Allocate (number of characteristics + 1) memory for characteristics, the
-     * addtional characteristic consist of all 0s indicating end of
+     * additional characteristic consist of all 0s indicating end of
      * characteristics */
     gatt_db_svcs->characteristics = (struct ble_gatt_chr_def *) calloc((char_count + 1),
                                     sizeof(struct ble_gatt_chr_def));
@@ -761,7 +816,7 @@ populate_gatt_db(struct ble_gatt_svc_def **gatt_db_svcs, const protocomm_ble_con
         rc = ble_gatt_add_char_dsc((void *) (*gatt_db_svcs)->characteristics,
                                    i, BLE_GATT_UUID_CHAR_DSC);
         if (rc != 0) {
-            ESP_LOGE(TAG, "Error adding GATT Discriptor !!");
+            ESP_LOGE(TAG, "Error adding GATT Descriptor !!");
             return rc;
         }
     }
@@ -792,6 +847,11 @@ static void protocomm_ble_cleanup(void)
         free(protocomm_ble_mfg_data);
         protocomm_ble_mfg_data = NULL;
         protocomm_ble_mfg_data_len = 0;
+    }
+
+    if (protocomm_ble_addr) {
+        free(protocomm_ble_addr);
+        protocomm_ble_addr = NULL;
     }
 }
 
@@ -929,6 +989,7 @@ esp_err_t protocomm_ble_start(protocomm_t *pc, const protocomm_ble_config_t *con
     protoble_internal->pc_ble = pc;
     protoble_internal->gatt_mtu = BLE_ATT_MTU_DFLT;
     protoble_internal->ble_link_encryption = config->ble_link_encryption;
+    protoble_internal->ble_notify = config->ble_notify;
 
     simple_ble_cfg_t *ble_config = (simple_ble_cfg_t *) calloc(1, sizeof(simple_ble_cfg_t));
     if (ble_config == NULL) {
@@ -950,11 +1011,17 @@ esp_err_t protocomm_ble_start(protocomm_t *pc, const protocomm_ble_config_t *con
     ble_config->ble_bonding     = config->ble_bonding;
     ble_config->ble_sm_sc       = config->ble_sm_sc;
 
+    if (config->ble_addr != NULL) {
+        protocomm_ble_addr = config->ble_addr;
+    }
+
     if (populate_gatt_db(&ble_config->gatt_db, config) != 0) {
         ESP_LOGE(TAG, "Error populating GATT Database");
         free_gatt_ble_misc_memory(ble_config);
         return ESP_ERR_NO_MEM;
     }
+
+    ble_config->keep_ble_on = config->keep_ble_on;
 
     esp_err_t err = simple_ble_start(ble_config);
     ESP_LOGD(TAG, "Free Heap size after simple_ble_start= %" PRIu32, esp_get_free_heap_size());
@@ -984,22 +1051,24 @@ esp_err_t protocomm_ble_stop(protocomm_t *pc)
                      rc);
         }
 
-#ifndef CONFIG_WIFI_PROV_KEEP_BLE_ON_AFTER_PROV
-	/* If flag is enabled, don't stop the stack. User application can start a new advertising to perform its BT activities */
+    if (ble_cfg_p->keep_ble_on) {
+#ifdef CONFIG_ESP_PROTOCOMM_DISCONNECT_AFTER_BLE_STOP
+       /* Keep BT stack on, but terminate the connection after provisioning */
+       rc = ble_gap_terminate(s_cached_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+       if (rc) {
+           ESP_LOGI(TAG, "Error in terminating connection rc = %d",rc);
+       }
+       free_gatt_ble_misc_memory(ble_cfg_p);
+#endif // CONFIG_ESP_PROTOCOMM_DISCONNECT_AFTER_BLE_STOP
+    }
+    else {
+	    /* If flag is enabled, don't stop the stack. User application can start a new advertising to perform its BT activities */
         ret = nimble_port_stop();
         if (ret == 0) {
             nimble_port_deinit();
         }
-#else
-#ifdef CONFIG_WIFI_PROV_DISCONNECT_AFTER_PROV
-	/* Keep BT stack on, but terminate the connection after provisioning */
-	rc = ble_gap_terminate(s_cached_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-	if (rc) {
-	    ESP_LOGI(TAG, "Error in terminating connection rc = %d",rc);
-	}
-	free_gatt_ble_misc_memory(ble_cfg_p);
-#endif // CONFIG_WIFI_PROV_DISCONNECT_AFTER_PROV
-#endif // CONFIG_WIFI_PROV_KEEP_BLE_ON_AFTER_PROV
+        free_gatt_ble_misc_memory(ble_cfg_p);
+    }
 
         protocomm_ble_cleanup();
         return ret;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -124,7 +124,7 @@ static int blecent_write(uint16_t conn_handle, uint16_t val_handle,
 		goto label;
 	    }
 	    else if (rc != 0) {
-            	ESP_LOGE(tag, "Error: Failed to write characteristic; rc=%d\n",rc);
+            	ESP_LOGE(tag, "Error: Failed to write characteristic; rc=%d",rc);
             	goto err;
         }
 
@@ -401,7 +401,7 @@ blecent_scan(void)
     rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params,
                       blecent_gap_event, NULL);
     if (rc != 0) {
-        ESP_LOGE(tag, "Error initiating GAP discovery procedure; rc=%d\n",
+        ESP_LOGE(tag, "Error initiating GAP discovery procedure; rc=%d",
                  rc);
     }
 }
@@ -420,7 +420,7 @@ blecent_should_connect(const struct ble_gap_disc_desc *disc)
 
     rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
     if (rc != 0) {
-        return rc;
+        return 0;
     }
 
     if (strlen(CONFIG_EXAMPLE_PEER_ADDR) && (strncmp(CONFIG_EXAMPLE_PEER_ADDR, "ADDR_ANY", strlen("ADDR_ANY")) != 0)) {
@@ -471,17 +471,19 @@ blecent_connect_if_interesting(const struct ble_gap_disc_desc *disc)
         return;
     }
 
+#if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
     /* Scanning must be stopped before a connection can be initiated. */
     rc = ble_gap_disc_cancel();
     if (rc != 0) {
         MODLOG_DFLT(DEBUG, "Failed to cancel scan; rc=%d\n", rc);
         return;
     }
+#endif
 
     /* Figure out address to use for connect (no privacy for now) */
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0) {
-        ESP_LOGE(tag, "error determining address type; rc=%d\n", rc);
+        ESP_LOGE(tag, "error determining address type; rc=%d", rc);
         return;
     }
 
@@ -529,20 +531,20 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
             return 0;
         }
 
-        /* An advertisment report was received during GAP discovery. */
+        /* An advertisement report was received during GAP discovery. */
         print_adv_fields(&fields);
 
         /* Try to connect to the advertiser if it looks interesting. */
         blecent_connect_if_interesting(&event->disc);
         return 0;
 
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed. */
-        if (event->connect.status == 0) {
+        if (event->link_estab.status == 0) {
             /* Connection successfully established. */
             /* XXX Set packet length in controller for better throughput */
             ESP_LOGI(tag, "Connection established ");
-            rc = ble_hs_hci_util_set_data_len(event->connect.conn_handle,
+            rc = ble_hs_hci_util_set_data_len(event->link_estab.conn_handle,
                                               LL_PACKET_LENGTH, LL_PACKET_TIME);
             if (rc != 0) {
                 ESP_LOGE(tag, "Set packet length failed; rc = %d", rc);
@@ -553,29 +555,29 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
                 ESP_LOGE(tag, "Failed to set preferred MTU; rc = %d", rc);
             }
 
-            rc = ble_gattc_exchange_mtu(event->connect.conn_handle, NULL, NULL);
+            rc = ble_gattc_exchange_mtu(event->link_estab.conn_handle, NULL, NULL);
             if (rc != 0) {
                 ESP_LOGE(tag, "Failed to negotiate MTU; rc = %d", rc);
             }
 
-            rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+            rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
             print_conn_desc(&desc);
 
-            rc = ble_gap_update_params(event->connect.conn_handle, &conn_params);
+            rc = ble_gap_update_params(event->link_estab.conn_handle, &conn_params);
             if (rc != 0) {
                 ESP_LOGE(tag, "Failed to update params; rc = %d", rc);
             }
 
             /* Remember peer. */
-            rc = peer_add(event->connect.conn_handle);
+            rc = peer_add(event->link_estab.conn_handle);
             if (rc != 0) {
                 ESP_LOGE(tag, "Failed to add peer; rc = %d", rc);
                 return 0;
             }
 
             /* Perform service discovery. */
-            rc = peer_disc_all(event->connect.conn_handle,
+            rc = peer_disc_all(event->link_estab.conn_handle,
                                blecent_on_disc_complete, NULL);
             if (rc != 0) {
                 ESP_LOGE(tag, "Failed to discover services; rc = %d", rc);
@@ -584,7 +586,7 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
         } else {
             /* Connection attempt failed; resume scanning. */
             ESP_LOGE(tag, "Error: Connection failed; status = %d",
-                     event->connect.status);
+                     event->link_estab.status);
             blecent_scan();
         }
 
@@ -592,9 +594,9 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISCONNECT:
         /* Connection terminated. */
-        ESP_LOGI(tag, "disconnect; reason=%d ", event->disconnect.reason);
+        ESP_LOGI(tag, "disconnect; reason=%d", event->disconnect.reason);
         print_conn_desc(&event->disconnect.conn);
-        ESP_LOGI(tag, "\n");
+        ESP_LOGI(tag, " ");
 
         /* Forget about peer. */
         peer_delete(event->disconnect.conn.conn_handle);
@@ -609,7 +611,7 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_ENC_CHANGE:
         /* Encryption has been enabled or disabled for this connection. */
-        ESP_LOGI(tag, "encryption change event; status = %d ",
+        ESP_LOGI(tag, "encryption change event; status = %d",
                  event->enc_change.status);
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
@@ -646,7 +648,7 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 static void
 blecent_on_reset(int reason)
 {
-    ESP_LOGE(tag, "Resetting state; reason=%d\n", reason);
+    ESP_LOGE(tag, "Resetting state; reason=%d", reason);
 }
 
 static void

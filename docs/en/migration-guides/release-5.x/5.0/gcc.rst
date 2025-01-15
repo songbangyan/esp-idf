@@ -1,4 +1,4 @@
-GCC 
+GCC
 ***
 
 :link_to_translation:`zh_CN:[中文]`
@@ -20,6 +20,7 @@ Warnings
 The upgrade to GCC 11.2.0 has resulted in the addition of new warnings, or enhancements to existing warnings. The full details of all GCC warnings can be found in `GCC Warning Options <https://gcc.gnu.org/onlinedocs/gcc-11.2.0/gcc/Warning-Options.html>`_. Users are advised to double-check their code, then fix the warnings if possible. Unfortunately, depending on the warning and the complexity of the user's code, some warnings will be false positives that require non-trivial fixes. In such cases, users can choose to suppress the warning in multiple ways. This section outlines some common warnings that users are likely to encounter, and ways to suppress them.
 
 .. warning::
+
     Users are advised to check that a warning is indeed a false positive before attempting to suppress them it.
 
 
@@ -103,18 +104,18 @@ The types ``int32_t`` and ``uint32_t`` have been changed from the previous ``int
    :widths: 20 45 35
    :header-rows: 1
 
-   * - 
+   * -
      - 2021r2 and older, GCC 8
      - 2022r1, GCC 11
    * - Xtensa
      - (unsigned) int
      - (unsigned) long
    * - riscv32
-     - (unsigned) long 
+     - (unsigned) long
      - (unsigned) long
 
 
-The change mostly affects code that formats strings using types provided by ``<inttypes.h>``. Users will need to replace placeholders such as ``%i`` and ``%x`` with ``PRIi32`` and ``PRIxx`` respectively.
+The change mostly affects code that formats strings using types provided by ``<inttypes.h>``. When using these fixed-width types (e.g., ``uint32_t``), users will need to replace placeholders such as ``%i`` and ``%x`` with ``PRIi32`` and ``PRIx32`` respectively. Types *not* defined in ``<inttypes.h>`` (e.g., ``int``) do *not* need this special formatting.
 
 In other cases, it should be noted that enums have the ``int`` type.
 
@@ -123,7 +124,7 @@ In common, ``int32_t`` and ``int``, as well as ``uint32_t`` and ``unsigned int``
 If users do not make the aforementioned updates to format strings in their applications, the following error will be reported during compilation:
 
 .. code-block:: none
-    
+
     /Users/name/esp/esp-rainmaker/components/esp-insights/components/esp_diagnostics/include/esp_diagnostics.h:238:29: error: format '%u' expects argument of type 'unsigned int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Werror=format=]
     238 |     esp_diag_log_event(tag, "EV (%u) %s: " format, esp_log_timestamp(), tag, ##__VA_ARGS__); \
         |                             ^~~~~~~~~~~~~~         ~~~~~~~~~~~~~~~~~~~

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,15 +7,12 @@
 
 #include "sdkconfig.h"
 #include "sys/queue.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <esp_err.h>
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#if !defined(CONFIG_HEAP_TRACING) && !defined(HEAP_TRACE_SRCFILE)
-#warning "esp_heap_trace.h is included but heap tracing is disabled in menuconfig, functions are no-ops"
 #endif
 
 #ifndef CONFIG_HEAP_TRACING_STACK_DEPTH
@@ -34,10 +31,14 @@ typedef struct heap_trace_record_t {
     uint32_t ccount; ///< CCOUNT of the CPU when the allocation was made. LSB (bit value 1) is the CPU number (0 or 1).
     void *address;   ///< Address which was allocated. If NULL, then this record is empty.
     size_t size;     ///< Size of the allocation
+    bool freed;      ///< State of the allocation (false if not freed, true if freed)
     void *alloced_by[CONFIG_HEAP_TRACING_STACK_DEPTH]; ///< Call stack of the caller which allocated the memory.
     void *freed_by[CONFIG_HEAP_TRACING_STACK_DEPTH];   ///< Call stack of the caller which freed the memory (all zero if not freed.)
-#ifdef CONFIG_HEAP_TRACING_STANDALONE
-    TAILQ_ENTRY(heap_trace_record_t) tailq; ///< Linked list: prev & next records
+#if CONFIG_HEAP_TRACING_STANDALONE
+    TAILQ_ENTRY(heap_trace_record_t) tailq_list; ///< Linked list: prev & next records
+#if CONFIG_HEAP_TRACE_HASH_MAP
+    SLIST_ENTRY(heap_trace_record_t) slist_hashmap; ///< Linked list: next in hashmap entry list
+#endif // CONFIG_HEAP_TRACE_HASH_MAP
 #endif // CONFIG_HEAP_TRACING_STANDALONE
 } heap_trace_record_t;
 
@@ -52,6 +53,10 @@ typedef struct {
     size_t capacity;                 ///< The capacity of the internal buffer
     size_t high_water_mark;          ///< The maximum value that 'count' got to
     size_t has_overflowed;           ///< True if the internal buffer overflowed at some point
+#if CONFIG_HEAP_TRACE_HASH_MAP
+    size_t total_hashmap_hits;       ///< If hashmap is used, the total number of hits
+    size_t total_hashmap_miss;       ///< If hashmap is used, the total number of misses (possibly due to overflow)
+#endif
 } heap_trace_summary_t;
 
 /**
@@ -105,9 +110,24 @@ esp_err_t heap_trace_start(heap_trace_mode_t mode);
  * @return
  * - ESP_ERR_NOT_SUPPORTED Project was compiled without heap tracing enabled in menuconfig.
  * - ESP_ERR_INVALID_STATE Heap tracing was not in progress.
- * - ESP_OK Heap tracing stopped..
+ * - ESP_OK Heap tracing stopped.
  */
 esp_err_t heap_trace_stop(void);
+
+/**
+ * @brief Pause heap tracing of allocations.
+ *
+ * @note This function puts the heap tracing in the state where the new allocations
+ * will no longer be traced but the free will still be. This can be used to e.g.,
+ * strategically monitor a set of allocations to make sure each of them will get freed
+ * without polluting the list of records with unwanted allocations.
+ *
+ * @return
+ * - ESP_ERR_NOT_SUPPORTED Project was compiled without heap tracing enabled in menuconfig.
+ * - ESP_ERR_INVALID_STATE Heap tracing was not in progress.
+ * - ESP_OK Heap tracing paused.
+ */
+esp_err_t heap_trace_alloc_pause(void);
 
 /**
  * @brief Resume heap tracing which was previously stopped.

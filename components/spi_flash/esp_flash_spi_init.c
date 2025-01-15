@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,7 +14,8 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "hal/spi_types.h"
-#include "esp_private/spi_common_internal.h"
+#include "esp_private/spi_share_hw_ctrl.h"
+#include "esp_ldo_regulator.h"
 #include "hal/spi_flash_hal.h"
 #include "hal/gpio_hal.h"
 #include "esp_flash_internal.h"
@@ -24,6 +25,7 @@
 #include "esp_spi_flash_counters.h"
 #include "esp_rom_spiflash.h"
 #include "bootloader_flash.h"
+#include "esp_check.h"
 
 __attribute__((unused)) static const char TAG[] = "spi_flash";
 
@@ -36,12 +38,16 @@ esp_flash_t *esp_flash_default_chip = NULL;
 #define DEFAULT_FLASH_SPEED 120
 #elif defined CONFIG_ESPTOOLPY_FLASHFREQ_80M
 #define DEFAULT_FLASH_SPEED 80
+#elif defined CONFIG_ESPTOOLPY_FLASHFREQ_64M
+#define DEFAULT_FLASH_SPEED 64
 #elif defined CONFIG_ESPTOOLPY_FLASHFREQ_60M
 #define DEFAULT_FLASH_SPEED 60
 #elif defined CONFIG_ESPTOOLPY_FLASHFREQ_48M
 #define DEFAULT_FLASH_SPEED 48
 #elif defined CONFIG_ESPTOOLPY_FLASHFREQ_40M
 #define DEFAULT_FLASH_SPEED 40
+#elif defined CONFIG_ESPTOOLPY_FLASHFREQ_32M
+#define DEFAULT_FLASH_SPEED 32
 #elif defined CONFIG_ESPTOOLPY_FLASHFREQ_30M
 #define DEFAULT_FLASH_SPEED 30
 #elif defined CONFIG_ESPTOOLPY_FLASHFREQ_26M
@@ -93,26 +99,7 @@ esp_flash_t *esp_flash_default_chip = NULL;
     .input_delay_ns = 0,\
     .cs_setup = 1,\
 }
-#elif CONFIG_IDF_TARGET_ESP32S2
-#define ESP_FLASH_HOST_CONFIG_DEFAULT()  (memspi_host_config_t){ \
-    .host_id = SPI1_HOST,\
-    .freq_mhz = DEFAULT_FLASH_SPEED, \
-    .cs_num = 0, \
-    .iomux = true, \
-    .input_delay_ns = 0,\
-    .cs_setup = 1,\
-}
-#elif CONFIG_IDF_TARGET_ESP32S3
-#include "esp32s3/rom/efuse.h"
-#define ESP_FLASH_HOST_CONFIG_DEFAULT()  (memspi_host_config_t){ \
-    .host_id = SPI1_HOST,\
-    .freq_mhz = DEFAULT_FLASH_SPEED, \
-    .cs_num = 0, \
-    .iomux = true, \
-    .input_delay_ns = 0,\
-    .cs_setup = 1,\
-}
-#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2
+#else // Other target
 #if !CONFIG_SPI_FLASH_AUTO_SUSPEND
 #define ESP_FLASH_HOST_CONFIG_DEFAULT()  (memspi_host_config_t){ \
     .host_id = SPI1_HOST,\
@@ -132,30 +119,11 @@ esp_flash_t *esp_flash_default_chip = NULL;
     .auto_sus_en = true,\
     .cs_setup = 1,\
 }
+#define TSUS_VAL_SUSPEND CONFIG_SPI_FLASH_SUSPEND_TSUS_VAL_US
 #endif //!CONFIG_SPI_FLASH_AUTO_SUSPEND
-#elif CONFIG_IDF_TARGET_ESP32H4
-#include "esp32h4/rom/efuse.h"
-#if !CONFIG_SPI_FLASH_AUTO_SUSPEND
-#define ESP_FLASH_HOST_CONFIG_DEFAULT()  (memspi_host_config_t){ \
-    .host_id = SPI1_HOST,\
-    .freq_mhz = DEFAULT_FLASH_SPEED, \
-    .cs_num = 0, \
-    .iomux = true, \
-    .input_delay_ns = 0,\
-}
-#else
-#define ESP_FLASH_HOST_CONFIG_DEFAULT()  (memspi_host_config_t){ \
-    .host_id = SPI1_HOST,\
-    .freq_mhz = DEFAULT_FLASH_SPEED, \
-    .cs_num = 0, \
-    .iomux = true, \
-    .input_delay_ns = 0,\
-    .auto_sus_en = true,\
-}
-#endif //!CONFIG_SPI_FLASH_AUTO_SUSPEND
-#endif
+#endif // Other target
 
-static IRAM_ATTR NOINLINE_ATTR void cs_initialize(esp_flash_t *chip, const esp_flash_spi_device_config_t *config, bool use_iomux, int cs_id)
+static IRAM_ATTR NOINLINE_ATTR void cs_initialize(esp_flash_t *chip, const esp_flash_spi_device_config_t *config, bool cs_use_iomux, int cs_id)
 {
     //Not using spicommon_cs_initialize since we don't want to put the whole
     //spi_periph_signal into the DRAM. Copy these data from flash before the
@@ -164,7 +132,6 @@ static IRAM_ATTR NOINLINE_ATTR void cs_initialize(esp_flash_t *chip, const esp_f
     int spics_in = spi_periph_signal[config->host_id].spics_in;
     int spics_out = spi_periph_signal[config->host_id].spics_out[cs_id];
     int spics_func = spi_periph_signal[config->host_id].func;
-    uint32_t iomux_reg = GPIO_PIN_MUX_REG[cs_io_num];
     gpio_hal_context_t gpio_hal = {
         .dev = GPIO_HAL_GET_HW(GPIO_PORT_0)
     };
@@ -172,9 +139,9 @@ static IRAM_ATTR NOINLINE_ATTR void cs_initialize(esp_flash_t *chip, const esp_f
     //To avoid the panic caused by flash data line conflicts during cs line
     //initialization, disable the cache temporarily
     chip->os_func->start(chip->os_func_data);
-    PIN_INPUT_ENABLE(iomux_reg);
-    if (use_iomux) {
-        gpio_hal_iomux_func_sel(iomux_reg, spics_func);
+    gpio_hal_input_enable(&gpio_hal, cs_io_num);
+    if (cs_use_iomux) {
+        gpio_hal_func_sel(&gpio_hal, cs_io_num, spics_func);
     } else {
         gpio_hal_output_enable(&gpio_hal, cs_io_num);
         gpio_hal_od_disable(&gpio_hal, cs_io_num);
@@ -182,7 +149,7 @@ static IRAM_ATTR NOINLINE_ATTR void cs_initialize(esp_flash_t *chip, const esp_f
         if (cs_id == 0) {
             esp_rom_gpio_connect_in_signal(cs_io_num, spics_in, false);
         }
-        gpio_hal_iomux_func_sel(iomux_reg, PIN_FUNC_GPIO);
+        gpio_hal_func_sel(&gpio_hal, cs_io_num, PIN_FUNC_GPIO);
     }
     chip->os_func->end(chip->os_func_data);
 }
@@ -197,6 +164,25 @@ static bool use_bus_lock(int host_id)
 #else
     return false;
 #endif
+}
+
+static bool bus_using_iomux(spi_host_device_t host)
+{
+    CHECK_IOMUX_PIN(host, spid);
+    CHECK_IOMUX_PIN(host, spiq);
+    CHECK_IOMUX_PIN(host, spiwp);
+    CHECK_IOMUX_PIN(host, spihd);
+    return true;
+}
+
+static bool cs_using_iomux(const esp_flash_spi_device_config_t *config)
+{
+    bool use_iomux = true;
+    CHECK_IOMUX_PIN(config->host_id, spics);
+    if (config->cs_io_num != spi_periph_signal[config->host_id].spics_in) {
+        use_iomux = false;
+    }
+    return use_iomux;
 }
 
 static esp_err_t acquire_spi_device(const esp_flash_spi_device_config_t *config, int* out_dev_id, spi_bus_lock_dev_handle_t* out_dev_handle)
@@ -280,7 +266,7 @@ esp_err_t spi_bus_add_flash_device(esp_flash_t **out_chip, const esp_flash_spi_d
 
     //avoid conflicts with main flash
     assert(config->host_id != SPI1_HOST || dev_id != 0);
-    bool use_iomux = spicommon_bus_using_iomux(config->host_id);
+    bool use_iomux = bus_using_iomux(config->host_id);
     memspi_host_config_t host_cfg = {
         .host_id = config->host_id,
         .cs_num = dev_id,
@@ -298,7 +284,7 @@ esp_err_t spi_bus_add_flash_device(esp_flash_t **out_chip, const esp_flash_spi_d
     }
 
     // The cs_id inside `config` is deprecated, use the `dev_id` provided by the bus lock instead.
-    cs_initialize(chip, config, use_iomux, dev_id);
+    cs_initialize(chip, config, cs_using_iomux(config), dev_id);
     *out_chip = chip;
     return ret;
 fail:
@@ -341,14 +327,14 @@ static void s_esp_flash_choose_correct_mode(memspi_host_config_t *cfg)
     static const char *mode = FLASH_MODE_STRING;
     if (bootloader_flash_is_octal_mode_enabled()) {
     #if !CONFIG_ESPTOOLPY_FLASHMODE_OPI
-        ESP_EARLY_LOGW(TAG, "Octal flash chip is using but %s mode is selected, will automatically swich to Octal mode", mode);
+        ESP_EARLY_LOGW(TAG, "Octal flash chip is using but %s mode is selected, will automatically switch to Octal mode", mode);
         cfg->octal_mode_en = 1;
         cfg->default_io_mode = SPI_FLASH_OPI_STR;
         default_chip.read_mode = SPI_FLASH_OPI_STR;
     #endif
     } else {
     #if CONFIG_ESPTOOLPY_FLASHMODE_OPI
-        ESP_EARLY_LOGW(TAG, "Quad flash chip is using but %s flash mode is selected, will automatically swich to DIO mode", mode);
+        ESP_EARLY_LOGW(TAG, "Quad flash chip is using but %s flash mode is selected, will automatically switch to DIO mode", mode);
         cfg->octal_mode_en = 0;
         cfg->default_io_mode = SPI_FLASH_DIO;
         default_chip.read_mode = SPI_FLASH_DIO;
@@ -369,6 +355,8 @@ esp_err_t esp_flash_init_default_chip(void)
     #endif
 
     #if CONFIG_ESPTOOLPY_OCT_FLASH
+    // Default value. When `CONFIG_ESPTOOLPY_FLASH_MODE_AUTO_DETECT` selected, if the selected mode not consistent with
+    // hardware, will be overwritten in s_esp_flash_choose_correct_mode.
     cfg.octal_mode_en = 1;
     cfg.default_io_mode = DEFAULT_FLASH_MODE;
     #endif
@@ -379,15 +367,28 @@ esp_err_t esp_flash_init_default_chip(void)
     #endif
 
 
-    // For chips need time tuning, get value directely from system here.
-    #if SOC_SPI_MEM_SUPPORT_TIME_TUNING
-    if (spi_timing_is_tuned()) {
+    // For chips need time tuning, get value directly from system here.
+    #if SOC_SPI_MEM_SUPPORT_TIMING_TUNING
+    if (spi_flash_timing_is_tuned()) {
         cfg.using_timing_tuning = 1;
         spi_timing_get_flash_timing_param(&cfg.timing_reg);
     }
-    #endif // SOC_SPI_MEM_SUPPORT_TIME_TUNING
+    #endif // SOC_SPI_MEM_SUPPORT_TIMING_TUNING
 
     cfg.clock_src_freq = spi_flash_ll_get_source_clock_freq_mhz(cfg.host_id);
+
+    #if CONFIG_SPI_FLASH_AUTO_SUSPEND
+    if (TSUS_VAL_SUSPEND > 400 || TSUS_VAL_SUSPEND < 20) {
+        // Assume that the tsus value cannot larger than 400 (because the performance might be really bad)
+        // And value cannot smaller than 20 (never see that small tsus value, might be wrong)
+        return ESP_ERR_INVALID_ARG;
+    }
+    cfg.tsus_val = TSUS_VAL_SUSPEND;
+    #endif // CONFIG_SPI_FLASH_AUTO_SUSPEND
+
+    #if CONFIG_SPI_FLASH_AUTO_CHECK_SUSPEND_STATUS
+    cfg.auto_waiti_pes = true;
+    #endif
 
     //the host is already initialized, only do init for the data and load it to the host
     esp_err_t err = memspi_host_init_pointers(&esp_flash_default_host, &cfg);
@@ -409,6 +410,11 @@ esp_err_t esp_flash_init_default_chip(void)
     if (default_chip.size > legacy_chip->chip_size) {
         ESP_EARLY_LOGW(TAG, "Detected size(%dk) larger than the size in the binary image header(%dk). Using the size in the binary image header.", default_chip.size/1024, legacy_chip->chip_size/1024);
     }
+#if !CONFIG_IDF_TARGET_ESP32P4 || !CONFIG_APP_BUILD_TYPE_RAM // IDF-10019
+    if (legacy_chip->chip_size > 16 * 1024 * 1024) {
+        ESP_RETURN_ON_ERROR_ISR(esp_mspi_32bit_address_flash_feature_check(), TAG, "32bit address feature check failed");
+    }
+#endif // !CONFIG_IDF_TARGET_ESP32P4 || !CONFIG_APP_BUILD_TYPE_RAM
     // Set chip->size equal to ROM flash size(also equal to the size in binary image header), which means the available size that can be used
     default_chip.size = legacy_chip->chip_size;
 
@@ -420,7 +426,7 @@ esp_err_t esp_flash_init_default_chip(void)
     }
 #endif
 
-#if CONFIG_SPI_FLASH_HPM_ENABLE
+#if CONFIG_SPI_FLASH_HPM_DC_ON
     if (spi_flash_hpm_dummy_adjust()) {
         default_chip.hpm_dummy_ena = 1;
     }
@@ -432,10 +438,26 @@ esp_err_t esp_flash_init_default_chip(void)
 esp_err_t esp_flash_app_init(void)
 {
     esp_err_t err = ESP_OK;
+
+    // Acquire the LDO channel used by the SPI NOR flash
+    // in case the LDO voltage is changed by other users
+#if CONFIG_ESP_LDO_RESERVE_SPI_NOR_FLASH
+    static esp_ldo_channel_handle_t s_ldo_chan = NULL;
+    esp_ldo_channel_config_t ldo_config = {
+        .chan_id = CONFIG_ESP_LDO_CHAN_SPI_NOR_FLASH_DOMAIN,
+        .voltage_mv = CONFIG_ESP_LDO_VOLTAGE_SPI_NOR_FLASH_DOMAIN,
+        .flags = {
+            .owned_by_hw = true,     // LDO output is totally controlled by hardware
+        },
+    };
+    err = esp_ldo_acquire_channel(&ldo_config, &s_ldo_chan);
+    if (err != ESP_OK) return err;
+#endif // CONFIG_ESP_LDO_RESERVE_SPI_NOR_FLASH
+
     spi_flash_init_lock();
     spi_flash_guard_set(&g_flash_guard_default_ops);
 #if CONFIG_SPI_FLASH_ENABLE_COUNTERS
-    spi_flash_reset_counters();
+    esp_flash_reset_counters();
 #endif
 #if CONFIG_SPI_FLASH_SHARE_SPI1_BUS
     err = esp_flash_init_main_bus_lock();

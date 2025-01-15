@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: CC0-1.0
-
 import os.path
 from typing import Tuple
 
@@ -23,7 +22,11 @@ from pytest_embedded_idf.dut import IdfDut
 
 @pytest.mark.esp32
 @pytest.mark.esp32c3
+@pytest.mark.esp32s2
 @pytest.mark.esp32s3
+@pytest.mark.esp32c5
+@pytest.mark.esp32c6
+@pytest.mark.esp32c61
 @pytest.mark.wifi_two_dut
 @pytest.mark.parametrize(
     'count, app_path', [
@@ -59,6 +62,7 @@ def test_wifi_getting_started_esp32c2_xtal_26mhz(dut: Tuple[IdfDut, IdfDut]) -> 
     softap = dut[0]
     station = dut[1]
 
+    assert station.app.sdkconfig['ESP_WIFI_SOFTAP_SUPPORT'] is False
     ssid = softap.app.sdkconfig.get('ESP_WIFI_SSID')
     password = softap.app.sdkconfig.get('ESP_WIFI_PASSWORD')
     assert station.app.sdkconfig.get('ESP_WIFI_SSID') == ssid

@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <string.h>
+#include <inttypes.h>
 #include "unity.h"
 #include "unity_fixture.h"
 #include "wear_levelling.h"
@@ -13,7 +14,7 @@
 #include "esp_private/esp_clk.h"
 #include "sdkconfig.h"
 #include "esp_cpu.h"
-#include "spi_flash_mmap.h"
+#include "esp_system.h"
 
 
 TEST_GROUP(wear_levelling);
@@ -43,10 +44,10 @@ TEST(wear_levelling, wl_unmount_doesnt_leak_memory)
     wl_unmount(handle);
 
     // test that we didn't leak any memory on the next init/deinit
-    size_t size_before = xPortGetFreeHeapSize();
+    size_t size_before = esp_get_free_heap_size();
     TEST_ESP_OK(wl_mount(partition, &handle));
     wl_unmount(handle);
-    size_t size_after = xPortGetFreeHeapSize();
+    size_t size_after = esp_get_free_heap_size();
 
     TEST_ASSERT_EQUAL(size_before, size_after);
 }
@@ -63,22 +64,22 @@ TEST(wear_levelling, wl_mount_checks_partition_params)
     esp_partition_erase_range(test_partition, 0, test_partition->size);
     // test small partition: result should be error
     for (int i = 0; i < 5; i++) {
-        fake_partition.size = SPI_FLASH_SEC_SIZE * (i);
-        size_before = xPortGetFreeHeapSize();
+        fake_partition.size = test_partition->erase_size * (i);
+        size_before = esp_get_free_heap_size();
         TEST_ESP_ERR(ESP_ERR_INVALID_ARG, wl_mount(&fake_partition, &handle));
         // test that we didn't leak any memory
-        size_after = xPortGetFreeHeapSize();
+        size_after = esp_get_free_heap_size();
         TEST_ASSERT_EQUAL_HEX32(size_before, size_after);
     }
 
     // test minimum size partition: result should be OK
-    fake_partition.size = SPI_FLASH_SEC_SIZE * 5;
-    size_before = xPortGetFreeHeapSize();
+    fake_partition.size = test_partition->erase_size * 5;
+    size_before = esp_get_free_heap_size();
     TEST_ESP_OK(wl_mount(&fake_partition, &handle));
     wl_unmount(handle);
 
     // test that we didn't leak any memory
-    size_after = xPortGetFreeHeapSize();
+    size_after = esp_get_free_heap_size();
     TEST_ASSERT_EQUAL_HEX32(size_before, size_after);
 }
 
@@ -119,7 +120,7 @@ static void read_write_task(void *param)
             uint32_t rval;
             err = wl_read(args->handle, args->offset + i * sizeof(rval), &rval, sizeof(rval));
             if (err != ESP_OK || rval != val) {
-                printf("E: i=%d, cnt=%d rval=%d val=%d\n\n", i, args->word_count, rval, val);
+                printf("E: i=%" PRIu32 ", cnt=%" PRIu32 " rval=%" PRIu32 " val=%" PRIu32 "\n\n", (uint32_t) i, (uint32_t) args->word_count, rval, val);
                 args->result = ESP_FAIL;
                 goto done;
             }
@@ -147,7 +148,7 @@ TEST(wear_levelling, multiple_tasks_single_handle)
 
     printf("writing 1 and 2\n");
     const int cpuid_0 = 0;
-    const int cpuid_1 = portNUM_PROCESSORS - 1;
+    const int cpuid_1 = CONFIG_FREERTOS_NUMBER_OF_CORES - 1;
     xTaskCreatePinnedToCore(&read_write_task, "rw1", stack_size, &args1, 3, NULL, cpuid_0);
     xTaskCreatePinnedToCore(&read_write_task, "rw2", stack_size, &args2, 3, NULL, cpuid_1);
 
@@ -215,7 +216,7 @@ TEST(wear_levelling, write_doesnt_touch_other_sectors)
     esp_partition_t fake_partition;
     memcpy(&fake_partition, partition, sizeof(fake_partition));
 
-    fake_partition.size = SPI_FLASH_SEC_SIZE * (4 + TEST_SECTORS_COUNT);
+    fake_partition.size = partition->erase_size * (4 + TEST_SECTORS_COUNT);
 
     wl_handle_t handle;
     TEST_ESP_OK(wl_mount(&fake_partition, &handle));
@@ -224,7 +225,7 @@ TEST(wear_levelling, write_doesnt_touch_other_sectors)
     // Erase 8 sectors
     TEST_ESP_OK(wl_erase_range(handle, 0, sector_size * TEST_SECTORS_COUNT));
     // Write data to all sectors
-    printf("Check 1 sector_size=0x%08x\n", sector_size);
+    printf("Check 1 sector_size=0x%08" PRIx32 "\n", (uint32_t) sector_size);
     // Set initial random value
     uint32_t init_val = rand();
 
@@ -255,7 +256,7 @@ TEST(wear_levelling, write_doesnt_touch_other_sectors)
         uint32_t end;
         end = esp_cpu_get_cycle_count();
         uint32_t ms = (end - start) / (esp_clk_cpu_freq() / 1000);
-        printf("loop %4i pass, time= %ims\n", m, ms);
+        printf("loop %4d pass, time= %" PRIu32 "ms\n", m, ms);
         if (ms > 10000) {
             break;
         }
@@ -287,13 +288,13 @@ TEST(wear_levelling, version_update)
     }
     fake_partition.size = (size_t)(test_partition_v1_bin_end - test_partition_v1_bin_start);
 
-    printf("Data file size = %i, partition address = 0x%08x, file addr=0x%08x\n", (uint32_t)fake_partition.size, (uint32_t)fake_partition.address, (uint32_t)test_partition_v1_bin_start);
+    printf("Data file size = %" PRIu32 ", partition address = 0x%08" PRIx32 ", file addr=0x%08" PRIx32 "\n", (uint32_t) fake_partition.size, (uint32_t) fake_partition.address, (uint32_t) test_partition_v1_bin_start);
 
     esp_partition_erase_range(&fake_partition, 0, fake_partition.size);
 
     esp_partition_write(&fake_partition, 0, test_partition_v1_bin_start,  fake_partition.size);
     for (int i = 0; i < 3; i++) {
-        printf("Pass %i\n", i);
+        printf("Pass %d\n", i);
         wl_handle_t handle;
         TEST_ESP_OK(wl_mount(&fake_partition, &handle));
         size_t sector_size = wl_sector_size(handle);
@@ -307,7 +308,7 @@ TEST(wear_levelling, version_update)
             for (int i = 0; i < sector_size / sizeof(uint32_t); i++) {
                 uint32_t compare_val = init_val + i +  m * sector_size;
                 if (buff[i] != compare_val) {
-                    printf("error compare: 0x%08x != 0x%08x \n", buff[i], compare_val);
+                    printf("error compare: 0x%08" PRIx32 " != 0x%08" PRIx32 " \n", buff[i], compare_val);
                 }
                 TEST_ASSERT_EQUAL( buff[i], compare_val);
             }

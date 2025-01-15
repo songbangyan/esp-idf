@@ -4,11 +4,13 @@ config BT_CTRL_MODE_EFF
 
 config BT_CTRL_BLE_MAX_ACT
     int "BLE Max Instances"
-    default 10
+    default 6
     range 1 10
     help
         BLE maximum activities of bluetooth controller，both of connections,
-        scan , sync and adv(periodic adv, multi-adv).
+        scan , sync and adv(periodic adv, multi-adv). Each instance needs to
+        consume 828 bytes, you can save RAM by modifying the instance value
+        according to actual needs.
 
 config BT_CTRL_BLE_MAX_ACT_EFF
     int
@@ -21,11 +23,27 @@ config BT_CTRL_BLE_STATIC_ACL_TX_BUF_NB
     default 0
     help
         BLE ACL buffer have two methods to be allocated. One is persistent allocating
-        (alloate when controller initialise, never free until controller de-initialise)
+        (allocate when controller initialise, never free until controller de-initialise)
         another is dynamically allocating (allocate before TX and free after TX).
+
+choice BT_CTRL_PINNED_TO_CORE_CHOICE
+    prompt "The cpu core which bluetooth controller run"
+    depends on !FREERTOS_UNICORE
+    help
+        Specify the cpu core to run bluetooth controller.
+        Can not specify no-affinity.
+
+    config BT_CTRL_PINNED_TO_CORE_0
+        bool "Core 0 (PRO CPU)"
+    config BT_CTRL_PINNED_TO_CORE_1
+        bool "Core 1 (APP CPU)"
+        depends on !FREERTOS_UNICORE
+endchoice
 
 config BT_CTRL_PINNED_TO_CORE
     int
+    default 0 if BT_CTRL_PINNED_TO_CORE_0
+    default 1 if BT_CTRL_PINNED_TO_CORE_1
     default 0
 
 choice BT_CTRL_HCI_MODE_CHOICE
@@ -36,7 +54,7 @@ choice BT_CTRL_HCI_MODE_CHOICE
     config BT_CTRL_HCI_MODE_VHCI
         bool "VHCI"
         help
-            Normal option. Mostly, choose this VHCI when bluetooth host run on ESP32C3, too.
+            Normal option. Mostly, choose this VHCI when bluetooth host run on ESP32S3 or ESP32C3.
 
     config BT_CTRL_HCI_MODE_UART_H4
         bool "UART(H4)"
@@ -54,24 +72,40 @@ config BT_CTRL_HCI_TL
         HCI mode as VHCI or UART(H4)
 
 config BT_CTRL_ADV_DUP_FILT_MAX
-    int "The maxinum number of 5.0 extend duplicate scan filter"
+    int "The maximum number of 5.0 extend duplicate scan filter"
     range 1 500
     default 30
     help
-        The maxinum number of suplicate scan filter
+        The maximum number of 5.0 extend duplicate
 
-config BT_CTRL_HW_CCA
-    bool "HW CCA check enable"
-    default n
+choice BT_BLE_CCA_MODE
+    prompt "BLE CCA mode"
+    default BT_BLE_CCA_MODE_NONE
     help
-        It enables HW CCA feature in controller
+        Define BT BLE CCA mode
+
+    config BT_BLE_CCA_MODE_NONE
+        bool "NONE"
+    config BT_BLE_CCA_MODE_HW
+        bool "Hardware"
+    config BT_BLE_CCA_MODE_SW
+        bool "Software"
+endchoice
+
+config BT_BLE_CCA_MODE
+    int
+    default 0 if BT_BLE_CCA_MODE_NONE
+    default 1 if BT_BLE_CCA_MODE_HW
+    default 2 if BT_BLE_CCA_MODE_SW
 
 config BT_CTRL_HW_CCA_VAL
     int "CCA threshold value"
-    range 20 60
-    default 20
+    range 20 100
+    default 75
     help
         It is the threshold value of HW CCA, if the value is 30, it means CCA threshold is -30 dBm.
+        If the channel assessment result exceeds the CCA threshold (e.g. -75 dBm), indicating the channel is busy,
+        the hardware will not transmit packets on that channel.
 
 config BT_CTRL_HW_CCA_EFF
     int
@@ -168,8 +202,8 @@ choice BT_CTRL_DFT_TX_POWER_LEVEL
         bool "+15dBm"
     config BT_CTRL_DFT_TX_POWER_LEVEL_P18
         bool "+18dBm"
-    config BT_CTRL_DFT_TX_POWER_LEVEL_P21
-        bool "+21dBm"
+    config BT_CTRL_DFT_TX_POWER_LEVEL_P20
+        bool "+20dBm"
 endchoice
 
 config BT_CTRL_DFT_TX_POWER_LEVEL_EFF
@@ -189,11 +223,12 @@ config BT_CTRL_DFT_TX_POWER_LEVEL_EFF
     default 12 if BT_CTRL_DFT_TX_POWER_LEVEL_P12
     default 13 if BT_CTRL_DFT_TX_POWER_LEVEL_P15
     default 14 if BT_CTRL_DFT_TX_POWER_LEVEL_P18
-    default 15 if BT_CTRL_DFT_TX_POWER_LEVEL_P21
+    default 15 if BT_CTRL_DFT_TX_POWER_LEVEL_P20
     default 0
 
 config BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_SUPP
     bool "BLE adv report flow control supported"
+    depends on (!BT_CTRL_RUN_IN_FLASH_ONLY) || (BT_CTRL_RUN_IN_FLASH_ONLY && BT_CTRL_BLE_SCAN)
     default y
     help
         The function is mainly used to enable flow control for advertising reports. When it is enabled,
@@ -247,20 +282,19 @@ choice BT_CTRL_SCAN_DUPL_TYPE
     config BT_CTRL_SCAN_DUPL_TYPE_DEVICE
         bool "Scan Duplicate By Device Address"
         help
-            This way is to use advertiser address filtering. The adv packet of the same address is only
-            allowed to be reported once
+            Advertising packets with the same address, address type, and advertising type are reported once.
 
     config BT_CTRL_SCAN_DUPL_TYPE_DATA
         bool "Scan Duplicate By Advertising Data"
         help
-            This way is to use advertising data filtering. All same advertising data only allow to be reported
-            once even though they are from different devices.
+            Advertising packets with identical advertising data, address type, and advertising type
+            are reported only once, even if they originate from different devices.
 
     config BT_CTRL_SCAN_DUPL_TYPE_DATA_DEVICE
         bool "Scan Duplicate By Device Address And Advertising Data"
         help
-            This way is to use advertising data and device address filtering. All different adv packets with
-            the same address are allowed to be reported.
+            Advertising packets with the same address, advertising data, address type,
+            and advertising type are reported only once.
 endchoice
 
 config BT_CTRL_SCAN_DUPL_TYPE
@@ -315,7 +349,7 @@ config BT_CTRL_MESH_DUPL_SCAN_CACHE_SIZE
 choice BT_CTRL_COEX_PHY_CODED_TX_RX_TLIM
     prompt "Coexistence: limit on MAX Tx/Rx time for coded-PHY connection"
     default BT_CTRL_COEX_PHY_CODED_TX_RX_TLIM_DIS
-    depends on ESP_WIFI_SW_COEXIST_ENABLE
+    depends on ESP_COEX_SW_COEXIST_ENABLE
     help
         When using PHY-Coded in BLE connection, limitation on max tx/rx time can be applied to
         better avoid dramatic performance deterioration of Wi-Fi.
@@ -333,7 +367,7 @@ endchoice
 
 config BT_CTRL_COEX_PHY_CODED_TX_RX_TLIM_EFF
     int
-    default 0 if (!ESP_WIFI_SW_COEXIST_ENABLE)
+    default 0 if !ESP_COEX_SW_COEXIST_ENABLE
     default 1 if BT_CTRL_COEX_PHY_CODED_TX_RX_TLIM_EN
     default 0 if BT_CTRL_COEX_PHY_CODED_TX_RX_TLIM_DIS
 
@@ -371,10 +405,10 @@ menu "MODEM SLEEP Options"
                 bluetooth can work under light sleep enabled. Main crystal has a relatively better performance
                 than other bluetooth low power clock sources.
         config BT_CTRL_LPCLK_SEL_EXT_32K_XTAL
-            bool "External 32kHz crystal"
-            depends on RTC_CLK_SRC_EXT_CRYS
+            bool "External 32kHz crystal/oscillator"
+            depends on RTC_CLK_SRC_EXT_CRYS || RTC_CLK_SRC_EXT_OSC
             help
-                External 32kHz crystal has a nominal frequency of 32.768kHz and provides good frequency
+                External 32kHz crystal/oscillator has a nominal frequency of 32.768kHz and provides good frequency
                 stability. If used as Bluetooth low power clock, External 32kHz can support Bluetooth
                 modem sleep to be used with both DFS and light sleep.
 
@@ -394,7 +428,6 @@ menu "MODEM SLEEP Options"
             If this option is selected, the main crystal will power up during light sleep when the low power clock
             selects an external 32kHz crystal but the external 32kHz crystal does not exist or the low power clock
             selects the main crystal.
-
 
 endmenu
 
@@ -437,3 +470,90 @@ config BT_CTRL_SCAN_BACKOFF_UPPERLIMITMAX
         Disable active scan backoff. The bluetooth spec requires that scanners should run a backoff procedure to
         minimize collision of scan request PDUs from nultiple scanners. If scan backoff is disabled, in active
         scanning, scan request PDU will be sent every time when HW receives scannable ADV PDU.
+
+config BT_BLE_ADV_DATA_LENGTH_ZERO_AUX
+    bool "Enable aux packet when ext adv data length is zero"
+    default n
+    help
+        When this option is enabled, auxiliary packets will be present in the events of
+        'Non-Connectable and Non-Scannable' regardless of whether the advertising length is 0.
+        If this option is not enabled, auxiliary packets will only be present when the advertising length is not 0.
+
+config BT_CTRL_CHAN_ASS_EN
+    bool "Enable channel assessment"
+    default y
+    help
+        If this option is enabled, The Controller will records the communication quality
+        for each channel and then start a timer to check and update the channel map every 4 seconds.
+
+config BT_CTRL_LE_PING_EN
+    bool "Enable LE Ping procedure"
+    default y
+    help
+        If this option is disabled, The Controller will not start the LE authenticated payload timer.
+        This option is used for some compatibility problems related to LE ping procedure.
+
+menu "BLE disconnects when Instant Passed (0x28) occurs"
+    config BT_CTRL_BLE_LLCP_CONN_UPDATE
+        bool "BLE ACL connection update procedure"
+        default n
+        help
+            If this option is enabled, Controller will terminate the connection
+            when Instant Passed (0x28) error occurs during connection update procedure.
+
+    config BT_CTRL_BLE_LLCP_CHAN_MAP_UPDATE
+        bool "BLE ACL channel map update procedure"
+        default n
+        help
+            If this option is enabled, Controller will terminate the connection
+            when Instant Passed (0x28) error occurs in channel map update procedure.
+
+    config BT_CTRL_BLE_LLCP_PHY_UPDATE
+        bool "BLE ACL PHY update procedure"
+        default n
+        help
+            If this option is enabled, Controller will terminate the connection
+            when Instant Passed (0x28) error occurs in PHY update procedure.
+endmenu
+config BT_CTRL_RUN_IN_FLASH_ONLY
+    bool "Put all BLE Controller code in flash"
+    default n
+    help
+        If this option is enabled, all code for the Bluetooth controller will be moved from ROM and IRAM
+        to flash, saving over 20K bytes of memory. However, it will require more flash resources and the
+        performance of Bluetooth will decrease If this option is enabled, Bluetooth may not work properly
+        during erasing flash. It is recommended to turn on the auto suspend function of flash. After auto
+        suspend is turned on, Bluetooth interrupts can be executed normally during erasing flash, with less
+        impact on Bluetooth performance.
+
+config BT_CTRL_DTM_ENABLE
+    depends on BT_CTRL_RUN_IN_FLASH_ONLY
+    bool "Enable direct test mode feature"
+    default n
+
+config BT_CTRL_BLE_MASTER
+    depends on BT_CTRL_RUN_IN_FLASH_ONLY
+    bool "Enable BLE master role feature"
+    default y
+
+config BT_CTRL_BLE_TEST
+    depends on BT_CTRL_RUN_IN_FLASH_ONLY
+    bool "Enable BLE QA test feature"
+    default n
+
+config BT_CTRL_BLE_SCAN
+    depends on BT_CTRL_RUN_IN_FLASH_ONLY
+    bool "Enable BLE scan feature"
+    default y
+
+config BT_CTRL_BLE_SECURITY_ENABLE
+    depends on BT_CTRL_RUN_IN_FLASH_ONLY && BT_CONTROLLER_ONLY
+    bool "Enable BLE security feature"
+    default y
+config BT_CTRL_CHECK_CONNECT_IND_ACCESS_ADDRESS
+    bool "Enable enhanced Access Address check in CONNECT_IND"
+    default n
+    help
+        Enabling this option will add stricter verification of the Access Address in the CONNECT_IND PDU.
+        This improves security by ensuring that only connection requests with valid Access Addresses are accepted.
+        If disabled, only basic checks are applied, improving compatibility.

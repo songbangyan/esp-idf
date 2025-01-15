@@ -50,7 +50,7 @@ See the [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/l
 #include "esp_gap_bt_api.h"
 ```
 
-These `includes` are required for the FreeRTOS and underlaying system components to run, including the logging functionality and a library to store data in non-volatile flash memory. We are interested in `bt.h`, `esp_bt_main.h`, `esp_bt_device.h` and `esp_gap_bt_api.h`, which expose the Classic Bluetooth APIs required to implement this example.
+These `includes` are required for the FreeRTOS and underlying system components to run, including the logging functionality and a library to store data in non-volatile flash memory. We are interested in `bt.h`, `esp_bt_main.h`, `esp_bt_device.h` and `esp_gap_bt_api.h`, which expose the Classic Bluetooth APIs required to implement this example.
 
 * `bt.h`: configures the Bluetooth controller and VHCI from the host side.
 * `esp_bt_main.h`: initializes and enables the Bluedroid stack.
@@ -93,7 +93,7 @@ The main function also initializes the Bluetooth controller by first creating th
 ```c
 esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 if ((ret = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
-    ESP_LOGE(GAP_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+    ESP_LOGE(GAP_TAG, "%s initialize controller failed: %s", __func__, esp_err_to_name(ret));
     return;
 }
 ```
@@ -102,7 +102,7 @@ Next, the controller is enabled in Classic Bluetooth Mode.
 
 ```c
 if ((ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
-    ESP_LOGE(GAP_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+    ESP_LOGE(GAP_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
     return;
 }
 ```
@@ -118,13 +118,14 @@ There are four Bluetooth modes supported:
 After the initialization of the Bluetooth controller, the Bluedroid stack, which includes the common definitions and APIs for both Bluetooth Classic and BLE, is initialized and enabled by using:
 
 ```c
-if ((ret = esp_bluedroid_init()) != ESP_OK) {
-    ESP_LOGE(GAP_TAG, "%s initialize bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
+esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
+if ((ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg)) != ESP_OK) {
+    ESP_LOGE(GAP_TAG, "%s initialize bluedroid failed: %s", __func__, esp_err_to_name(ret));
     return;
 }
 
 if ((ret = esp_bluedroid_enable()) != ESP_OK) {
-    ESP_LOGE(GAP_TAG, "%s enable bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
+    ESP_LOGE(GAP_TAG, "%s enable bluedroid failed: %s", __func__, esp_err_to_name(ret));
     return;
 }
 ```
@@ -151,7 +152,7 @@ The application function then sets the device name and sets it as discoverable a
 
 ```c
 char *dev_name = "ESP_GAP_INQRUIY";
-esp_bt_dev_set_device_name(dev_name);
+esp_bt_gap_set_device_name(dev_name);
 
 /* set discoverable and connectable mode, wait to be connected */
 esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
@@ -160,7 +161,7 @@ esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 The application function then initialises the information and status of application layer and starts to discover nearby Bluetooth devices.
 
 ```c
-/* inititialize device information and status */
+/* initialize device information and status */
 bt_app_gap_init();
 
 /* start to discover nearby Bluetooth devices */

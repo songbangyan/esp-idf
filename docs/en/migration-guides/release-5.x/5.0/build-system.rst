@@ -9,12 +9,17 @@ ESP-IDF v5.0 no longer supports GNU make-based projects. Please follow the :ref:
 Update Fragment File Grammar
 ----------------------------
 
-Please follow the :ref:`migrate linker script fragment files grammar<ldgen-migrate-lf-grammar>` chapter for migrating v3.x grammar to the new one.
+The former grammar, supported in ESP-IDF v3.x, was dropped in ESP-IDF v5.0. Here are a few notes on how to migrate properly:
+
+1. Indentation is now enforced: improperly indented fragment files generate a runtime parse exception. Although the former version did not enforce this, the previous documentation and examples demonstrated properly indented grammar.
+2. Migrate the old condition entry to the ``if...elif...else`` structure for conditionals. You can refer to the :ref:`ldgen-conditional-placements` for detailed grammar.
+3. Mapping fragments now requires a name like other fragment types.
+
 
 Specify Component Requirements Explicitly
 -----------------------------------------
 
-In previous versions of ESP-IDF, some components were always added as public requirements (dependencies) to every component in the build, in addition to the :ref:`common component requirements<component-common-requirements>`:
+In previous versions of ESP-IDF, some components were always added as public requirements (dependencies) to every component in the build, in addition to the :ref:`common component requirements <component-common-requirements>`:
 
 * ``driver``
 * ``efuse``
@@ -54,8 +59,8 @@ instead of::
 
 Defining these variables as CMake lists is compatible with previous ESP-IDF versions.
 
-Update Usage of target_link_libraries with project_elf
-------------------------------------------------------
+Update Usage of ``target_link_libraries`` with ``project_elf``
+--------------------------------------------------------------
 
 ESP-IDF v5.0 fixes CMake variable propagation issues for components. This issue caused compiler flags and definitions that were supposed to apply to one component to be applied to every component in the project.
 

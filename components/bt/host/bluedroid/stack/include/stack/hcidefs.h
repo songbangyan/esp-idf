@@ -212,6 +212,7 @@
 #define HCI_WRITE_ERRONEOUS_DATA_RPT    (0x005B | HCI_GRP_HOST_CONT_BASEBAND_CMDS)
 #define HCI_ENHANCED_FLUSH              (0x005F | HCI_GRP_HOST_CONT_BASEBAND_CMDS)
 #define HCI_SEND_KEYPRESS_NOTIF         (0x0060 | HCI_GRP_HOST_CONT_BASEBAND_CMDS)
+#define HCI_SET_MIN_ENC_KEY_SIZE        (0x0084 | HCI_GRP_HOST_CONT_BASEBAND_CMDS)
 
 
 /* AMP HCI */
@@ -383,13 +384,14 @@
 #define HCI_BLE_RD_TRANSMIT_POWER           (0x004B | HCI_GRP_BLE_CMDS)
 #define HCI_BLE_RD_RF_PATH_COMPENSATION     (0x004C | HCI_GRP_BLE_CMDS)
 #define HCI_BLE_WR_RF_PATH_COMPENSATION     (0x004D | HCI_GRP_BLE_CMDS)
-#define HCI_BLE_SET_PRIVACY_MODE            (0x004E | HCI_GRP_BLE_CMDS)
 #endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
+#define HCI_BLE_SET_PRIVACY_MODE            (0x004E | HCI_GRP_BLE_CMDS)
 #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 #define HCI_BLE_SET_PERIOD_ADV_RECV_ENABLE  (0x0059 | HCI_GRP_BLE_CMDS)
 #define HCI_BLE_PERIOD_ADV_SYNC_TRANS       (0x005A | HCI_GRP_BLE_CMDS)
 #define HCI_BLE_PERIOD_ADV_SET_INFO_TRANS   (0x005B | HCI_GRP_BLE_CMDS)
-#define HCI_BLE_SET_PERIOD_ADV_SYNC_TRANS_PARAMS    (0x005C | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_PAST_PARAMS             (0x005C | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_DEFAULT_PAST_PARAMS     (0x005D | HCI_GRP_BLE_CMDS)
 #endif // #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 // Vendor OGF define
 #define HCI_VENDOR_OGF          0x3F
@@ -418,11 +420,15 @@
 #define HCI_SUBCODE_BLE_DUPLICATE_EXCEPTIONAL_LIST 0x08
 #define HCI_SUBCODE_BLE_SET_ADV_FLOW_CONTROL       0x09
 #define HCI_SUBCODE_BLE_ADV_REPORT_FLOW_CONTROL    0x0A
+#define HCI_SUBCODE_BLE_RD_STATIC_ADDR             0x0B
+#define HCI_SUBCODE_BLE_CLEAR_ADV                  0x0C
+#define HCI_SUBCODE_BLE_SET_CSA_SUPPORT            0x12
 #define HCI_SUBCODE_BLE_MAX                        0x7F
 
 //ESP BT subcode define
-#define HCI_SUBCODE_BT_INIT     0x00
-#define HCI_SUBCODE_BT_MAX      0x7F
+#define HCI_SUBCODE_BT_INIT                     0x00
+#define HCI_SUBCODE_BT_SET_MIN_ENC_KEY_SIZE     0x02
+#define HCI_SUBCODE_BT_MAX                      0x7F
 
 #define HCI_ESP_VENDOR_OPCODE_BUILD(ogf, group, subcode) ((ogf << 10) | (group <<7) | (subcode << 0))
 /*
@@ -461,7 +467,12 @@
 #define HCI_VENDOR_BLE_UPDATE_DUPLICATE_EXCEPTIONAL_LIST  HCI_ESP_VENDOR_OPCODE_BUILD(HCI_VENDOR_OGF, HCI_ESP_GROUP_BLE, HCI_SUBCODE_BLE_DUPLICATE_EXCEPTIONAL_LIST)
 #define HCI_VENDOR_BLE_SET_ADV_FLOW_CONTROL        HCI_ESP_VENDOR_OPCODE_BUILD(HCI_VENDOR_OGF, HCI_ESP_GROUP_BLE, HCI_SUBCODE_BLE_SET_ADV_FLOW_CONTROL)
 #define HCI_VENDOR_BLE_ADV_REPORT_FLOW_CONTROL     HCI_ESP_VENDOR_OPCODE_BUILD(HCI_VENDOR_OGF, HCI_ESP_GROUP_BLE, HCI_SUBCODE_BLE_ADV_REPORT_FLOW_CONTROL)
+/* BLE clear legacy advertising */
+#define HCI_VENDOR_BLE_CLEAR_ADV          HCI_ESP_VENDOR_OPCODE_BUILD(HCI_VENDOR_OGF, HCI_ESP_GROUP_BLE, HCI_SUBCODE_BLE_CLEAR_ADV)
+/* BLE set CSA support */
+#define HCI_VENDOR_BLE_SET_CSA_SUPPORT    HCI_ESP_VENDOR_OPCODE_BUILD(HCI_VENDOR_OGF, HCI_ESP_GROUP_BLE, HCI_SUBCODE_BLE_SET_CSA_SUPPORT)
 //ESP BT HCI CMD
+#define HCI_VENDOR_BT_SET_MIN_ENC_KEY_SIZE         HCI_ESP_VENDOR_OPCODE_BUILD(HCI_VENDOR_OGF, HCI_ESP_GROUP_BT, HCI_SUBCODE_BT_SET_MIN_ENC_KEY_SIZE)
 
 /* subcode for multi adv feature */
 #define BTM_BLE_MULTI_ADV_SET_PARAM                     0x01
@@ -824,7 +835,6 @@
 **  Defentions for HCI Error Codes that are past in the events
 */
 #define HCI_SUCCESS                                     0x00
-#define HCI_PENDING                                     0x00
 #define HCI_ERR_ILLEGAL_COMMAND                         0x01
 #define HCI_ERR_NO_CONNECTION                           0x02
 #define HCI_ERR_HW_FAILURE                              0x03
@@ -1127,18 +1137,18 @@ typedef UINT8 tHCI_STATUS;
 #define HCI_MIN_INQ_LAP                 0x9E8B00
 #define HCI_MAX_INQ_LAP                 0x9E8B3F
 
-/* HCI role defenitions */
+/* HCI role definitions */
 #define HCI_ROLE_MASTER                 0x00
 #define HCI_ROLE_SLAVE                  0x01
 #define HCI_ROLE_UNKNOWN                0xff
 
-/* HCI mode defenitions */
+/* HCI mode definitions */
 #define HCI_MODE_ACTIVE                 0x00
 #define HCI_MODE_HOLD                   0x01
 #define HCI_MODE_SNIFF                  0x02
 #define HCI_MODE_PARK                   0x03
 
-/* HCI Flow Control Mode defenitions */
+/* HCI Flow Control Mode definitions */
 #define HCI_PACKET_BASED_FC_MODE        0x00
 #define HCI_BLOCK_BASED_FC_MODE         0x01
 
@@ -1285,6 +1295,7 @@ typedef UINT8 tHCI_STATUS;
 
 /* Page timeout is used in LC only and LC is counting down slots not using OS */
 #define HCI_DEFAULT_PAGE_TOUT           0x2000  /* 5.12 sec (in slots) */
+#define HCI_MIN_PAGE_TOUT               0x0016  /* 13.75 ms (in slots) */
 
 /* Scan enable flags */
 #define HCI_NO_SCAN_ENABLED             0x00
@@ -1406,7 +1417,7 @@ typedef UINT8 tHCI_STATUS;
 /* Define an invalid value for a handle */
 #define HCI_INVALID_HANDLE              0xFFFF
 
-/* Define max ammount of data in the HCI command */
+/* Define max amount of data in the HCI command */
 #define HCI_COMMAND_SIZE        255
 
 /* Define the preamble length for all HCI Commands.
@@ -1863,42 +1874,50 @@ typedef struct {
 #define HCI_PING_SUPPORTED(x) ((x)[HCI_EXT_FEATURE_PING_OFF] & HCI_EXT_FEATURE_PING_MASK)
 
 /*
-**   LE features encoding - page 0 (the only page for now)
+**   LE features encoding - page 0
 */
-/* LE Encryption */
+/* LE Encryption: bit 0 */
 #define HCI_LE_FEATURE_LE_ENCRYPTION_MASK       0x01
 #define HCI_LE_FEATURE_LE_ENCRYPTION_OFF        0
 #define HCI_LE_ENCRYPTION_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_ENCRYPTION_OFF] & HCI_LE_FEATURE_LE_ENCRYPTION_MASK)
 
-/* Connection Parameters Request Procedure */
+/* Connection Parameters Request Procedure: bit 1 */
 #define HCI_LE_FEATURE_CONN_PARAM_REQ_MASK       0x02
 #define HCI_LE_FEATURE_CONN_PARAM_REQ_OFF        0
 #define HCI_LE_CONN_PARAM_REQ_SUPPORTED(x) ((x)[HCI_LE_FEATURE_CONN_PARAM_REQ_OFF] & HCI_LE_FEATURE_CONN_PARAM_REQ_MASK)
 
-/* Extended Reject Indication */
+/* Extended Reject Indication: bit 2 */
 #define HCI_LE_FEATURE_EXT_REJ_IND_MASK       0x04
 #define HCI_LE_FEATURE_EXT_REJ_IND_OFF        0
 #define HCI_LE_EXT_REJ_IND_SUPPORTED(x) ((x)[HCI_LE_FEATURE_EXT_REJ_IND_OFF] & HCI_LE_FEATURE_EXT_REJ_IND_MASK)
 
-/* Slave-initiated Features Exchange */
+/* Slave-initiated Features Exchange: bit 3 */
 #define HCI_LE_FEATURE_SLAVE_INIT_FEAT_EXC_MASK       0x08
 #define HCI_LE_FEATURE_SLAVE_INIT_FEAT_EXC_OFF        0
 #define HCI_LE_SLAVE_INIT_FEAT_EXC_SUPPORTED(x) ((x)[HCI_LE_FEATURE_SLAVE_INIT_FEAT_EXC_OFF] & HCI_LE_FEATURE_SLAVE_INIT_FEAT_EXC_MASK)
+
+/* LE Data Packet Length Extension: bit 5 */
+#define HCI_LE_FEATURE_DATA_LEN_EXT_MASK       0x20
+#define HCI_LE_FEATURE_DATA_LEN_EXT_OFF        0
+#define HCI_LE_DATA_LEN_EXT_SUPPORTED(x) ((x)[HCI_LE_FEATURE_DATA_LEN_EXT_OFF] & HCI_LE_FEATURE_DATA_LEN_EXT_MASK)
 
 /* Enhanced privacy Feature: bit 6 */
 #define HCI_LE_FEATURE_ENHANCED_PRIVACY_MASK       0x40
 #define HCI_LE_FEATURE_ENHANCED_PRIVACY_OFF        0
 #define HCI_LE_ENHANCED_PRIVACY_SUPPORTED(x) ((x)[HCI_LE_FEATURE_ENHANCED_PRIVACY_OFF] & HCI_LE_FEATURE_ENHANCED_PRIVACY_MASK)
 
-/* Extended scanner filter policy : 7 */
+/* Extended scanner filter policy: bit 7 */
 #define HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_MASK       0x80
 #define HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_OFF        0
 #define HCI_LE_EXT_SCAN_FILTER_POLICY_SUPPORTED(x) ((x)[HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_OFF] & HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_MASK)
 
-/* Slave-initiated Features Exchange */
-#define HCI_LE_FEATURE_DATA_LEN_EXT_MASK       0x20
-#define HCI_LE_FEATURE_DATA_LEN_EXT_OFF        0
-#define HCI_LE_DATA_LEN_EXT_SUPPORTED(x) ((x)[HCI_LE_FEATURE_DATA_LEN_EXT_OFF] & HCI_LE_FEATURE_DATA_LEN_EXT_MASK)
+/*
+**   LE features encoding - page 1
+*/
+/* LE Extended Advertising: bit 12 */
+#define HCI_LE_FEATURE_EXT_ADV_MASK       0x10
+#define HCI_LE_FEATURE_EXT_ADV_OFF        1
+#define HCI_LE_EXT_ADV_SUPPORTED(x) ((x)[HCI_LE_FEATURE_EXT_ADV_OFF] & HCI_LE_FEATURE_EXT_ADV_MASK)
 
 /*
 **   Local Supported Commands encoding

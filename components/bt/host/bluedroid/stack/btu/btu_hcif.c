@@ -90,29 +90,27 @@ static void btu_hcif_loopback_command_evt (void);
 static void btu_hcif_data_buf_overflow_evt (void);
 static void btu_hcif_max_slots_changed_evt (void);
 static void btu_hcif_read_clock_off_comp_evt (UINT8 *p);
-static void btu_hcif_conn_pkt_type_change_evt (void);
+static void btu_hcif_conn_pkt_type_change_evt (UINT8 *p);
 static void btu_hcif_qos_violation_evt (UINT8 *p);
 static void btu_hcif_page_scan_mode_change_evt (void);
 static void btu_hcif_page_scan_rep_mode_chng_evt (void);
 static void btu_hcif_esco_connection_comp_evt(UINT8 *p);
 static void btu_hcif_esco_connection_chg_evt(UINT8 *p);
 
-/* Simple Pairing Events */
 static void btu_hcif_host_support_evt (UINT8 *p);
-#if (SMP_INCLUDED == TRUE)
+/* Simple Pairing Events */
+#if (CLASSIC_BT_INCLUDED == TRUE)
 static void btu_hcif_io_cap_request_evt (UINT8 *p);
 static void btu_hcif_io_cap_response_evt (UINT8 *p);
 static void btu_hcif_user_conf_request_evt (UINT8 *p);
 static void btu_hcif_user_passkey_request_evt (UINT8 *p);
+static void btu_hcif_simple_pair_complete_evt (UINT8 *p);
 static void btu_hcif_user_passkey_notif_evt (UINT8 *p);
 static void btu_hcif_keypress_notif_evt (UINT8 *p);
-#endif  ///SMP_INCLUDED == TRUE
+#endif  /* (CLASSIC_BT_INCLUDED == TRUE) */
 #if BTM_OOB_INCLUDED == TRUE && SMP_INCLUDED == TRUE
 static void btu_hcif_rem_oob_request_evt (UINT8 *p);
 #endif
-#if (SMP_INCLUDED == TRUE)
-static void btu_hcif_simple_pair_complete_evt (UINT8 *p);
-#endif  ///SMP_INCLUDED == TRUE
 static void btu_hcif_link_supv_to_changed_evt (UINT8 *p);
 #if L2CAP_NON_FLUSHABLE_PB_INCLUDED == TRUE
 static void btu_hcif_enhanced_flush_complete_evt (void);
@@ -145,6 +143,7 @@ static void btu_ble_periodic_adv_sync_lost_evt(UINT8 *p);
 static void btu_ble_scan_timeout_evt(UINT8 *p);
 static void btu_ble_adv_set_terminate_evt(UINT8 *p);
 static void btu_ble_scan_req_received_evt(UINT8 *p);
+static void btu_ble_channel_select_alg_evt(UINT8 *p);
 #endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
 #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 static void btu_ble_periodic_adv_sync_trans_recv(UINT8 *p);
@@ -284,7 +283,7 @@ void btu_hcif_process_event (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_msg)
         btu_hcif_read_clock_off_comp_evt (p);
         break;
     case HCI_CONN_PKT_TYPE_CHANGE_EVT:
-        btu_hcif_conn_pkt_type_change_evt ();
+        btu_hcif_conn_pkt_type_change_evt (p);
         break;
     case HCI_QOS_VIOLATION_EVT:
         btu_hcif_qos_violation_evt (p);
@@ -307,7 +306,7 @@ void btu_hcif_process_event (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_msg)
     case HCI_RMT_HOST_SUP_FEAT_NOTIFY_EVT:
         btu_hcif_host_support_evt (p);
         break;
-#if (SMP_INCLUDED == TRUE)
+#if (CLASSIC_BT_INCLUDED == TRUE)
     case HCI_IO_CAPABILITY_REQUEST_EVT:
         btu_hcif_io_cap_request_evt (p);
         break;
@@ -320,13 +319,13 @@ void btu_hcif_process_event (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_msg)
     case HCI_USER_PASSKEY_REQUEST_EVT:
         btu_hcif_user_passkey_request_evt (p);
         break;
-#endif  ///SMP_INCLUDED == TRUE
+#endif /* (CLASSIC_BT_INCLUDED == TRUE) */
 #if BTM_OOB_INCLUDED == TRUE && SMP_INCLUDED == TRUE
     case HCI_REMOTE_OOB_DATA_REQUEST_EVT:
         btu_hcif_rem_oob_request_evt (p);
         break;
 #endif
-#if (SMP_INCLUDED == TRUE)
+#if (CLASSIC_BT_INCLUDED == TRUE)
     case HCI_SIMPLE_PAIRING_COMPLETE_EVT:
         btu_hcif_simple_pair_complete_evt (p);
         break;
@@ -336,7 +335,7 @@ void btu_hcif_process_event (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_msg)
     case HCI_KEYPRESS_NOTIFY_EVT:
         btu_hcif_keypress_notif_evt (p);
         break;
-#endif  ///SMP_INCLUDED == TRUE
+#endif /* (CLASSIC_BT_INCLUDED == TRUE) */
     case HCI_LINK_SUPER_TOUT_CHANGED_EVT:
         btu_hcif_link_supv_to_changed_evt (p);
         break;
@@ -413,6 +412,7 @@ void btu_hcif_process_event (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_msg)
             btu_ble_scan_req_received_evt(p);
             break;
         case HCI_BLE_CHANNEL_SELECT_ALG:
+            btu_ble_channel_select_alg_evt(p);
             break;
 #endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
 #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
@@ -949,6 +949,7 @@ static void btu_hcif_esco_connection_chg_evt (UINT8 *p)
 static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_len,
         void *p_cplt_cback)
 {
+    uint8_t status;
     switch (opcode) {
     case HCI_INQUIRY_CANCEL:
         /* Tell inquiry processing that we are done */
@@ -996,6 +997,19 @@ static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_l
     case HCI_SET_AFH_CHANNELS:
         btm_set_afh_channels_complete(p);
         break;
+    case HCI_WRITE_PAGE_TOUT:
+        btm_set_page_timeout_complete(p);
+        break;
+#if (ENC_KEY_SIZE_CTRL_MODE == ENC_KEY_SIZE_CTRL_MODE_STD)
+    case HCI_SET_MIN_ENC_KEY_SIZE:
+        btm_set_min_enc_key_size_complete(p);
+        break;
+#endif
+#if (ENC_KEY_SIZE_CTRL_MODE == ENC_KEY_SIZE_CTRL_MODE_VSC)
+    case HCI_VENDOR_BT_SET_MIN_ENC_KEY_SIZE:
+        btm_set_min_enc_key_size_complete(p);
+        break;
+#endif
 #endif
 
 #if (BLE_INCLUDED == TRUE)
@@ -1011,7 +1025,6 @@ static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_l
         btm_ble_clear_white_list_complete(p, evt_len);
         break;
     case HCI_BLE_WRITE_ADV_PARAMS: {
-        uint8_t status;
         STREAM_TO_UINT8  (status, p);
         if(status != HCI_SUCCESS) {
             HCI_TRACE_ERROR("hci write adv params error 0x%x", status);
@@ -1019,7 +1032,6 @@ static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_l
         break;
     }
     case HCI_BLE_RC_PARAM_REQ_REPLY: {
-        uint8_t status;
         STREAM_TO_UINT8  (status, p);
         if(status != HCI_SUCCESS) {
             HCI_TRACE_ERROR("hci connection params reply command error 0x%x", status);
@@ -1027,7 +1039,6 @@ static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_l
         break;
     }
     case HCI_BLE_RC_PARAM_REQ_NEG_REPLY: {
-        uint8_t status;
         STREAM_TO_UINT8  (status, p);
         if(status != HCI_SUCCESS) {
             HCI_TRACE_ERROR("hci connection params neg reply command error %x", status);
@@ -1084,21 +1095,27 @@ static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_l
         break;
 
     case HCI_BLE_READ_RESOLVABLE_ADDR_LOCAL:
-    case HCI_BLE_SET_ADDR_RESOLUTION_ENABLE:
-    case HCI_BLE_SET_RAND_PRIV_ADDR_TIMOUT:
         break;
+    case HCI_BLE_SET_ADDR_RESOLUTION_ENABLE:
+        btm_ble_set_addr_resolution_enable_complete(p, evt_len);
+        break;
+    case HCI_BLE_SET_RAND_PRIV_ADDR_TIMOUT:
+        btm_ble_set_rpa_timeout_complete(p, evt_len);
+        break;
+    case HCI_BLE_SET_PRIVACY_MODE:
+        btm_ble_set_privacy_mode_complete(p, evt_len);
+        break;
+#endif // #if (defined BLE_PRIVACY_SPT && BLE_PRIVACY_SPT == TRUE)
 #if (BLE_50_FEATURE_SUPPORT == TRUE)
     case HCI_BLE_SET_EXT_ADV_PARAM:
     case HCI_BLE_SET_EXT_ADV_DATA:
     case HCI_BLE_SET_EXT_SCAN_RSP_DATA:
     case HCI_BLE_SET_EXT_ADV_ENABLE: {
-        uint8_t status;
         STREAM_TO_UINT8  (status, p);
         HCI_TRACE_EVENT("%s opcode 0x%x status 0x%x", __func__, opcode, status);
 	    break;
     }
     case HCI_BLE_READ_PHY: {
-        uint8_t status;
         uint16_t conn_handle;
         uint8_t tx_phy;
         uint8_t rx_phy;
@@ -1114,14 +1131,26 @@ static void btu_hcif_hdl_command_complete (UINT16 opcode, UINT8 *p, UINT16 evt_l
         btm_ble_test_command_complete(p);
         break;
 #endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
-#endif
+#if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+    case HCI_BLE_SET_PERIOD_ADV_RECV_ENABLE:
+    case HCI_BLE_SET_DEFAULT_PAST_PARAMS:
+        break;
+    case HCI_BLE_PERIOD_ADV_SYNC_TRANS:
+    case HCI_BLE_PERIOD_ADV_SET_INFO_TRANS:
+    case HCI_BLE_SET_PAST_PARAMS: {
+        UINT16 conn_handle;
+        STREAM_TO_UINT8(status, p);
+        STREAM_TO_UINT16(conn_handle, p);
+        btm_ble_periodic_adv_sync_trans_complete(opcode, status, conn_handle);
+        break;
+    }
+#endif // #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 #endif /* (BLE_INCLUDED == TRUE) */
 
     default: {
         if ((opcode & HCI_GRP_VENDOR_SPECIFIC) == HCI_GRP_VENDOR_SPECIFIC) {
             btm_vsc_complete (p, opcode, evt_len, (tBTM_CMPL_CB *)p_cplt_cback);
         }
-        uint8_t status;
         STREAM_TO_UINT8  (status, p);
         if(status != HCI_SUCCESS) {
             HCI_TRACE_ERROR("CC evt: op=0x%x, status=0x%x", opcode, status);
@@ -1228,6 +1257,9 @@ static void btu_hcif_command_complete_evt(BT_HDR *response, void *context)
 static void btu_hcif_hdl_command_status (UINT16 opcode, UINT8 status, UINT8 *p_cmd,
         void *p_vsc_status_cback)
 {
+    if (status != HCI_SUCCESS){
+        HCI_TRACE_WARNING("%s,opcode:0x%04x,status:0x%02x", __func__, opcode,status);
+    }
     BD_ADDR         bd_addr;
     UINT16          handle;
 #if BTM_SCO_INCLUDED == TRUE
@@ -1349,6 +1381,9 @@ static void btu_hcif_hdl_command_status (UINT16 opcode, UINT8 status, UINT8 *p_c
                 break;
 
 #if BLE_INCLUDED == TRUE
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+            case HCI_BLE_EXT_CREATE_CONN:
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
             case HCI_BLE_CREATE_LL_CONN:
                 btm_ble_create_ll_conn_complete(status);
                 break;
@@ -1441,7 +1476,6 @@ static void btu_hcif_command_status_evt(uint8_t status, BT_HDR *command, void *c
     hack->context = context;
 
     event->event = BTU_POST_TO_TASK_NO_GOOD_HORRIBLE_HACK;
-
     if (btu_task_post(SIG_BTU_HCI_MSG, event, OSI_THREAD_MAX_TIMEOUT) == false) {
         osi_free(event);
     }
@@ -1746,8 +1780,19 @@ static void btu_hcif_read_clock_off_comp_evt (UINT8 *p)
 ** Returns          void
 **
 *******************************************************************************/
-static void btu_hcif_conn_pkt_type_change_evt (void)
+static void btu_hcif_conn_pkt_type_change_evt (UINT8 *p)
 {
+    UINT8       status;
+    UINT16      handle;
+    UINT16      pkt_types;
+
+    STREAM_TO_UINT8  (status, p);
+    STREAM_TO_UINT16 (handle, p);
+    STREAM_TO_UINT16 (pkt_types, p);
+
+    handle = HCID_GET_HANDLE (handle);
+
+    btm_acl_pkt_types_changed(status, handle, pkt_types);
 }
 
 
@@ -1827,7 +1872,7 @@ static void btu_hcif_host_support_evt (UINT8 *p)
 ** Returns          void
 **
 *******************************************************************************/
-#if (SMP_INCLUDED == TRUE)
+#if (CLASSIC_BT_INCLUDED == TRUE)
 static void btu_hcif_io_cap_request_evt (UINT8 *p)
 {
     btm_io_capabilities_req(p);
@@ -1879,6 +1924,20 @@ static void btu_hcif_user_passkey_request_evt (UINT8 *p)
 
 /*******************************************************************************
 **
+** Function         btu_hcif_simple_pair_complete_evt
+**
+** Description      Process event HCI_SIMPLE_PAIRING_COMPLETE_EVT
+**
+** Returns          void
+**
+*******************************************************************************/
+static void btu_hcif_simple_pair_complete_evt (UINT8 *p)
+{
+    btm_simple_pair_complete(p);
+}
+
+/*******************************************************************************
+**
 ** Function         btu_hcif_user_passkey_notif_evt
 **
 ** Description      Process event HCI_USER_PASSKEY_NOTIFY_EVT
@@ -1904,8 +1963,7 @@ static void btu_hcif_keypress_notif_evt (UINT8 *p)
 {
     btm_keypress_notif_evt(p);
 }
-#endif  ///SMP_INCLUDED == TRUE
-
+#endif /* (CLASSIC_BT_INCLUDED == TRUE) */
 
 /*******************************************************************************
 **
@@ -1922,22 +1980,6 @@ static void btu_hcif_rem_oob_request_evt (UINT8 *p)
     btm_rem_oob_req(p);
 }
 #endif
-
-/*******************************************************************************
-**
-** Function         btu_hcif_simple_pair_complete_evt
-**
-** Description      Process event HCI_SIMPLE_PAIRING_COMPLETE_EVT
-**
-** Returns          void
-**
-*******************************************************************************/
-#if (SMP_INCLUDED == TRUE)
-static void btu_hcif_simple_pair_complete_evt (UINT8 *p)
-{
-    btm_simple_pair_complete(p);
-}
-#endif  ///SMP_INCLUDED == TRUE
 
 /*******************************************************************************
 **
@@ -2122,7 +2164,9 @@ static void btu_ble_ext_adv_report_evt(UINT8 *p, UINT16 evt_len)
 {
     tBTM_BLE_EXT_ADV_REPORT ext_adv_report = {0};
     UINT8 num_reports = {0};
+#if (defined BLE_PRIVACY_SPT && BLE_PRIVACY_SPT == TRUE)
     UINT8 *pp = p;
+#endif
     //UINT8 legacy_event_type = 0;
     UINT16 evt_type = 0;
     uint8_t addr_type;
@@ -2309,25 +2353,52 @@ static void btu_ble_scan_req_received_evt(UINT8 *p)
 
     btm_ble_scan_req_received_evt(&req_received);
 }
+
+static void btu_ble_channel_select_alg_evt(UINT8 *p)
+{
+    tBTM_BLE_CHANNEL_SEL_ALG chan_sel_alg = {0};
+
+    if (!p) {
+        HCI_TRACE_ERROR("%s, Invalid params.", __func__);
+        return;
+    }
+
+    STREAM_TO_UINT16(chan_sel_alg.conn_handle, p);
+    STREAM_TO_UINT8(chan_sel_alg.channel_sel_alg, p);
+
+    btm_ble_channel_select_algorithm_evt(&chan_sel_alg);
+}
 #endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
 
 #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 static void btu_ble_periodic_adv_sync_trans_recv(UINT8 *p)
 {
-    tBTM_BLE_PERIOD_ADV_SYNC_TRANS_RECV recv = {0};
+    UINT16 conn_handle;
+    tL2C_LCB *p_lcb = NULL;
+    tBTM_BLE_PERIOD_ADV_SYNC_TRANS_RECV past_recv = {0};
 
-    STREAM_TO_UINT8(recv.status, p);
-    STREAM_TO_UINT16(recv.conn_handle, p);
-    STREAM_TO_UINT16(recv.service_data, p);
-    STREAM_TO_UINT16(recv.sync_handle, p);
-    STREAM_TO_UINT8(recv.adv_sid, p);
-    STREAM_TO_UINT8(recv.adv_addr_type, p);
-    STREAM_TO_BDADDR(recv.adv_addr, p);
-    STREAM_TO_UINT8(recv.adv_phy, p);
-    STREAM_TO_UINT16(recv.period_adv_interval, p);
-    STREAM_TO_UINT8(recv.adv_clk_accuracy, p);
+    if (!p) {
+        HCI_TRACE_ERROR("%s, Invalid params.", __func__);
+        return;
+    }
 
-    HCI_TRACE_DEBUG("%s status %x, conn handle %x, sync handle %x", recv.status, recv.conn_handle, recv.sync_handle);
+    STREAM_TO_UINT8(past_recv.status, p);
+    STREAM_TO_UINT16(conn_handle, p);
+    STREAM_TO_UINT16(past_recv.service_data, p);
+    STREAM_TO_UINT16(past_recv.sync_handle, p);
+    STREAM_TO_UINT8(past_recv.adv_sid, p);
+    STREAM_TO_UINT8(past_recv.adv_addr_type, p);
+    STREAM_TO_BDADDR(past_recv.adv_addr, p);
+    STREAM_TO_UINT8(past_recv.adv_phy, p);
+    STREAM_TO_UINT16(past_recv.adv_interval, p);
+    STREAM_TO_UINT8(past_recv.adv_clk_accuracy, p);
+
+    p_lcb = l2cu_find_lcb_by_handle(conn_handle);
+    if(p_lcb) {
+       memcpy(past_recv.addr, p_lcb->remote_bd_addr, BD_ADDR_LEN);
+    }
+
+    btm_ble_periodic_adv_sync_trans_recv_evt(&past_recv);
 }
 #endif // #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 

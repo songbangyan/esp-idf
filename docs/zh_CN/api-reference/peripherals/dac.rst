@@ -3,13 +3,14 @@
 
 :link_to_translation:`en:[English]`
 
-{IDF_TARGET_DAC_CH_1: default = "GPIO25", esp32 = "GPIO25", esp32s2 = "GPIO17"}
-{IDF_TARGET_DAC_CH_2: default = "GPIO26", esp32 = "GPIO26", esp32s2 = "GPIO18"}
+{IDF_TARGET_DAC_CH_1: default = "Not Updated!", esp32 = "GPIO25", esp32s2 = "GPIO17"}
+{IDF_TARGET_DAC_CH_2: default = "Not Updated!", esp32 = "GPIO26", esp32s2 = "GPIO18"}
+{IDF_TARGET_DAC_REF_PIN: default = "Not Updated!", esp32 = "VDD3P3_RTC", esp32s2 = "VDD3P3_RTC_IO"}
 
 概况
 ----
 
-{IDF_TARGET_NAME} 有两个 8 位数模转换器 (DAC) 通道，分别连接到 {IDF_TARGET_DAC_CH_1}（通道 1）和 {IDF_TARGET_DAC_CH_2}（通道 2）。每个 DAC 通道可以将数字值 0~255 转换成模拟电压 0~Vref。输出电压可按以下方式计算::
+{IDF_TARGET_NAME} 有两个 8 位数模转换器 (DAC) 通道，分别连接到 {IDF_TARGET_DAC_CH_1}（通道 1）和 {IDF_TARGET_DAC_CH_2}（通道 2）。每个 DAC 通道可以将数字值 0 ~ 255 转换成模拟电压 0 ~ Vref（此处的 Vref 为 {IDF_TARGET_DAC_REF_PIN} 引脚输入的参考电压，一般来说其输入的电压值应等于电源电压 VDD）。输出电压可按以下方式计算::
 
     out_voltage = Vref * digi_val / 255
 
@@ -129,11 +130,10 @@ Kconfig 选项
 应用示例
 --------
 
-``单次模式``、 ``连续模式`` 和 ``余弦模式`` 的基本示例如下所示：
-
-- :example:`peripherals/dac/dac_oneshot`
-- :example:`peripherals/dac/dac_continuous`
-- :example:`peripherals/dac/dac_cosine_wave`
+- :example:`peripherals/dac/dac_continuous/signal_generator` 演示了在 {IDF_TARGET_NAME} 上使用 DAC 驱动程序输出连续电压的两种方式：通过 DMA 传输、以及通过定时器中断。两种方式可以生成不同的波形，如正弦波、三角波、锯齿波和方波。
+- :example:`peripherals/dac/dac_continuous/dac_audio` 演示了如何在 {IDF_TARGET_NAME} 上使用 DAC 驱动程序播放存储在 buffer 中的音频，每秒钟通过扬声器或耳机播放一次。
+- :example:`peripherals/dac/dac_cosine_wave` 演示了如何在 {IDF_TARGET_NAME} 开发板上使用 DAC 驱动程序在两个通道上输出余弦波，并且可以通过示波器或内部的 ADC 通道进行监控。
+- :example:`peripherals/dac/dac_oneshot` 演示了如何在 {IDF_TARGET_NAME} 上使用 DAC 驱动程序输出每 500 毫秒阶跃增加一次的电压，并且会定期复位为 0。输出的电压可通过 ADC 或可选的示波器进行监测。
 
 API 参考
 --------
@@ -141,5 +141,5 @@ API 参考
 .. include-build-file:: inc/dac_oneshot.inc
 .. include-build-file:: inc/dac_cosine.inc
 .. include-build-file:: inc/dac_continuous.inc
-.. include-build-file:: inc/components/driver/dac/include/driver/dac_types.inc
+.. include-build-file:: inc/components/esp_driver_dac/include/driver/dac_types.inc
 .. include-build-file:: inc/components/hal/include/hal/dac_types.inc

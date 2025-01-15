@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 #include "btc/btc_common.h"
 #include "btc/btc_dm.h"
 #include "btc/btc_main.h"
+#include "btc/btc_util.h"
 #include "common/bt_trace.h"
 #include "common/bt_target.h"
 #include "btc/btc_storage.h"
@@ -181,11 +182,12 @@ static void btc_dm_remove_ble_bonding_keys(void)
     btc_storage_remove_ble_bonding_keys(&bd_addr);
 }
 
+#if BLE_SMP_BOND_NVS_FLASH
 static void btc_dm_save_ble_bonding_keys(void)
 {
     if (!(btc_dm_cb.pairing_cb.ble.is_penc_key_rcvd || btc_dm_cb.pairing_cb.ble.is_pid_key_rcvd || btc_dm_cb.pairing_cb.ble.is_pcsrk_key_rcvd ||
-         btc_dm_cb.pairing_cb.ble.is_lenc_key_rcvd || btc_dm_cb.pairing_cb.ble.is_lcsrk_key_rcvd || btc_dm_cb.pairing_cb.ble.is_lidk_key_rcvd)) {
-        return ;
+        btc_dm_cb.pairing_cb.ble.is_lenc_key_rcvd || btc_dm_cb.pairing_cb.ble.is_lcsrk_key_rcvd || btc_dm_cb.pairing_cb.ble.is_lidk_key_rcvd)) {
+        return;
     }
     bt_bdaddr_t bd_addr;
 
@@ -243,13 +245,13 @@ static void btc_dm_save_ble_bonding_keys(void)
         btc_dm_cb.pairing_cb.ble.is_lidk_key_rcvd = false;
     }
 }
+#endif
 
 static void btc_dm_ble_auth_cmpl_evt (tBTA_DM_AUTH_CMPL *p_auth_cmpl)
 {
     /* Save link key, if not temporary */
     BTC_TRACE_DEBUG("%s, status = %d", __func__, p_auth_cmpl->success);
     bt_status_t status = BT_STATUS_FAIL;
-    int addr_type;
     bt_bdaddr_t bdaddr;
     bdcpy(bdaddr.address, p_auth_cmpl->bd_addr);
     bdcpy(btc_dm_cb.pairing_cb.bd_addr, p_auth_cmpl->bd_addr);
@@ -265,11 +267,20 @@ static void btc_dm_ble_auth_cmpl_evt (tBTA_DM_AUTH_CMPL *p_auth_cmpl)
             return;
         }
 
-         if (btc_storage_get_remote_addr_type(&bdaddr, &addr_type) != BT_STATUS_SUCCESS) {
+#if BLE_SMP_BOND_NVS_FLASH
+        int addr_type;
+
+        if (btc_dm_cb.pairing_cb.ble.is_pid_key_rcvd) {
+            // delete unused section in NVS
+            btc_storage_remove_unused_sections(p_auth_cmpl->bd_addr, &btc_dm_cb.pairing_cb.ble.pid_key);
+        }
+
+        if (btc_storage_get_remote_addr_type(&bdaddr, &addr_type) != BT_STATUS_SUCCESS) {
             btc_storage_set_remote_addr_type(&bdaddr, p_auth_cmpl->addr_type, true);
         }
         btc_storage_set_ble_dev_auth_mode(&bdaddr, p_auth_cmpl->auth_mode, true);
         btc_dm_save_ble_bonding_keys();
+#endif
     } else {
         /*Map the HCI fail reason  to  bt status  */
         switch (p_auth_cmpl->fail_reason) {
@@ -282,6 +293,9 @@ static void btc_dm_ble_auth_cmpl_evt (tBTA_DM_AUTH_CMPL *p_auth_cmpl)
             status = BT_STATUS_AUTH_REJECTED;
             break;
         default:
+            BTC_TRACE_WARNING ("%s, remove bond in flash bd_addr: %08x%04x", __func__,
+                                (p_auth_cmpl->bd_addr[0] << 24) + (p_auth_cmpl->bd_addr[1] << 16) + (p_auth_cmpl->bd_addr[2] << 8) + p_auth_cmpl->bd_addr[3],
+                                (p_auth_cmpl->bd_addr[4] << 8) + p_auth_cmpl->bd_addr[5]);
             btc_dm_remove_ble_bonding_keys();
             status =  BT_STATUS_FAIL;
             break;
@@ -408,6 +422,7 @@ static void btc_dm_auth_cmpl_evt (tBTA_DM_AUTH_CMPL *p_auth_cmpl)
     msg->pid = BTC_PID_GAP_BT;
     msg->act = BTC_GAP_BT_AUTH_CMPL_EVT;
     param.auth_cmpl.stat = status;
+    param.auth_cmpl.lk_type = p_auth_cmpl->key_type;
     memcpy(param.auth_cmpl.bda, p_auth_cmpl->bd_addr, ESP_BD_ADDR_LEN);
     memcpy(param.auth_cmpl.device_name, p_auth_cmpl->bd_name, ESP_BT_GAP_MAX_BDNAME_LEN + 1);
     memcpy(msg->arg, &param, sizeof(esp_bt_gap_cb_param_t));
@@ -421,6 +436,34 @@ static void btc_dm_auth_cmpl_evt (tBTA_DM_AUTH_CMPL *p_auth_cmpl)
 
 #endif /// BTC_GAP_BT_INCLUDED == TRUE
     (void) status;
+}
+
+static void btc_dm_enc_chg_evt (tBTA_DM_ENC_CHG *p_enc_chg)
+{
+#if (BTC_GAP_BT_INCLUDED == TRUE)
+    esp_bt_gap_cb_param_t param;
+    bt_status_t ret;
+    btc_msg_t *msg;
+
+    msg = (btc_msg_t *)osi_malloc(sizeof(btc_msg_t) + sizeof(esp_bt_gap_cb_param_t));
+    if (msg == NULL) {
+        BTC_TRACE_ERROR("%s malloc fail", __func__);
+        return;
+    }
+    msg->sig = BTC_SIG_API_CB;
+    msg->pid = BTC_PID_GAP_BT;
+    msg->act = BTC_GAP_BT_ENC_CHG_EVT;
+    param.enc_chg.enc_mode = p_enc_chg->enc_mode;
+    memcpy(param.enc_chg.bda, p_enc_chg->bd_addr, ESP_BD_ADDR_LEN);
+    memcpy(msg->arg, &param, sizeof(esp_bt_gap_cb_param_t));
+
+    ret = btc_inter_profile_call(msg);
+    osi_free(msg);
+
+    if (ret != BT_STATUS_SUCCESS) {
+        BTC_TRACE_ERROR("%s btc_inter_profile_call failed\n", __func__);
+    }
+#endif /// BTC_GAP_BT_INCLUDED == TRUE
 }
 
 static void btc_dm_pin_req_evt(tBTA_DM_PIN_REQ *p_pin_req)
@@ -451,10 +494,9 @@ static void btc_dm_pin_req_evt(tBTA_DM_PIN_REQ *p_pin_req)
 #endif /// BTC_GAP_BT_INCLUDED == TRUE
 }
 
-#if (BT_SSP_INCLUDED == TRUE)
+#if (CLASSIC_BT_INCLUDED == TRUE)
 static void btc_dm_sp_cfm_req_evt(tBTA_DM_SP_CFM_REQ *p_cfm_req)
 {
-#if (BTC_GAP_BT_INCLUDED == TRUE)
     if (p_cfm_req->just_works) {
         // just work, not show to users.
         BTA_DmConfirm(p_cfm_req->bd_addr, true);
@@ -483,12 +525,10 @@ static void btc_dm_sp_cfm_req_evt(tBTA_DM_SP_CFM_REQ *p_cfm_req)
     if (ret != BT_STATUS_SUCCESS) {
         BTC_TRACE_ERROR("%s btc_inter_profile_call failed\n", __func__);
     }
-#endif /// BTC_GAP_BT_INCLUDED == TRUE
 }
 
 static void btc_dm_sp_key_notif_evt(tBTA_DM_SP_KEY_NOTIF *p_key_notif)
 {
-#if (BTC_GAP_BT_INCLUDED == TRUE)
     esp_bt_gap_cb_param_t param;
     bt_status_t ret;
     btc_msg_t *msg;
@@ -511,12 +551,10 @@ static void btc_dm_sp_key_notif_evt(tBTA_DM_SP_KEY_NOTIF *p_key_notif)
     if (ret != BT_STATUS_SUCCESS) {
         BTC_TRACE_ERROR("%s btc_inter_profile_call failed\n", __func__);
     }
-#endif /// BTC_GAP_BT_INCLUDED == TRUE
 }
 
 static void btc_dm_sp_key_req_evt(tBTA_DM_SP_KEY_REQ *p_key_req)
 {
-#if (BTC_GAP_BT_INCLUDED == TRUE)
     esp_bt_gap_cb_param_t param;
     bt_status_t ret;
     btc_msg_t *msg;
@@ -538,9 +576,8 @@ static void btc_dm_sp_key_req_evt(tBTA_DM_SP_KEY_REQ *p_key_req)
     if (ret != BT_STATUS_SUCCESS) {
         BTC_TRACE_ERROR("%s btc_inter_profile_call failed\n", __func__);
     }
-#endif /// BTC_GAP_BT_INCLUDED == TRUE
 }
-#endif /// BT_SSP_INCLUDED == TRUE
+#endif /// CLASSIC_BT_INCLUDED == TRUE
 
 static void btc_dm_dev_unpaired_evt(tBTA_DM_LINK_DOWN *p_link_down)
 {
@@ -596,6 +633,7 @@ static void btc_dm_pm_mode_chg_evt(tBTA_DM_MODE_CHG *p_mode_chg)
     msg->act = BTC_GAP_BT_MODE_CHG_EVT;
     memcpy(param.mode_chg.bda, p_mode_chg->bd_addr, ESP_BD_ADDR_LEN);
     param.mode_chg.mode = p_mode_chg->mode;
+    param.mode_chg.interval= p_mode_chg->interval;
     memcpy(msg->arg, &param, sizeof(esp_bt_gap_cb_param_t));
 
     ret = btc_inter_profile_call(msg);
@@ -684,18 +722,19 @@ static void btc_dm_acl_link_stat(tBTA_DM_ACL_LINK_STAT *p_acl_link_stat)
 #if (BTC_GAP_BT_INCLUDED == TRUE)
     esp_bt_gap_cb_param_t param;
     esp_bt_gap_cb_event_t event = ESP_BT_GAP_EVT_MAX;
+    bt_bdaddr_t bt_addr;
 
     switch (p_acl_link_stat->event) {
     case BTA_ACL_LINK_STAT_CONN_CMPL: {
         event = ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT;
-        param.acl_conn_cmpl_stat.stat = p_acl_link_stat->link_act.conn_cmpl.status | ESP_BT_STATUS_BASE_FOR_HCI_ERR;
+        param.acl_conn_cmpl_stat.stat = btc_hci_to_esp_status(p_acl_link_stat->link_act.conn_cmpl.status);
         param.acl_conn_cmpl_stat.handle = p_acl_link_stat->link_act.conn_cmpl.handle;
         memcpy(param.acl_conn_cmpl_stat.bda, p_acl_link_stat->link_act.conn_cmpl.bd_addr, ESP_BD_ADDR_LEN);
         break;
     }
     case BTA_ACL_LINK_STAT_DISCONN_CMPL: {
         event = ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT;
-        param.acl_disconn_cmpl_stat.reason = p_acl_link_stat->link_act.disconn_cmpl.reason | ESP_BT_STATUS_BASE_FOR_HCI_ERR;
+        param.acl_disconn_cmpl_stat.reason = btc_hci_to_esp_status(p_acl_link_stat->link_act.disconn_cmpl.reason);
         param.acl_disconn_cmpl_stat.handle = p_acl_link_stat->link_act.disconn_cmpl.handle;
         memcpy(param.acl_disconn_cmpl_stat.bda, p_acl_link_stat->link_act.disconn_cmpl.bd_addr, ESP_BD_ADDR_LEN);
         break;
@@ -706,6 +745,18 @@ static void btc_dm_acl_link_stat(tBTA_DM_ACL_LINK_STAT *p_acl_link_stat)
     }
     }
 
+#if (SMP_INCLUDED == TRUE)
+    if (p_acl_link_stat->event == BTA_ACL_LINK_STAT_CONN_CMPL &&
+        p_acl_link_stat->link_act.conn_cmpl.status == HCI_SUCCESS) {
+        memcpy(bt_addr.address, p_acl_link_stat->link_act.conn_cmpl.bd_addr, sizeof(bt_addr.address));
+        if (btc_storage_update_active_device(&bt_addr)) {
+            BTC_TRACE_EVENT("Device: %02x:%02x:%02x:%02x:%02x:%02x, is not in bond list",
+                            bt_addr.address[0], bt_addr.address[1],
+                            bt_addr.address[2], bt_addr.address[3],
+                            bt_addr.address[4], bt_addr.address[5]);
+        }
+    }
+#endif  ///SMP_INCLUDED == TRUE
     esp_bt_gap_cb_t cb = (esp_bt_gap_cb_t)btc_profile_cb_get(BTC_PID_GAP_BT);
     if (cb) {
         cb(event, &param);
@@ -737,17 +788,17 @@ void btc_dm_sec_cb_handler(btc_msg_t *msg)
     case BTA_DM_ENABLE_EVT: {
         btc_clear_services_mask();
 #if (SMP_INCLUDED == TRUE)
-        btc_storage_load_bonded_devices();
 #if (BLE_INCLUDED == TRUE)
+        btc_storage_delete_duplicate_ble_devices();
+#endif ///BLE_INCLUDED == TRUE
         //load the bonding device to the btm layer
-        btc_storage_load_bonded_ble_devices();
-#endif  ///BLE_INCLUDED == TRUE
+        btc_storage_load_bonded_devices();
 #endif  ///SMP_INCLUDED == TRUE
 
         /* Set initial device name, it can be overwritten later */
         if (p_data->enable.status == BTA_SUCCESS) {
             const char *initial_device_name = "ESP32";
-            BTA_DmSetDeviceName(initial_device_name);
+            BTA_DmSetDeviceName(initial_device_name, BT_DEVICE_TYPE_DUMO);
         }
         btc_enable_bluetooth_evt(p_data->enable.status);
         break;
@@ -770,10 +821,13 @@ void btc_dm_sec_cb_handler(btc_msg_t *msg)
     case BTA_DM_AUTH_CMPL_EVT:
         btc_dm_auth_cmpl_evt(&p_data->auth_cmpl);
         break;
+    case BTA_DM_ENC_CHG_EVT:
+        btc_dm_enc_chg_evt(&p_data->enc_chg);
+        break;
     case BTA_DM_BOND_CANCEL_CMPL_EVT:
         BTC_TRACE_DEBUG("BTA_DM_BOND_CANCEL_CMPL_EVT");
         break;
-#if (BT_SSP_INCLUDED == TRUE)
+#if (CLASSIC_BT_INCLUDED == TRUE)
     case BTA_DM_SP_CFM_REQ_EVT:
         btc_dm_sp_cfm_req_evt(&p_data->cfm_req);
         break;
@@ -783,14 +837,15 @@ void btc_dm_sec_cb_handler(btc_msg_t *msg)
     case BTA_DM_SP_KEY_REQ_EVT:
         btc_dm_sp_key_req_evt(&p_data->key_req);
         break;
-    case BTA_DM_SP_RMT_OOB_EVT:
-        BTC_TRACE_DEBUG("BTA_DM_SP_RMT_OOB_EVT");
-        break;
     case BTA_DM_SP_KEYPRESS_EVT:
         BTC_TRACE_DEBUG("BTA_DM_SP_KEYPRESS_EVT");
         break;
-#endif ///BT_SSP_INCLUDED == TRUE
-
+#endif /* (CLASSIC_BT_INCLUDED == TRUE) */
+#if BTM_OOB_INCLUDED == TRUE
+    case BTA_DM_SP_RMT_OOB_EVT:
+        BTC_TRACE_DEBUG("BTA_DM_SP_RMT_OOB_EVT");
+        break;
+#endif /* BTM_OOB_INCLUDED == TRUE */
     case BTA_DM_ACL_LINK_STAT_EVT: {
         btc_dm_acl_link_stat(&p_data->acl_link_stat);
         break;

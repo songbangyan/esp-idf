@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,7 +12,7 @@
 #include "soc/rtc.h"
 #include "soc/rtc_periph.h"
 #if SOC_ADC_RTC_CTRL_SUPPORTED
-#include "soc/sens_periph.h"
+#include "soc/sens_reg.h"
 #endif
 #include "soc/gpio_periph.h"
 #include "hal/gpio_ll.h"
@@ -24,29 +24,14 @@
 #include "esp_rom_sys.h"
 #include "esp_rom_uart.h"
 #include "test_utils.h"
+#include "esp_random.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "esp_private/esp_clk.h"
 
-#if CONFIG_IDF_TARGET_ESP32
-#include "esp32/rtc.h"
-#include "esp32/rom/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32S2
-#include "esp32s2/rtc.h"
-#include "esp32s2/rom/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32S3
-#include "esp32s3/rtc.h"
-#include "esp32s3/rom/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32C3
-#include "esp32c3/rtc.h"
-#include "esp32c3/rom/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32H4
-#include "esp32h4/rtc.h"
-#include "esp32h4/rom/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32C2
-#include "esp32c2/rtc.h"
-#include "esp32c2/rom/rtc.h"
-#endif
+#include "esp_rtc_time.h"
+#include "rom/rtc.h"
+
 
 // ESP32C2 does not support SLOW_CLK_32K_XTAL, so no need to test related test cases
 // Please notice this when enabling the rtc_clk test for ESP32C2!
@@ -122,6 +107,26 @@ TEST_CASE("RTC_SLOW_CLK sources calibration", "[rtc_clk]")
 #endif
 }
 
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+TEST_CASE("Test RTC_SLOW_CLK sources switching", "[rtc_clk]")
+{
+    soc_rtc_slow_clk_src_t clk_src_before_switch = rtc_clk_slow_src_get();
+    soc_rtc_slow_clk_src_t switching_sources[] = {SOC_RTC_SLOW_CLK_SRC_RC_SLOW, SOC_RTC_SLOW_CLK_SRC_RC_FAST_D256};
+
+    for (uint32_t test_cnt = 0; test_cnt < 100; test_cnt++) {
+        uint32_t src_id = esp_random() % 2;
+        if (switching_sources[src_id] == SOC_RTC_SLOW_CLK_SRC_RC_FAST_D256) {
+            rtc_clk_8m_enable(true, true);
+        }
+        rtc_clk_slow_src_set(switching_sources[src_id]);
+        esp_rom_delay_us(10*1000);
+        TEST_ASSERT_EQUAL(switching_sources[src_id], rtc_clk_slow_src_get());
+    }
+    rtc_clk_slow_src_set(clk_src_before_switch);
+    printf("done\n");
+}
+#endif
+
 /* The following two are not unit tests, but are added here to make it easy to
  * check the frequency of 150k/32k oscillators. The following two "tests" will
  * output either 32k or 150k clock to GPIO25.
@@ -156,7 +161,7 @@ TEST_CASE("Output 8M XTAL clock to GPIO25", "[ignore]")
 
 static void test_clock_switching(void (*switch_func)(const rtc_cpu_freq_config_t* config))
 {
-    esp_rom_uart_tx_wait_idle(CONFIG_ESP_CONSOLE_UART_NUM);
+    esp_rom_output_tx_wait_idle(CONFIG_ESP_CONSOLE_ROM_SERIAL_PORT_NUM);
 
     const int test_duration_sec = 10;
     ref_clock_init();
@@ -387,11 +392,11 @@ static void trigger_deepsleep(void)
     esp_clk_slowclk_cal_set(esp_clk_slowclk_cal_get() / 2);
 
     // Delay for error accumulation.
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(10*1000));
 
     // Save start time. Deep sleep.
     start = esp_rtc_get_time_us();
-    esp_sleep_enable_timer_wakeup(1000);
+    esp_sleep_enable_timer_wakeup(5000);
     // In function esp_deep_sleep_start() uses function esp_sync_timekeeping_timers()
     // to prevent a negative time after wake up.
     esp_deep_sleep_start();
@@ -407,11 +412,11 @@ static void check_time_deepsleep_1(void)
     esp_clk_slowclk_cal_set(esp_clk_slowclk_cal_get() * 2);
 
     // Delay for error accumulation.
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(10*1000));
 
     start = esp_rtc_get_time_us();
 
-    esp_sleep_enable_timer_wakeup(1000);
+    esp_sleep_enable_timer_wakeup(5000);
     // In function esp_deep_sleep_start() uses function esp_sync_timekeeping_timers()
     // to prevent a negative time after wake up.
     esp_deep_sleep_start();

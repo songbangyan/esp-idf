@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -13,6 +13,7 @@
 #include "driver/rtc_io.h"
 #include "soc/adc_periph.h"
 #include "test_common_adc.h"
+#include "hal/adc_ll.h"
 
 __attribute__((unused)) static const char *TAG = "TEST_ADC";
 
@@ -20,9 +21,9 @@ __attribute__((unused)) static const char *TAG = "TEST_ADC";
         ADC Attenuation
 ---------------------------------------------------------------*/
 #if CONFIG_IDF_TARGET_ESP32C2
-adc_atten_t g_test_atten[TEST_ATTEN_NUMS] = {ADC_ATTEN_DB_0, ADC_ATTEN_DB_11};
+adc_atten_t g_test_atten[TEST_ATTEN_NUMS] = {ADC_ATTEN_DB_0, ADC_ATTEN_DB_12};
 #else
-adc_atten_t g_test_atten[TEST_ATTEN_NUMS] = {ADC_ATTEN_DB_0, ADC_ATTEN_DB_2_5, ADC_ATTEN_DB_6, ADC_ATTEN_DB_11};
+adc_atten_t g_test_atten[TEST_ATTEN_NUMS] = {ADC_ATTEN_DB_0, ADC_ATTEN_DB_2_5, ADC_ATTEN_DB_6, ADC_ATTEN_DB_12};
 #endif
 
 #if SOC_ADC_DIG_IIR_FILTER_SUPPORTED
@@ -35,11 +36,10 @@ adc_digi_iir_filter_coeff_t g_test_filter_coeff[TEST_FILTER_COEFF_NUMS] = {
 };
 #endif
 
-
 /*---------------------------------------------------------------
         ADC Calibration
 ---------------------------------------------------------------*/
-bool test_adc_calibration_init(adc_unit_t unit, adc_atten_t atten, adc_bitwidth_t bitwidth, adc_cali_handle_t *out_handle)
+bool test_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_bitwidth_t bitwidth, adc_cali_handle_t *out_handle)
 {
     esp_err_t ret = ESP_FAIL;
     adc_cali_handle_t handle = NULL;
@@ -49,6 +49,7 @@ bool test_adc_calibration_init(adc_unit_t unit, adc_atten_t atten, adc_bitwidth_
     ESP_LOGI(TAG, "calibration scheme version is %s", "Curve Fitting");
     adc_cali_curve_fitting_config_t cali_config = {
         .unit_id = unit,
+        .chan = channel,
         .atten = atten,
         .bitwidth = bitwidth,
     };
@@ -89,7 +90,6 @@ void test_adc_calibration_deinit(adc_cali_handle_t handle)
 #endif
 }
 
-
 /*---------------------------------------------------------------
         ADC GPIO
 ---------------------------------------------------------------*/
@@ -99,36 +99,32 @@ void test_adc_set_io_level(adc_unit_t unit, adc_channel_t channel, bool level)
 {
     TEST_ASSERT(channel < SOC_ADC_CHANNEL_NUM(unit) && "invalid channel");
 
-#if SOC_ADC_DIG_CTRL_SUPPORTED && !SOC_ADC_RTC_CTRL_SUPPORTED
     uint32_t io_num = ADC_GET_IO_NUM(unit, channel);
-    TEST_ESP_OK(gpio_set_pull_mode(io_num, (level ? GPIO_PULLUP_ONLY: GPIO_PULLDOWN_ONLY)));
-#else
-    gpio_num_t io_num = ADC_GET_IO_NUM(unit, channel);
-    if (level) {
-        TEST_ESP_OK(rtc_gpio_pullup_en(io_num));
-        TEST_ESP_OK(rtc_gpio_pulldown_dis(io_num));
-    } else {
-        TEST_ESP_OK(rtc_gpio_pullup_dis(io_num));
-        TEST_ESP_OK(rtc_gpio_pulldown_en(io_num));
+    TEST_ESP_OK(gpio_set_pull_mode(io_num, (level ? GPIO_PULLUP_ONLY : GPIO_PULLDOWN_ONLY)));
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+    if (rtc_gpio_is_valid_gpio(io_num)) {
+        if (level) {
+            TEST_ESP_OK(rtc_gpio_pullup_en(io_num));
+            TEST_ESP_OK(rtc_gpio_pulldown_dis(io_num));
+        } else {
+            TEST_ESP_OK(rtc_gpio_pullup_dis(io_num));
+            TEST_ESP_OK(rtc_gpio_pulldown_en(io_num));
+        }
     }
-    TEST_ESP_OK(gpio_set_pull_mode(io_num, (level ? GPIO_PULLUP_ONLY: GPIO_PULLDOWN_ONLY)));
 #endif
 }
-
 
 void test_adc_set_io_middle(adc_unit_t unit, adc_channel_t channel)
 {
     TEST_ASSERT(channel < SOC_ADC_CHANNEL_NUM(unit) && "invalid channel");
 
     uint32_t io_num = ADC_GET_IO_NUM(unit, channel);
-
-#if SOC_ADC_DIG_CTRL_SUPPORTED && !SOC_ADC_RTC_CTRL_SUPPORTED
     TEST_ESP_OK(gpio_set_pull_mode(io_num, GPIO_PULLUP_PULLDOWN));
-#else
-    TEST_ESP_OK(rtc_gpio_init(io_num));
-    TEST_ESP_OK(rtc_gpio_pullup_en(io_num));
-    TEST_ESP_OK(rtc_gpio_pulldown_en(io_num));
-    TEST_ESP_OK(rtc_gpio_set_direction(io_num, RTC_GPIO_MODE_DISABLED));
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+    if (rtc_gpio_is_valid_gpio(io_num)) {
+        TEST_ESP_OK(rtc_gpio_pullup_en(io_num));
+        TEST_ESP_OK(rtc_gpio_pulldown_en(io_num));
+    }
 #endif
     vTaskDelay(10 / portTICK_PERIOD_MS);
 }

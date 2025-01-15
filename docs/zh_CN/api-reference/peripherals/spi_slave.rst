@@ -1,24 +1,16 @@
 SPI 从机驱动程序
 ================
 
-SPI 从机驱动程序控制在 {IDF_TARGET_NAME} 中作为从机的 SPI 外设。
+:link_to_translation:`en:[English]`
 
+SPI 从机驱动程序控制在 {IDF_TARGET_NAME} 中作为从机的 GP-SPI 外设。
 
-{IDF_TARGET_NAME} 中 SPI 外设概述
------------------------------------------------
-
-{IDF_TARGET_NAME} 集成了 {SOC_SPI_PERIPH_NUM} 个通用的 SPI 控制器。该控制器具有与之同名的独立总线信号。
-
-.. only:: esp32
-
-    .. note::
-
-        在 ESP32 中，HSPI 为 SPI2，VSPI 为 SPI3。
+有关 GP-SPI 硬件相关信息，请参考 **{IDF_TARGET_NAME} 技术参考手册** > **SPI 控制器** [`PDF <{IDF_TARGET_TRM_CN_URL}#spi>`__]。
 
 术语
 -----------
 
-下表为 SPI 主机驱动的相关术语。
+下表为 SPI 从机驱动的相关术语。
 
 .. list-table::
    :widths: 30 70
@@ -45,13 +37,13 @@ SPI 从机驱动程序控制在 {IDF_TARGET_NAME} 中作为从机的 SPI 外设�
    * - QUADHD
      - 保持信号。只用于 4 位 (qio/qout) 传输。
    * - 断言 (Assertion)
-     - 指激活一条线的操作。反之，将线路恢复到非活动状态（回到空闲状态）的操作则称为 *去断言*。
+     - 指激活一条线的操作。反之，将线路恢复到非活动状态（回到空闲状态）的操作则称为 **去断言**。
    * - 传输事务 (Transaction)
      - 即主机断言从机设备的 CS 线，向从机设备传输数据，接着去断言 CS 线的过程。传输事务为原子操作，不可打断。
    * - 发射沿 (Launch Edge)
-     - 源寄存器将信号 *发射* 到线路上的时钟边沿。
+     - 源寄存器将信号 **发射** 到线路上的时钟边沿。
    * - 锁存沿 (Latch Edge)
-     - 目的寄存器 *锁存* 信号的时钟边沿。
+     - 目的寄存器 **锁存** 信号的时钟边沿。
 
 
 驱动程序的功能
@@ -61,6 +53,18 @@ SPI 从机驱动程序控制在 {IDF_TARGET_NAME} 中作为从机的 SPI 外设�
 
 SPI 从机驱动程序允许将 SPI 外设作为全双工设备使用。驱动程序可以发送/接收长度不超过 {IDF_TARGET_MAX_DATA_BUF} 字节的传输事务，或者利用 DMA 来发送/接收更长的传输事务。然而，存在一些与 DMA 有关的 :ref:`已知问题 <spi_dma_known_issues>`。
 
+SPI 从机驱动程序支持将 SPI ISR 注册至指定 CPU 内核。如果多个任务同时尝试访问一个 SPI 设备，建议重构应用程序，以使每个 SPI 外设一次只由一个任务访问。此外，请使用 :cpp:member:`spi_bus_config_t::isr_cpu_id` 将 SPI ISR 注册至与 SPI 外设相关任务相同的内核，确保线程安全。
+
+.. only:: SOC_SPI_SUPPORT_SLEEP_RETENTION
+
+    睡眠保留
+    ^^^^^^^^
+
+    {IDF_TARGET_NAME} 支持在进入 **Light Sleep** 之前保留 SPI 寄存器中的内容，并在唤醒后恢复。即程序不需要在 **Light Sleep** 唤醒后重新配置 SPI。
+
+    该特性可以通过置位配置中的 :c:macro:`SPICOMMON_BUSFLAG_SLP_ALLOW_PD` 标志位启用。启用后驱动允许系统在 Light Sleep 时对 SPI 掉电，同时保存寄存器配置。它可以帮助降低轻度睡眠时的功耗，但需要花费一些额外的存储来保存寄存器的配置。
+
+    注意在 Slave 角色下，不支持在所有传输（发送和接收）未完成时进入睡眠，否则将会出错。
 
 SPI 传输事务
 ----------------
@@ -69,7 +73,7 @@ SPI 传输事务
 
 传输事务的属性由作为从机设备的 SPI 外设的配置结构体 :cpp:type:`spi_slave_interface_config_t` 和传输事务配置结构体 :cpp:type:`spi_slave_transaction_t` 决定。
 
-由于并非每次传输事务都需要写入和读取数据，您可以选择配置 :cpp:type:`spi_transaction_t` 为仅 TX、仅 RX 或同时 TX 和 RX 传输事务。如果将 :cpp:member:`spi_slave_transaction_t::rx_buffer` 设置为 NULL，读取阶段将被跳过。如果将 :cpp:member:`spi_slave_transaction_t::tx_buffer` 设置为 NULL，则写入阶段将被跳过。
+由于并非每次传输事务都需要写入和读取数据，可以选择配置 :cpp:type:`spi_transaction_t` 为仅 TX、仅 RX 或同时 TX 和 RX 传输事务。如果将 :cpp:member:`spi_slave_transaction_t::rx_buffer` 设置为 ``NULL``，读取阶段将被跳过。与之类似，如果将 :cpp:member:`spi_slave_transaction_t::tx_buffer` 设置为 ``NULL``，则写入阶段将被跳过。
 
 .. note::
 
@@ -79,11 +83,11 @@ SPI 传输事务
 使用驱动程序
 ------------
 
-- 调用函数 cpp:func:`spi_slave_initialize`，将 SPI 外设初始化为从机设备。请确保在 `bus_config` 中设置正确的 I/O 管脚，并将未使用的信号设置为 ``-1``。
+- 调用函数  :cpp:func:`spi_slave_initialize`，将 SPI 外设初始化为从机设备。请确保在 `bus_config` 中设置正确的 I/O 管脚，并将未使用的信号设置为 ``-1``。
 
 .. only:: esp32
 
-    如果传输事务的数据大于 32 字节，需要将参数 ``dma_chan`` 分别设置为 ``1`` 或 ``2`` 以使能 DMA 通道 1 或通道 2。若数据小于 32 字节，则应将 ``dma_chan`` 设为 ``0``。
+    如果传输事务的数据大于 32 字节，需要将参数 ``dma_chan`` 分别设置为 ``1`` 或 ``2`` 以使能 DMA 通道 1 或通道 2，否则应将 ``dma_chan`` 设为 ``0``。
 
 .. only:: esp32s2
 
@@ -148,76 +152,37 @@ GPIO 交换矩阵和 IO_MUX
 
 .. only:: not esp32
 
+    {IDF_TARGET_SPI2_IOMUX_PIN_CS:default="N/A",   esp32s2="10", esp32s3="10", esp32c2="10", esp32c3="10", esp32c6="16", esp32h2="1", esp32p4="7" , esp32c5="10", esp32c61="8"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_CLK:default="N/A",  esp32s2="12", esp32s3="12", esp32c2="6",  esp32c3="6",  esp32c6="6",  esp32h2="4", esp32p4="9" , esp32c5="6",  esp32c61="6"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_MOSI:default="N/A", esp32s2="11"  esp32s3="11", esp32c2="7"   esp32c3="7",  esp32c6="7",  esp32h2="5", esp32p4="8" , esp32c5="7",  esp32c61="7"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_MISO:default="N/A", esp32s2="13"  esp32s3="13", esp32c2="2"   esp32c3="2",  esp32c6="2",  esp32h2="0", esp32p4="10", esp32c5="2",  esp32c61="2"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_HD:default="N/A",   esp32s2="9"   esp32s3="9",  esp32c2="4"   esp32c3="4",  esp32c6="4",  esp32h2="3", esp32p4="6" , esp32c5="4",  esp32c61="3"}
+    {IDF_TARGET_SPI2_IOMUX_PIN_WP:default="N/A",   esp32s2="14"  esp32s3="14", esp32c2="5"   esp32c3="5",  esp32c6="5",  esp32h2="2", esp32p4="11", esp32c5="5",  esp32c61="4"}
+
     {IDF_TARGET_NAME} 的大多数外设信号都直接连接到其专用的 IO_MUX 管脚。不过，也可以使用 GPIO 交换矩阵，将信号路由到任何可用的其他管脚。如果通过 GPIO 交换矩阵路由了至少一个信号，则所有信号都将通过 GPIO 交换矩阵路由。
 
     当 SPI 主机频率配置为 80 MHz 或更低时，则通过 GPIO 交换矩阵或 IO_MUX 路由 SPI 管脚效果相同。
 
     下表列出了 SPI 总线的 IO_MUX 管脚。
 
-.. only:: esp32s2 or esp32s3
-
     .. list-table::
        :widths: 40 30
        :header-rows: 1
 
        * - 管脚名称
          - GPIO 编号 (SPI2)
-       * - CS0*
-         - 10
+       * - CS0
+         - {IDF_TARGET_SPI2_IOMUX_PIN_CS}
        * - SCLK
-         - 12
+         - {IDF_TARGET_SPI2_IOMUX_PIN_CLK}
        * - MISO
-         - 13
+         - {IDF_TARGET_SPI2_IOMUX_PIN_MISO}
        * - MOSI
-         - 11
+         - {IDF_TARGET_SPI2_IOMUX_PIN_MOSI}
        * - QUADWP
-         - 14
+         - {IDF_TARGET_SPI2_IOMUX_PIN_WP}
        * - QUADHD
-         - 9
-
-.. only:: esp32c2 or esp32c3
-
-    .. list-table::
-       :widths: 40 30
-       :header-rows: 1
-
-       * - 管脚名称
-         - GPIO 编号 (SPI2)
-       * - CS0*
-         - 10
-       * - SCLK
-         - 6
-       * - MISO
-         - 2
-       * - MOSI
-         - 7
-       * - QUADWP
-         - 5
-       * - QUADHD
-         - 4
-
-.. only:: esp32c6
-
-    .. list-table::
-       :widths: 40 30
-       :header-rows: 1
-
-       * - 管脚名称
-         - GPIO 编号 (SPI2)
-       * - CS0*
-         - 16
-       * - SCLK
-         - 6
-       * - MISO
-         - 2
-       * - MOSI
-         - 7
-       * - QUADWP
-         - 5
-       * - QUADHD
-         - 4
-
-* 只有连接到总线上的第一个从机设备可以使用 CS0 管脚。
+         - {IDF_TARGET_SPI2_IOMUX_PIN_HD}
 
 
 速度与时钟
@@ -232,13 +197,13 @@ GPIO 交换矩阵和 IO_MUX
 
 解决方案为，首先使用函数 :cpp:func:`spi_slave_queue_trans`，然后使用 :cpp:func:`spi_slave_get_trans_result`，来代替 :cpp:func:`spi_slave_transmit`。由此一来，可使从机设备的响应速度提高一倍。
 
-您也可以配置一个 GPIO 管脚，当从机设备开始新一次传输事务前，它将通过该管脚向主机发出信号。示例代码存放在 :example:`peripherals/spi_slave` 目录下。
+也可以配置一个 GPIO 管脚，当从机设备开始新一次传输事务前，它将通过该管脚向主机发出信号。示例代码存放在 :example:`peripherals/spi_slave` 目录下。
 
 
 时钟频率要求
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-{IDF_TARGET_MAX_FREQ:default="60", esp32="10", esp32s2="40"}
+{IDF_TARGET_MAX_FREQ:default="60", esp32="10", esp32s2="40", esp32c6="40", esp32h2="32"}
 
 SPI 从机的工作频率最高可达 {IDF_TARGET_MAX_FREQ} MHz。如果时钟频率过快或占空比不足 50%，数据就无法被正确识别或接收。
 
@@ -261,10 +226,10 @@ SPI 从机的工作频率最高可达 {IDF_TARGET_MAX_FREQ} MHz。如果时钟�
              - 频率限制 (MHz)
            * - IO_MUX
              - 43.75
-             - <11.4
+             - < 11.4
            * - GPIO 交换矩阵
              - 68.75
-             - <7.2
+             - < 7.2
 
         注：
         1. 如果频率达到上限，会导致随机误差。
@@ -289,16 +254,20 @@ SPI 从机的工作频率最高可达 {IDF_TARGET_MAX_FREQ} MHz。如果时钟�
 
     .. wavedrom:: /../_static/diagrams/spi/spi_slave_miso_dma.json
 
-    如果启用 DMA，从机设备的发射沿会比正常时间提前半个 SPI 时钟周期，变为主机的实际锁存沿。在这种情况下，如果 GPIO 交换矩阵被绕过，数据采样的保持时间将是 68.75 ns，而非半个 SPI 时钟周期。如果使用了 GPIO 交换矩阵，保持时间将增加到 93.75 ns。主机应在锁存沿立即采样数据，或在 SPI 模式 1 或模式 3 中进行通信。如果您的主机无法满足上述时间要求，请在没有 DMA 的情况下初始化从机设备。
+    如果启用 DMA，从机设备的发射沿会比正常时间提前半个 SPI 时钟周期，变为主机的实际锁存沿。在这种情况下，如果 GPIO 交换矩阵被绕过，数据采样的保持时间将是 68.75 ns，而非半个 SPI 时钟周期。如果使用了 GPIO 交换矩阵，保持时间将增加到 93.75 ns。主机应在锁存沿立即采样数据，或在 SPI 模式 1 或模式 3 中进行通信。如果主机无法满足上述时间要求，请在没有 DMA 的情况下初始化从机设备。
 
 
 应用示例
 -------------------
 
-从机设备/主机通信的示例代码存放在 ESP-IDF 示例项目的 :example:`peripherals/spi_slave` 目录下。
+如需查看从机/主机通信的代码示例，请前往 :example:`peripherals/spi_slave_hd` 目录。
+
+- :example: `peripherals/spi_slave/receiver` 演示了如何配置 SPI 从机以接收来自 SPI 主机的数据，并通过握手机制管理数据传输的准备状态。
+
+- :example: `peripherals/spi_slave/sender` 演示了如何配置 SPI 主机将数据发送到 SPI 从机，并通过握手来确保数据传输的时机恰当。
 
 
 API 参考
--------------
+------------
 
 .. include-build-file:: inc/spi_slave.inc

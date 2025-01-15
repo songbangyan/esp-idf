@@ -1,73 +1,45 @@
-# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import threading
 import time
-from base64 import b64decode
-from textwrap import indent
 from threading import Thread
-from typing import Any, Dict, List, Optional
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
+from typing import Union
 
 from click import INT
 from click.core import Context
 from esp_coredump import CoreDump
-from idf_py_actions.constants import OPENOCD_TAGET_CONFIG, OPENOCD_TAGET_CONFIG_DEFAULT
 from idf_py_actions.errors import FatalError
-from idf_py_actions.serial_ext import BAUD_RATE, PORT
-from idf_py_actions.tools import (PropertyDict, ensure_build_directory, generate_hints, get_default_serial_port,
-                                  get_sdkconfig_value, yellow_print)
-
-PYTHON = sys.executable
-ESP_ROM_INFO_FILE = 'roms.json'
-GDBINIT_PYTHON_TEMPLATE = '''
-# Add Python GDB extensions
-python
-import sys
-sys.path = {sys_path}
-import freertos_gdb
-end
-'''
-GDBINIT_PYTHON_NOT_SUPPORTED = '''
-# Python scripting is not supported in this copy of GDB.
-# Please make sure that your Python distribution contains Python shared library.
-'''
-GDBINIT_BOOTLOADER_ADD_SYMBOLS = '''
-# Load bootloader symbols
-set confirm off
-  add-symbol-file {boot_elf}
-set confirm on
-'''
-GDBINIT_BOOTLOADER_NOT_FOUND = '''
-# Bootloader elf was not found
-'''
-GDBINIT_APP_ADD_SYMBOLS = '''
-# Load application file
-file {app_elf}
-'''
-GDBINIT_CONNECT = '''
-# Connect to the default openocd-esp port and break on app_main()
-target remote :3333
-monitor reset halt
-flushregs
-thbreak app_main
-continue
-'''
-GDBINIT_MAIN = '''
-source {py_extensions}
-source {symbols}
-source {connect}
-'''
+from idf_py_actions.serial_ext import BAUD_RATE
+from idf_py_actions.serial_ext import PORT
+from idf_py_actions.tools import ensure_build_directory
+from idf_py_actions.tools import generate_hints
+from idf_py_actions.tools import get_default_serial_port
+from idf_py_actions.tools import get_sdkconfig_value
+from idf_py_actions.tools import PropertyDict
+from idf_py_actions.tools import yellow_print
 
 
-def get_openocd_arguments(target: str) -> str:
-    default_args = OPENOCD_TAGET_CONFIG_DEFAULT.format(target=target)
-    return str(OPENOCD_TAGET_CONFIG.get(target, default_args))
+def chip_rev_to_int(chip_rev: Optional[str]) -> Union[int, None]:
+    # The chip rev will be derived from the elf file if none are returned.
+    # The chip rev must be supplied for coredump files generated with idf versions less than 5.1 in order to load
+    # rom elf file.
+    if not chip_rev or not all(c.isdigit() or c == '.' for c in chip_rev):
+        return None
+    if '.' not in chip_rev:
+        chip_rev += '.0'
+    major, minor = map(int, chip_rev.split('.'))
+    return major * 100 + minor
 
 
 def action_extensions(base_actions: Dict, project_path: str) -> Dict:
@@ -98,7 +70,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                     if p.poll() is not None:
                         print('OpenOCD exited with {}'.format(p.poll()))
                         break
-                    with open(name, 'r') as f:
+                    with open(name, 'r', encoding='utf-8') as f:
                         content = f.read()
                         if re.search(r'Listening on port \d+ for gdb connections', content):
                             # expect OpenOCD has started successfully - stop watching
@@ -106,7 +78,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                     time.sleep(0.5)
 
                 # OpenOCD exited or is not listening -> print full log and terminate
-                with open(name, 'r') as f:
+                with open(name, 'r', encoding='utf-8') as f:
                     print(f.read())
 
                 raise FatalError('Action "{}" failed due to errors in OpenOCD'.format(target), ctx)
@@ -135,9 +107,10 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
 
     def _get_espcoredump_instance(ctx: Context,
                                   args: PropertyDict,
-                                  gdb_timeout_sec: int = None,
-                                  core: str = None,
-                                  save_core: str = None) -> CoreDump:
+                                  gdb_timeout_sec: Optional[int] = None,
+                                  core: Optional[str] = None,
+                                  chip_rev: Optional[str] = None,
+                                  save_core: Optional[str] = None) -> CoreDump:
 
         ensure_build_directory(args, ctx.info_name)
         project_desc = get_project_desc(args, ctx)
@@ -146,13 +119,12 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         coredump_to_flash = coredump_to_flash_config.rstrip().endswith('y') if coredump_to_flash_config else False
 
         prog = os.path.join(project_desc['build_dir'], project_desc['app_elf'])
-        args.port = args.port or get_default_serial_port()
 
         espcoredump_kwargs = dict()
 
-        espcoredump_kwargs['port'] = args.port
         espcoredump_kwargs['baud'] = args.baud
         espcoredump_kwargs['gdb_timeout_sec'] = gdb_timeout_sec
+        espcoredump_kwargs['chip_rev'] = chip_rev_to_int(chip_rev)
 
         # for reproducible builds
         extra_gdbinit_file = project_desc.get('debug_prefix_map_gdbinit', None)
@@ -160,159 +132,45 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         if extra_gdbinit_file:
             espcoredump_kwargs['extra_gdbinit_file'] = extra_gdbinit_file
 
-        core_format = None
-
         if core:
             espcoredump_kwargs['core'] = core
+            espcoredump_kwargs['core_format'] = 'auto'
             espcoredump_kwargs['chip'] = get_sdkconfig_value(project_desc['config_file'], 'CONFIG_IDF_TARGET')
-            core_format = get_core_file_format(core)
         elif coredump_to_flash:
             #  If the core dump is read from flash, we don't need to specify the --core-format argument at all.
             #  The format will be determined automatically
-            pass
+            args.port = args.port or get_default_serial_port()
         else:
             print('Path to core dump file is not provided. '
                   "Core dump can't be read from flash since this option is not enabled in menuconfig")
             sys.exit(1)
 
-        if core_format:
-            espcoredump_kwargs['core_format'] = core_format
+        espcoredump_kwargs['port'] = args.port
+        espcoredump_kwargs['parttable_off'] = get_sdkconfig_value(project_desc['config_file'],
+                                                                  'CONFIG_PARTITION_TABLE_OFFSET')
 
         if save_core:
             espcoredump_kwargs['save_core'] = save_core
 
         espcoredump_kwargs['prog'] = prog
 
-        return CoreDump(**espcoredump_kwargs)
-
-    def get_core_file_format(core_file: str) -> str:
-        bin_v1 = 1
-        bin_v2 = 2
-        elf_crc32 = 256
-        elf_sha256 = 257
-
-        with open(core_file, 'rb') as f:
-            coredump_bytes = f.read(16)
-
-            if coredump_bytes.startswith(b'\x7fELF'):
-                return 'elf'
-
-            core_version = int.from_bytes(coredump_bytes[4:7], 'little')
-            if core_version in [bin_v1, bin_v2, elf_crc32, elf_sha256]:
-                #  esp-coredump will determine automatically the core format (ELF or BIN)
-                return 'raw'
-        with open(core_file) as c:
-            coredump_str = c.read()
-            try:
-                b64decode(coredump_str)
-            except Exception:
-                print('The format of the provided core-file is not recognized. '
-                      'Please ensure that the core-format matches one of the following: ELF (“elf”), '
-                      'raw (raw) or base64-encoded (b64) binary')
-                sys.exit(1)
+        # compatibility check for esp-coredump < 1.5.2
+        try:
+            coredump = CoreDump(**espcoredump_kwargs)
+        except TypeError as e:
+            # 'parttable_off' was added in esp-coredump 1.5.2
+            # remove argument and retry without it
+            if 'parttable_off' in str(e):
+                espcoredump_kwargs.pop('parttable_off')
+                coredump = CoreDump(**espcoredump_kwargs)
             else:
-                return 'b64'
+                raise
+        return coredump
 
     def is_gdb_with_python(gdb: str) -> bool:
         # execute simple python command to check is it supported
         return subprocess.run([gdb, '--batch-silent', '--ex', 'python import os'],
                               stderr=subprocess.DEVNULL).returncode == 0
-
-    def get_normalized_path(path: str) -> str:
-        if os.name == 'nt':
-            return os.path.normpath(path).replace('\\', '\\\\')
-        return path
-
-    def get_rom_if_condition_str(date_addr: int, date_str: str) -> str:
-        r = []
-        for i in range(0, len(date_str), 4):
-            value = hex(int.from_bytes(bytes(date_str[i:i + 4], 'utf-8'), 'little'))
-            r.append(f'(*(int*) {hex(date_addr + i)}) == {value}')
-        return 'if ' + ' && '.join(r)
-
-    def generate_gdbinit_rom_add_symbols(target: str) -> str:
-        base_ident = '  '
-        rom_elfs_dir = os.getenv('ESP_ROM_ELF_DIR')
-        if not rom_elfs_dir:
-            raise FatalError('ESP_ROM_ELF_DIR environment variable is not defined. Please try to run IDF "install" and "export" scripts.')
-        with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), ESP_ROM_INFO_FILE), 'r') as f:
-            roms = json.load(f)
-            if target not in roms:
-                msg_body = f'Target "{target}" was not found in "{ESP_ROM_INFO_FILE}". Please check IDF integrity.'
-                if os.getenv('ESP_IDF_GDB_TESTING'):
-                    raise FatalError(msg_body)
-                print(f'Warning: {msg_body}')
-                return f'# {msg_body}'
-            r = ['', f'# Load {target} ROM ELF symbols']
-            r.append('define target hookpost-remote')
-            r.append('set confirm off')
-            # Since GDB does not have 'else if' statement than we use nested 'if..else' instead.
-            for i, k in enumerate(roms[target], 1):
-                indent_str = base_ident * i
-                rom_file = get_normalized_path(os.path.join(rom_elfs_dir, f'{target}_rev{k["rev"]}_rom.elf'))
-                build_date_addr = int(k['build_date_str_addr'], base=16)
-                r.append(indent(f'# if $_streq((char *) {hex(build_date_addr)}, "{k["build_date_str"]}")', indent_str))
-                r.append(indent(get_rom_if_condition_str(build_date_addr, k['build_date_str']), indent_str))
-                r.append(indent(f'add-symbol-file {rom_file}', indent_str + base_ident))
-                r.append(indent('else', indent_str))
-                if i == len(roms[target]):
-                    # In case no one known ROM ELF fits - print error and exit with error code 1
-                    indent_str += base_ident
-                    msg_body = f'unknown {target} ROM revision.'
-                    if os.getenv('ESP_IDF_GDB_TESTING'):
-                        r.append(indent(f'echo Error: {msg_body}\\n', indent_str))
-                        r.append(indent('quit 1', indent_str))
-                    else:
-                        r.append(indent(f'echo Warning: {msg_body}\\n', indent_str))
-            # Close 'else' operators
-            for i in range(len(roms[target]), 0, -1):
-                r.append(indent('end', base_ident * i))
-            r.append('set confirm on')
-            r.append('end')
-            r.append('')
-            return os.linesep.join(r)
-        raise FatalError(f'{ESP_ROM_INFO_FILE} file not found. Please check IDF integrity.')
-
-    def generate_gdbinit_files(gdb: str, gdbinit: Optional[str], project_desc: Dict[str, Any]) -> None:
-        app_elf = get_normalized_path(os.path.join(project_desc['build_dir'], project_desc['app_elf']))
-        if not os.path.exists(app_elf):
-            raise FatalError('ELF file not found. You need to build & flash the project before running debug targets')
-
-        # Recreate empty 'gdbinit' directory
-        gdbinit_dir = os.path.join(project_desc['build_dir'], 'gdbinit')
-        if os.path.isfile(gdbinit_dir):
-            os.remove(gdbinit_dir)
-        elif os.path.isdir(gdbinit_dir):
-            shutil.rmtree(gdbinit_dir)
-        os.mkdir(gdbinit_dir)
-
-        # Prepare gdbinit for Python GDB extensions import
-        py_extensions = os.path.join(gdbinit_dir, 'py_extensions')
-        with open(py_extensions, 'w') as f:
-            if is_gdb_with_python(gdb):
-                f.write(GDBINIT_PYTHON_TEMPLATE.format(sys_path=sys.path))
-            else:
-                f.write(GDBINIT_PYTHON_NOT_SUPPORTED)
-
-        # Prepare gdbinit for related ELFs symbols load
-        symbols = os.path.join(gdbinit_dir, 'symbols')
-        with open(symbols, 'w') as f:
-            boot_elf = get_normalized_path(project_desc['bootloader_elf']) if 'bootloader_elf' in project_desc else None
-            if boot_elf and os.path.exists(boot_elf):
-                f.write(GDBINIT_BOOTLOADER_ADD_SYMBOLS.format(boot_elf=boot_elf))
-            else:
-                f.write(GDBINIT_BOOTLOADER_NOT_FOUND)
-            f.write(generate_gdbinit_rom_add_symbols(project_desc['target']))
-            f.write(GDBINIT_APP_ADD_SYMBOLS.format(app_elf=app_elf))
-
-        # Generate the gdbinit for target connect if no custom gdbinit is present
-        if not gdbinit:
-            gdbinit = os.path.join(gdbinit_dir, 'connect')
-            with open(gdbinit, 'w') as f:
-                f.write(GDBINIT_CONNECT)
-
-        with open(os.path.join(gdbinit_dir, 'gdbinit'), 'w') as f:
-            f.write(GDBINIT_MAIN.format(py_extensions=py_extensions, symbols=symbols, connect=gdbinit))
 
     def debug_cleanup() -> None:
         print('cleaning up debug targets')
@@ -336,7 +194,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                 name = processes[target + '_outfile_name']
                 pos = 0
                 while True:
-                    with open(name, 'r') as f:
+                    with open(name, 'r', encoding='utf-8') as f:
                         f.seek(pos)
                         for line in f:
                             print(line.rstrip())
@@ -354,7 +212,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         desc_path = os.path.join(args.build_dir, 'project_description.json')
         if not os.path.exists(desc_path):
             ensure_build_directory(args, ctx.info_name)
-        with open(desc_path, 'r') as f:
+        with open(desc_path, 'r', encoding='utf-8') as f:
             project_desc = json.load(f)
             return project_desc
 
@@ -369,17 +227,17 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         project_desc = get_project_desc(args, ctx)
         if openocd_arguments is None:
             # use default value if commands not defined in the environment nor command line
-            target = project_desc['target']
-            openocd_arguments = get_openocd_arguments(target)
-            print('Note: OpenOCD cfg not found (via env variable OPENOCD_COMMANDS nor as a --openocd-commands argument)\n'
-                  'OpenOCD arguments default to: "{}"'.format(openocd_arguments))
+            openocd_arguments = project_desc.get('debug_arguments_openocd', '')
+            print(
+                'Note: OpenOCD cfg not found (via env variable OPENOCD_COMMANDS nor as a --openocd-commands argument)\n'
+                'OpenOCD arguments default to: "{}"'.format(openocd_arguments))
         # script directory is taken from the environment by OpenOCD, update only if command line arguments to override
         if openocd_scripts is not None:
             openocd_arguments += ' -s {}'.format(openocd_scripts)
         local_dir = project_desc['build_dir']
         args = ['openocd'] + shlex.split(openocd_arguments)
         openocd_out_name = os.path.join(local_dir, OPENOCD_OUT_FILE)
-        openocd_out = open(openocd_out_name, 'w')
+        openocd_out = open(openocd_out_name, 'w', encoding='utf-8')
         try:
             process = subprocess.Popen(args, stdout=openocd_out, stderr=subprocess.STDOUT, bufsize=1)
         except Exception as e:
@@ -392,53 +250,118 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         processes['openocd_outfile_name'] = openocd_out_name
         print('OpenOCD started as a background task {}'.format(process.pid))
 
-    def get_gdb_args(project_desc: Dict[str, Any]) -> List:
-        gdbinit = os.path.join(project_desc['build_dir'], 'gdbinit', 'gdbinit')
-        args = ['-x={}'.format(gdbinit)]
-        debug_prefix_gdbinit = project_desc.get('debug_prefix_map_gdbinit')
-        if debug_prefix_gdbinit:
-            args.append('-ix={}'.format(debug_prefix_gdbinit))
-        return args
+    def get_gdb_args(project_desc: Dict[str, Any], gdb_x: Tuple, gdb_ex: Tuple, gdb_commands: Optional[str]) -> List[str]:
+        # check if the application was built and ELF file is in place.
+        app_elf = os.path.join(project_desc.get('build_dir', ''), project_desc.get('app_elf', ''))
+        if not os.path.exists(app_elf):
+            raise FatalError('ELF file not found. You need to build & flash the project before running debug targets')
+        # debugger application name (xtensa-esp32-elf-gdb, riscv32-esp-elf-gdb, ...)
+        gdb_name = project_desc.get('monitor_toolprefix', '') + 'gdb'
+        gdb_args = [gdb_name]
+        gdbinit_files = project_desc.get('gdbinit_files')
+        if not gdbinit_files:
+            raise FatalError('Please check if the project was configured correctly ("gdbinit_files" not found in "project_description.json").')
+        gdbinit_files = sorted(gdbinit_files.items())
+        gdb_x_list = list(gdb_x)
+        gdb_x_names = [os.path.basename(x) for x in gdb_x_list]
+        # compile predefined gdbinit files options.
+        for name, path in gdbinit_files:
+            name = name[len('xx_'):]
+            if name == 'py_extensions':
+                if not is_gdb_with_python(gdb_name):
+                    continue
+            # Replace predefined gdbinit with user's if passed with the same name.
+            if name in gdb_x_names:
+                gdb_x_index = gdb_x_names.index(name)
+                gdb_args.append(f'-x={gdb_x_list[gdb_x_index]}')
+                gdb_x_list.pop(gdb_x_index)
+                continue
+            if name == 'connect' and gdb_x_list:  # TODO IDF-11692
+                continue
+            gdb_args.append(f'-x={path}')
+        # append user-defined gdbinit files
+        for x in gdb_x_list:
+            gdb_args.append(f'-x={x}')
+        # add user-defined commands
+        if gdb_ex:
+            for ex in gdb_ex:
+                gdb_args.append('-ex')
+                gdb_args.append(ex)
+        # add user defined options
+        if gdb_commands:
+            gdb_args += shlex.split(gdb_commands)
 
-    def gdbui(action: str, ctx: Context, args: PropertyDict, gdbgui_port: Optional[str], gdbinit: Optional[str],
-              require_openocd: bool) -> None:
+        return gdb_args
+
+    def _get_gdbgui_version(ctx: Context) -> Tuple[int, ...]:
+        subprocess_success = False
+        try:
+            completed_process = subprocess.run(['gdbgui', '--version'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            captured_output = completed_process.stdout.decode('utf-8', 'ignore')
+            subprocess_success = True
+        except FileNotFoundError:
+            # This is happening at least with Python 3.12 when gdbgui is not installed
+            pass
+
+        if not subprocess_success or completed_process.returncode != 0:
+            if sys.version_info[:2] >= (3, 11) and sys.platform == 'win32':
+                raise SystemExit('Unfortunately, gdbgui is supported only with Python 3.10 or older. '
+                                 'See: https://github.com/espressif/esp-idf/issues/10116. '
+                                 'Please use "idf.py gdb" or debug in Eclipse/Vscode instead.')
+            if sys.version_info[:2] >= (3, 13) and sys.platform != 'win32':
+                raise SystemExit('Unfortunately, gdbgui is supported only with Python 3.12 or older. '
+                                 'See: https://github.com/cs01/gdbgui/issues/494. '
+                                 'Please use "idf.py gdb" or debug in Eclipse/Vscode instead.')
+            raise FatalError('Error starting gdbgui. Please make sure gdbgui has been installed with '
+                             '"install.{sh,bat,ps1,fish} --enable-gdbgui" and can be started. '
+                             f'Error: {captured_output if subprocess_success else "Unknown"}', ctx)
+
+        v = re.search(r'(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?', captured_output)
+        if not v:
+            raise SystemExit(f'Error: "gdbgui --version" returned "{captured_output}"')
+        return tuple(int(i) if i else 0 for i in (v[1], v[2], v[3], v[4]))
+
+    def gdbui(action: str, ctx: Context, args: PropertyDict, gdbgui_port: Optional[str], gdbinit: Tuple,
+              ex: Tuple, gdb_commands: Optional[str], require_openocd: bool) -> None:
         """
         Asynchronous GDB-UI target
         """
         project_desc = get_project_desc(args, ctx)
         local_dir = project_desc['build_dir']
         gdb = project_desc['monitor_toolprefix'] + 'gdb'
-        generate_gdbinit_files(gdb, gdbinit, project_desc)
 
-        # this is a workaround for gdbgui
-        # gdbgui is using shlex.split for the --gdb-args option. When the input is:
-        # - '"-x=foo -x=bar"', would return ['foo bar']
-        # - '-x=foo', would return ['-x', 'foo'] and mess up the former option '--gdb-args'
-        # so for one item, use extra double quotes. for more items, use no extra double quotes.
-        gdb_args_list = get_gdb_args(project_desc)
-        gdb_args = '"{}"'.format(' '.join(gdb_args_list)) if len(gdb_args_list) == 1 else ' '.join(gdb_args_list)
-        args = ['gdbgui', '-g', gdb, '--gdb-args', gdb_args]
-        print(args)
+        gdbgui_version = _get_gdbgui_version(ctx)
+        gdb_args = get_gdb_args(project_desc, gdbinit, ex, gdb_commands)
+        if gdbgui_version >= (0, 14, 0, 0):
+            # See breaking changes https://github.com/cs01/gdbgui/blob/master/CHANGELOG.md#01400, especially the
+            # replacement of command line arguments.
+            gdbgui_args = ['gdbgui', '-g', ' '.join(gdb_args)]
+        else:
+            # this is a workaround for gdbgui
+            # gdbgui is using shlex.split for the --gdb-args option. When the input is:
+            # - '"-x=foo -x=bar"', would return ['foo bar']
+            # - '-x=foo', would return ['-x', 'foo'] and mess up the former option '--gdb-args'
+            # so for one item, use extra double quotes. for more items, use no extra double quotes.
+            gdb = gdb_args[0]
+            gdb_args_list = gdb_args[1:]
+            gdb_args_str = '"{}"'.format(' '.join(gdb_args_list)) if len(gdb_args_list) == 1 else ' '.join(gdb_args_list)
+            gdbgui_args = ['gdbgui', '-g', gdb, '--gdb-args', gdb_args_str]
 
         if gdbgui_port is not None:
-            args += ['--port', gdbgui_port]
+            gdbgui_args += ['--port', gdbgui_port]
         gdbgui_out_name = os.path.join(local_dir, GDBGUI_OUT_FILE)
-        gdbgui_out = open(gdbgui_out_name, 'w')
+        gdbgui_out = open(gdbgui_out_name, 'w', encoding='utf-8')
         env = os.environ.copy()
         # The only known solution for https://github.com/cs01/gdbgui/issues/359 is to set the following environment
         # variable. The greenlet package cannot be downgraded for compatibility with other requirements (gdbgui,
         # pygdbmi).
         env['PURE_PYTHON'] = '1'
         try:
-            process = subprocess.Popen(args, stdout=gdbgui_out, stderr=subprocess.STDOUT, bufsize=1, env=env)
+            print('Running: ', gdbgui_args)
+            process = subprocess.Popen(gdbgui_args, stdout=gdbgui_out, stderr=subprocess.STDOUT, bufsize=1, env=env)
         except (OSError, subprocess.CalledProcessError) as e:
             print(e)
-            if sys.version_info[:2] >= (3, 11):
-                raise SystemExit('Unfortunately, gdbgui is supported only with Python 3.10 or older. '
-                                 'See: https://github.com/espressif/esp-idf/issues/10116. '
-                                 'Please use "idf.py gdb" or debug in Eclipse/Vscode instead.')
-            raise FatalError('Error starting gdbgui. Please make sure gdbgui has been installed with '
-                             '"install.{sh,bat,ps1,fish} --enable-gdbgui" and can be started.', ctx)
+            raise FatalError('Error starting gdbgui', ctx)
 
         processes['gdbgui'] = process
         processes['gdbgui_outfile'] = gdbgui_out
@@ -458,8 +381,8 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         if debug_targets:
             # Register the meta cleanup callback -> called on FatalError
             ctx.meta['cleanup'] = debug_cleanup
-            move_to_front('gdbgui')     # possibly 2nd
-            move_to_front('openocd')    # always 1st
+            move_to_front('gdbgui')  # possibly 2nd
+            move_to_front('openocd')  # always 1st
             # followed by "monitor", "gdb" or "gdbtui" in any order
 
             post_action = ctx.invoke(ctx.command.get_command(ctx, 'post_debug'))
@@ -467,43 +390,37 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                 post_action.action_args['block'] = 0
             else:
                 post_action.action_args['block'] = 1
-            tasks.append(post_action)   # always last
+            tasks.append(post_action)  # always last
         if any([task.name == 'openocd' for task in tasks]):
             for task in tasks:
                 if task.name in ('gdb', 'gdbgui', 'gdbtui'):
                     task.action_args['require_openocd'] = True
 
-    def run_gdb(gdb_args: List) -> int:
-        p = subprocess.Popen(gdb_args)
-        processes['gdb'] = p
-        return p.wait()
-
-    def gdbtui(action: str, ctx: Context, args: PropertyDict, gdbinit: str, require_openocd: bool) -> None:
+    def gdbtui(action: str, ctx: Context, args: PropertyDict, gdbinit: Tuple, ex: Tuple, gdb_commands: str, require_openocd: bool) -> None:
         """
         Synchronous GDB target with text ui mode
         """
-        gdb(action, ctx, args, False, 1, gdbinit, require_openocd)
+        gdb(action, ctx, args, False, 1, gdbinit, ex, gdb_commands, require_openocd)
 
-    def gdb(action: str, ctx: Context, args: PropertyDict, batch: bool, gdb_tui: Optional[int], gdbinit: Optional[str], require_openocd: bool) -> None:
+    def gdb(action: str, ctx: Context, args: PropertyDict, batch: bool, gdb_tui: Optional[int], gdbinit: Tuple,
+            ex: Tuple, gdb_commands: Optional[str], require_openocd: bool) -> None:
         """
         Synchronous GDB target
         """
-        watch_openocd = Thread(target=_check_openocd_errors, args=(fail_if_openocd_failed, action, ctx, ))
+        watch_openocd = Thread(target=_check_openocd_errors, args=(fail_if_openocd_failed, action, ctx,))
         watch_openocd.start()
         processes['threads_to_join'].append(watch_openocd)
         project_desc = get_project_desc(args, ctx)
-        gdb = project_desc['monitor_toolprefix'] + 'gdb'
-        generate_gdbinit_files(gdb, gdbinit, project_desc)
-        args = [gdb, *get_gdb_args(project_desc)]
+        gdb_args = get_gdb_args(project_desc, gdbinit, ex, gdb_commands)
         if gdb_tui is not None:
-            args += ['-tui']
+            gdb_args += ['-tui']
         if batch:
-            args += ['--batch']
-        t = Thread(target=run_gdb, args=(args,))
-        t.start()
+            gdb_args += ['--batch']
+        p = subprocess.Popen(gdb_args)
+        processes['gdb'] = p
         while True:
             try:
-                t.join()
+                p.wait()
                 break
             except KeyboardInterrupt:
                 # Catching Keyboard interrupt, as this is used for breaking running program in gdb
@@ -520,9 +437,11 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                       ctx: Context,
                       args: PropertyDict,
                       gdb_timeout_sec: int,
-                      core: str = None,
-                      save_core: str = None) -> None:
+                      core: Optional[str] = None,
+                      chip_rev: Optional[str] = None,
+                      save_core: Optional[str] = None) -> None:
         espcoredump = _get_espcoredump_instance(ctx=ctx, args=args, gdb_timeout_sec=gdb_timeout_sec, core=core,
+                                                chip_rev=chip_rev,
                                                 save_core=save_core)
 
         espcoredump.info_corefile()
@@ -530,9 +449,10 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
     def coredump_debug(action: str,
                        ctx: Context,
                        args: PropertyDict,
-                       core: str = None,
-                       save_core: str = None) -> None:
-        espcoredump = _get_espcoredump_instance(ctx=ctx, args=args, core=core, save_core=save_core)
+                       core: Optional[str] = None,
+                       chip_rev: Optional[str] = None,
+                       save_core: Optional[str] = None) -> None:
+        espcoredump = _get_espcoredump_instance(ctx=ctx, args=args, core=core, chip_rev=chip_rev, save_core=save_core)
 
         espcoredump.dbg_corefile()
 
@@ -542,6 +462,12 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
             'help': 'Path to core dump file (if skipped core dump will be read from flash)',
         },
         {
+            'names': ['--chip-rev'],
+            'help': 'Specify the chip revision (e.g., 0.1). If provided, the corresponding ROM ELF file will be used '
+                    'for decoding the core dump, improving stack traces. This is only needed for core dumps from IDF '
+                    '<v5.1. Newer versions already contain chip revision information.',
+        },
+        {
             'names': ['--save-core', '-s'],
             'help': 'Save core to file. Otherwise temporary core file will be deleted.',
         },
@@ -549,7 +475,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
     gdb_timeout_sec_opt = {
         'names': ['--gdb-timeout-sec'],
         'type': INT,
-        'default': 1,
+        'default': 3,
         'help': 'Overwrite the default internal delay for gdb responses',
     }
     fail_if_openocd_failed = {
@@ -559,8 +485,22 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         'default': False,
     }
     gdbinit = {
-        'names': ['--gdbinit'],
+        'names': ['--gdbinit', '--x', '-x'],
         'help': 'Specify the name of gdbinit file to use\n',
+        'default': None,
+        'multiple': True,
+    }
+    ex = {
+        'names': ['--ex', '-ex'],
+        'help':
+            ('Execute given GDB command.\n'),
+        'default': None,
+        'multiple': True,
+    }
+    gdb_commands = {
+        'names': ['--gdb-commands', '--gdb_commands'],
+        'help':
+            ('Command line arguments for gdb.\n'),
         'default': None,
     }
     debug_actions = {
@@ -573,14 +513,14 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                     {
                         'names': ['--openocd-scripts', '--openocd_scripts'],
                         'help':
-                        ('Script directory for openocd cfg files.\n'),
+                            ('Script directory for openocd cfg files.\n'),
                         'default':
-                        None,
+                            None,
                     },
                     {
                         'names': ['--openocd-commands', '--openocd_commands'],
                         'help':
-                        ('Command line arguments for openocd.\n'),
+                            ('Command line arguments for openocd.\n'),
                         'default': None,
                     }
                 ],
@@ -601,7 +541,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                         'names': ['--gdb-tui', '--gdb_tui'],
                         'help': ('run gdb in TUI mode\n'),
                         'default': None,
-                    }, gdbinit, fail_if_openocd_failed
+                    }, gdbinit, ex, gdb_commands, fail_if_openocd_failed
                 ],
                 'order_dependencies': ['all', 'flash'],
             },
@@ -612,17 +552,17 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                     {
                         'names': ['--gdbgui-port', '--gdbgui_port'],
                         'help':
-                        ('The port on which gdbgui will be hosted. Default: 5000\n'),
+                            ('The port on which gdbgui will be hosted. Default: 5000\n'),
                         'default':
-                        None,
-                    }, gdbinit, fail_if_openocd_failed
+                            None,
+                    }, gdbinit, ex, gdb_commands, fail_if_openocd_failed
                 ],
                 'order_dependencies': ['all', 'flash'],
             },
             'gdbtui': {
                 'callback': gdbtui,
                 'help': 'GDB TUI mode.',
-                'options': [gdbinit, fail_if_openocd_failed],
+                'options': [gdbinit, ex, gdb_commands, fail_if_openocd_failed],
                 'order_dependencies': ['all', 'flash'],
             },
             'coredump-info': {
@@ -645,7 +585,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                     {
                         'names': ['--block', '--block'],
                         'help':
-                        ('Set to 1 for blocking the console on the outputs of async debug actions\n'),
+                            ('Set to 1 for blocking the console on the outputs of async debug actions\n'),
                         'default': 0,
                     },
                 ],
@@ -665,7 +605,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                     {
                         'names': ['--block', '--block'],
                         'help':
-                        ('Set to 1 for blocking the console on the outputs of async debug actions\n'),
+                            ('Set to 1 for blocking the console on the outputs of async debug actions\n'),
                         'default': 0,
                     },
                 ],

@@ -1,3 +1,3 @@
-idf_component_register(SRCS "main.c" "dns_server.c"
-                    INCLUDE_DIRS "include"
-                    EMBED_FILES root.html)
+idf_component_register(SRCS main.c
+                       PRIV_REQUIRES esp_event nvs_flash esp_wifi esp_http_server dns_server
+                       EMBED_FILES root.html)

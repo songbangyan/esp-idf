@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -140,13 +140,24 @@ static inline void gpspi_flash_ll_set_buffer_data(spi_dev_t *dev, const void *bu
  * should be configured before this is called.
  *
  * @param dev Beginning address of the peripheral registers.
+ * @param pe_ops Is page program/erase operation or not. (not used in gpspi)
  */
-static inline void gpspi_flash_ll_user_start(spi_dev_t *dev)
+static inline void gpspi_flash_ll_user_start(spi_dev_t *dev,  bool pe_ops)
 {
     dev->ctrl.hold_pol = 1;
     dev->cmd.update = 1;
     while (dev->cmd.update);
     dev->cmd.usr = 1;
+}
+
+/**
+ * In user mode, it is set to indicate that program/erase operation will be triggered.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ */
+static inline void gpspi_flash_ll_set_pe_bit(spi_dev_t *dev)
+{
+    // Not supported on GPSPI
 }
 
 /**
@@ -168,13 +179,13 @@ static inline bool gpspi_flash_ll_host_idle(const spi_dev_t *dev)
  */
 static inline void gpspi_flash_ll_read_phase(spi_dev_t *dev)
 {
-    typeof (dev->user) user = {
-        .usr_command = 1,
+    typeof(dev->user) user = {
         .usr_mosi = 0,
         .usr_miso = 1,
         .usr_addr = 1,
+        .usr_command = 1,
     };
-    dev->user = user;
+    dev->user.val = user.val;
 }
 /*------------------------------------------------------------------------------
  * Configs
@@ -199,15 +210,17 @@ static inline void gpspi_flash_ll_set_cs_pin(spi_dev_t *dev, int pin)
  */
 static inline void gpspi_flash_ll_set_read_mode(spi_dev_t *dev, esp_flash_io_mode_t read_mode)
 {
-    typeof (dev->ctrl) ctrl = dev->ctrl;
-    typeof (dev->user) user = dev->user;
+    typeof(dev->ctrl) ctrl;
+    ctrl.val = dev->ctrl.val;
+    typeof(dev->user) user;
+    user.val = dev->user.val;
 
     ctrl.val &= ~(SPI_FCMD_QUAD_M | SPI_FADDR_QUAD_M | SPI_FREAD_QUAD_M | SPI_FCMD_DUAL_M | SPI_FADDR_DUAL_M | SPI_FREAD_DUAL_M);
     user.val &= ~(SPI_FWRITE_QUAD_M | SPI_FWRITE_DUAL_M);
 
     switch (read_mode) {
     case SPI_FLASH_FASTRD:
-        //the default option
+    //the default option
     case SPI_FLASH_SLOWRD:
         break;
     case SPI_FLASH_QIO:
@@ -232,8 +245,8 @@ static inline void gpspi_flash_ll_set_read_mode(spi_dev_t *dev, esp_flash_io_mod
         abort();
     }
 
-    dev->ctrl = ctrl;
-    dev->user = user;
+    dev->ctrl.val = ctrl.val;
+    dev->user.val = user.val;
 }
 
 /**
@@ -244,7 +257,7 @@ static inline void gpspi_flash_ll_set_read_mode(spi_dev_t *dev, esp_flash_io_mod
  */
 static inline void gpspi_flash_ll_set_clock(spi_dev_t *dev, gpspi_flash_ll_clock_reg_t *clock_val)
 {
-    dev->clock = *clock_val;
+    dev->clock.val = (*clock_val).val;
 }
 
 /**
@@ -290,7 +303,7 @@ static inline void gpspi_flash_ll_set_command(spi_dev_t *dev, uint8_t command, u
         .usr_command_value = command,
         .usr_command_bitlen = (bitlen - 1),
     };
-    dev->user2 = user2;
+    dev->user2.val = user2.val;
 }
 
 /**
@@ -325,7 +338,7 @@ static inline void gpspi_flash_ll_set_addr_bitlen(spi_dev_t *dev, uint32_t bitle
 static inline void gpspi_flash_ll_set_usr_address(spi_dev_t *dev, uint32_t addr, uint32_t bitlen)
 {
     // The blank region should be all ones
-    uint32_t padding_ones = (bitlen == 32? 0 : UINT32_MAX >> bitlen);
+    uint32_t padding_ones = (bitlen == 32 ? 0 : UINT32_MAX >> bitlen);
     dev->addr = (addr << (32 - bitlen)) | padding_ones;
 }
 
@@ -349,7 +362,9 @@ static inline void gpspi_flash_ll_set_address(spi_dev_t *dev, uint32_t addr)
 static inline void gpspi_flash_ll_set_dummy(spi_dev_t *dev, uint32_t dummy_n)
 {
     dev->user.usr_dummy = dummy_n ? 1 : 0;
-    dev->user1.usr_dummy_cyclelen = dummy_n - 1;
+    if (dummy_n > 0) {
+        dev->user1.usr_dummy_cyclelen = dummy_n - 1;
+    }
 }
 
 /**
@@ -374,14 +389,24 @@ static inline void gpspi_flash_ll_set_dummy_out(spi_dev_t *dev, uint32_t out_en,
  */
 static inline void gpspi_flash_ll_set_hold(spi_dev_t *dev, uint32_t hold_n)
 {
-    dev->user1.cs_hold_time = hold_n - 1;
-    dev->user.cs_hold = (hold_n > 0? 1: 0);
+    dev->user.cs_hold = (hold_n > 0 ? 1 : 0);
+    if (hold_n > 0) {
+        dev->user1.cs_hold_time = hold_n - 1;
+    }
 }
 
+/**
+ * Set the delay of SPI clocks before the first SPI clock after the CS active edge.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param cs_setup_time Delay of SPI clocks after the CS active edge, 0 to disable the setup phase.
+ */
 static inline void gpspi_flash_ll_set_cs_setup(spi_dev_t *dev, uint32_t cs_setup_time)
 {
     dev->user.cs_setup = (cs_setup_time > 0 ? 1 : 0);
-    dev->user1.cs_setup_time = cs_setup_time - 1;
+    if (cs_setup_time > 0) {
+        dev->user1.cs_setup_time = cs_setup_time - 1;
+    }
 }
 
 /**
@@ -398,7 +423,7 @@ static inline uint32_t gpspi_flash_ll_calculate_clock_reg(uint8_t clkdiv)
     if (clkdiv == 1) {
         div_parameter = (1 << 31);
     } else {
-        div_parameter = ((clkdiv - 1) | (((clkdiv/2 - 1) & 0xff) << 6 ) | (((clkdiv - 1) & 0xff) << 12));
+        div_parameter = ((clkdiv - 1) | (((clkdiv / 2 - 1) & 0xff) << 6) | (((clkdiv - 1) & 0xff) << 12));
     }
     return div_parameter;
 }

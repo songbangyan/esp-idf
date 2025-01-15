@@ -1,21 +1,8 @@
-// Copyright 2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// This is a simple implementation of pthread condition variables. In essence,
-// the waiter creates its own semaphore to wait on and pushes it in the cond var
-// specific list. Upon notify and broadcast, all the waiters for the given cond
-// var are woken up.
+/*
+ * SPDX-FileCopyrightText: 2017-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <errno.h>
 #include <pthread.h>
@@ -30,6 +17,7 @@
 
 #include <sys/queue.h>
 #include <sys/time.h>
+#include <sys/lock.h>
 
 #include "esp_log.h"
 const static char *TAG = "esp_pthread";
@@ -140,7 +128,7 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
             timersub(&abs_time, &cur_time, &diff_time);
             // Round up timeout microseconds to the next millisecond
             timeout_msec = (diff_time.tv_sec * 1000) +
-                ((diff_time.tv_usec + 1000 - 1) / 1000);
+                           ((diff_time.tv_usec + 1000 - 1) / 1000);
         }
 
         if (timeout_msec <= 0) {
@@ -162,7 +150,11 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
     }
 
     esp_pthread_cond_waiter_t w;
-    w.wait_sem = xSemaphoreCreateCounting(1, 0); /* First get will block */
+
+    // Around 80 bytes
+    StaticSemaphore_t sem_buffer;
+    // Create semaphore: first take will block
+    w.wait_sem = xSemaphoreCreateCountingStatic(1, 0, &sem_buffer);
 
     _lock_acquire_recursive(&cond->lock);
     TAILQ_INSERT_TAIL(&cond->waiter_list, &w, link);
@@ -184,10 +176,43 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
     return ret;
 }
 
+// The following pthread_condattr_* function definitions are placed here to enable builds of code
+// that references these functions but does not actively use them.
+
 int pthread_condattr_init(pthread_condattr_t *attr)
 {
-    ESP_LOGV(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
     return ENOSYS;
+}
+
+int pthread_condattr_destroy(pthread_condattr_t *attr)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_getpshared(const pthread_condattr_t *restrict attr, int *restrict pshared)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_setpshared(pthread_condattr_t *attr, int pshared)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_getclock(const pthread_condattr_t *restrict attr, clockid_t *restrict clock_id)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock_id)
+{
+    ESP_LOGW(TAG, "%s: not yet supported!", __func__);
+    return 0; // moved here from newlib, where it was 0 instead of ENOSYS
 }
 
 int pthread_cond_init(pthread_cond_t *cv, const pthread_condattr_t *att)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2010-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,7 +12,7 @@
 #endif
 
 #include "esp_bit_defs.h"
-#include "reg_base.h"
+#include "soc/reg_base.h"
 
 #define PRO_CPU_NUM (0)
 #define APP_CPU_NUM (1)
@@ -26,15 +26,15 @@
 #define DR_REG_DTAG_TABLE                       0x600C8000
 #define DR_REG_EXT_MEM_ENC                      0x600CC000
 
-
-#define REG_UHCI_BASE(i)         (DR_REG_UHCI0_BASE - (i) * 0x8000)
-#define REG_UART_BASE( i )  (DR_REG_UART_BASE + (i) * 0x10000 + ( (i) > 1 ? 0xe000 : 0 ) )
-#define REG_UART_AHB_BASE(i)  (0x60000000 + (i) * 0x10000 + ( (i) > 1 ? 0xe000 : 0 ) )
-#define UART_FIFO_AHB_REG(i)  (REG_UART_AHB_BASE(i) + 0x0)
-#define REG_I2S_BASE( i ) (DR_REG_I2S_BASE + (i) * 0x1E000)
-#define REG_TIMG_BASE(i)              (DR_REG_TIMERGROUP0_BASE + (i)*0x1000)
+#define REG_UHCI_BASE(i)        (DR_REG_UHCI0_BASE - (i) * 0x8000)
+#define REG_UART_BASE( i )      (DR_REG_UART_BASE + (i) * 0x10000 + ( (i) > 1 ? 0xe000 : 0 ) )
+#define REG_UART_AHB_BASE(i)    (0x60000000 + (i) * 0x10000 + ( (i) > 1 ? 0xe000 : 0 ) )
+#define UART_FIFO_AHB_REG(i)    (REG_UART_AHB_BASE(i) + 0x0)
+#define REG_I2S_BASE( i )       (DR_REG_I2S_BASE + (i) * 0x1E000)
+#define REG_TIMG_BASE(i)        (DR_REG_TIMERGROUP0_BASE + (i)*0x1000)
 #define REG_SPI_MEM_BASE(i)     (DR_REG_SPI0_BASE - (i) * 0x1000)
-#define REG_I2C_BASE(i)    (DR_REG_I2C_EXT_BASE + (i) * 0x14000 )
+#define REG_SPI_BASE(i)         (((i)>=2) ? (DR_REG_SPI2_BASE + (i-2) * 0x1000) : (0))    // GPSPI2 and GPSPI3
+#define REG_I2C_BASE(i)         (DR_REG_I2C_EXT_BASE + (i) * 0x14000 )
 
 //Convenient way to replace the register ops when ulp riscv projects
 //consume this file
@@ -151,10 +151,9 @@
 //Periheral Clock {{
 #define  APB_CLK_FREQ_ROM                            (40*1000000)
 #define  CPU_CLK_FREQ_ROM                            APB_CLK_FREQ_ROM
-#define  EFUSE_CLK_FREQ_ROM                          (20*1000000)
 #define  CPU_CLK_FREQ_MHZ_BTLD                       (80)               // The cpu clock frequency (in MHz) to set at 2nd stage bootloader system clock configuration
-#define  CPU_CLK_FREQ                                APB_CLK_FREQ
 #define  APB_CLK_FREQ                                (80*1000000)
+#define  MODEM_REQUIRED_MIN_APB_CLK_FREQ             (80*1000000)
 #define  REF_CLK_FREQ                                (1000000)
 #define  XTAL_CLK_FREQ                               (40*1000000)
 #define  UART_CLK_FREQ                               APB_CLK_FREQ
@@ -162,12 +161,11 @@
 #define  TIMER_CLK_FREQ                              (80000000>>4) //80MHz divided by 16
 #define  SPI_CLK_DIV                                 4
 #define  TICKS_PER_US_ROM                            40              // CPU is 80MHz
-#define  GPIO_MATRIX_DELAY_NS                        0
 //}}
 
 /* Overall memory map */
 #define SOC_DROM_LOW    0x3C000000
-#define SOC_DROM_HIGH   0x3D000000
+#define SOC_DROM_HIGH   0x3E000000
 #define SOC_IROM_LOW    0x42000000
 #define SOC_IROM_HIGH   0x44000000
 #define SOC_IRAM_LOW    0x40370000
@@ -186,11 +184,10 @@
 #define SOC_EXTRAM_DATA_LOW 0x3C000000
 #define SOC_EXTRAM_DATA_HIGH 0x3E000000
 #define SOC_IROM_MASK_LOW  0x40000000
-#define SOC_IROM_MASK_HIGH 0x4001A100
+#define SOC_IROM_MASK_HIGH 0x40060000
 
 #define SOC_EXTRAM_DATA_SIZE (SOC_EXTRAM_DATA_HIGH - SOC_EXTRAM_DATA_LOW)
 #define SOC_MAX_CONTIGUOUS_RAM_SIZE (SOC_EXTRAM_DATA_HIGH - SOC_EXTRAM_DATA_LOW) ///< Largest span of contiguous memory (DRAM or IRAM) in the address space
-
 
 //First and last words of the D/IRAM region, for both the DRAM address as well as the IRAM alias.
 #define SOC_DIRAM_IRAM_LOW    0x40378000
@@ -210,7 +207,6 @@
 #define SOC_DMA_EXT_LOW     SOC_EXTRAM_DATA_LOW
 #define SOC_DMA_EXT_HIGH    SOC_EXTRAM_DATA_HIGH
 
-
 // Region of memory that is byte-accessible. See esp_ptr_byte_accessible().
 #define SOC_BYTE_ACCESSIBLE_LOW     0x3FC88000
 #define SOC_BYTE_ACCESSIBLE_HIGH    0x3FD00000
@@ -218,56 +214,14 @@
 //Region of memory that is internal, as in on the same silicon die as the ESP32 CPUs
 //(excluding RTC data region, that's checked separately.) See esp_ptr_internal().
 #define SOC_MEM_INTERNAL_LOW        0x3FC88000
-#define SOC_MEM_INTERNAL_HIGH       0x403E2000
+#define SOC_MEM_INTERNAL_HIGH       0x403E0000
 
 // Start (highest address) of ROM boot stack, only relevant during early boot
 #define SOC_ROM_STACK_START         0x3fceb710
 #define SOC_ROM_STACK_SIZE          0x2000
 
-//interrupt cpu using table, Please see the core-isa.h
-/*************************************************************************************************************
- *      Intr num                Level           Type                    PRO CPU usage           APP CPU uasge
- *      0                       1               extern level            WMAC                    Reserved
- *      1                       1               extern level            BT/BLE Host HCI DMA     BT/BLE Host HCI DMA
- *      2                       1               extern level
- *      3                       1               extern level
- *      4                       1               extern level            WBB
- *      5                       1               extern level            BT/BLE Controller       BT/BLE Controller
- *      6                       1               timer                   FreeRTOS Tick(L1)       FreeRTOS Tick(L1)
- *      7                       1               software                BT/BLE VHCI             BT/BLE VHCI
- *      8                       1               extern level            BT/BLE BB(RX/TX)        BT/BLE BB(RX/TX)
- *      9                       1               extern level
- *      10                      1               extern edge
- *      11                      3               profiling
- *      12                      1               extern level
- *      13                      1               extern level
- *      14                      7               nmi                     Reserved                Reserved
- *      15                      3               timer                   FreeRTOS Tick(L3)       FreeRTOS Tick(L3)
- *      16                      5               timer
- *      17                      1               extern level
- *      18                      1               extern level
- *      19                      2               extern level
- *      20                      2               extern level
- *      21                      2               extern level
- *      22                      3               extern edge
- *      23                      3               extern level
- *      24                      4               extern level            TG1_WDT
- *      25                      4               extern level            CACHEERR
- *      26                      5               extern level
- *      27                      3               extern level            Reserved                Reserved
- *      28                      4               extern edge             IPC_ISR                 IPC_ISR
- *      29                      3               software                Reserved                Reserved
- *      30                      4               extern edge             Reserved                Reserved
- *      31                      5               extern level
- *************************************************************************************************************
- */
-
-//CPU0 Interrupt number reserved, not touch this.
 #define ETS_WMAC_INUM                           0
-#define ETS_BT_HOST_INUM                        1
 #define ETS_WBB_INUM                            4
-#define ETS_TG0_T1_INUM                         10 /**< use edge interrupt*/
-#define ETS_FRC1_INUM                           22
 #define ETS_T1_WDT_INUM                         24
 #define ETS_MEMACCESS_ERR_INUM                  25
 #define ETS_CACHEERR_INUM                       ETS_MEMACCESS_ERR_INUM

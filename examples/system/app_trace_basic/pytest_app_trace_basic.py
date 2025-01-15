@@ -35,8 +35,8 @@ def apptrace_wait_stop(openocd: OpenOcd, timeout: int = 30) -> None:
         pytest.param(None, None, marks=[pytest.mark.esp32, pytest.mark.jtag]),
         pytest.param(None, '-f board/esp32s2-kaluga-1.cfg', marks=[pytest.mark.esp32s2, pytest.mark.jtag]),
         pytest.param(None, '-f board/esp32c2-ftdi.cfg', marks=[pytest.mark.esp32c2, pytest.mark.jtag]),
-        pytest.param('/dev/ttyACM0', '-f board/esp32s3-builtin.cfg', marks=[pytest.mark.esp32s3, pytest.mark.usb_serial_jtag]),
-        pytest.param('/dev/ttyACM0', '-f board/esp32c3-builtin.cfg', marks=[pytest.mark.esp32c3, pytest.mark.usb_serial_jtag]),
+        pytest.param('/dev/serial_ports/ttyACM-esp32', '-f board/esp32s3-builtin.cfg', marks=[pytest.mark.esp32s3, pytest.mark.usb_serial_jtag]),
+        pytest.param('/dev/serial_ports/ttyACM-esp32', '-f board/esp32c3-builtin.cfg', marks=[pytest.mark.esp32c3, pytest.mark.usb_serial_jtag]),
     ],
     indirect=True
 )
@@ -46,8 +46,8 @@ def test_examples_app_trace_basic(dut: IdfDut, openocd: OpenOcd) -> None:
     assert 'Targets connected.' in dut.openocd.write('esp apptrace start file://apptrace.log 0 2000 3 0 0')
     apptrace_wait_stop(dut.openocd)
 
-    with open(openocd._logfile) as oocd_log:  # pylint: disable=protected-access
-        cores = 1 if dut.app.sdkconfig.get('FREERTOS_UNICORE') is True else 2
+    with open(openocd._logfile, encoding='utf-8') as oocd_log:  # pylint: disable=protected-access
+        cores = 1 if dut.app.sdkconfig.get('ESP_SYSTEM_SINGLE_CORE_MODE') is True else 2
         params_str = 'App trace params: from {} cores,'.format(cores)
         found = False
         for line in oocd_log:
@@ -59,7 +59,7 @@ def test_examples_app_trace_basic(dut: IdfDut, openocd: OpenOcd) -> None:
                 '"{}" could not be found in {}'.format(params_str, openocd._logfile)  # pylint: disable=protected-access
             )
 
-    with open('apptrace.log') as apptrace_log:
+    with open('apptrace.log', encoding='utf-8') as apptrace_log:
         for sample_num in range(1, 51):
             log_str = 'Apptrace test data[{}]:{}'.format(sample_num, sample_num * sample_num)
             found = False

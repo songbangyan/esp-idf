@@ -4,7 +4,7 @@
 /*-----------------------------------------------------------------------*/
 /* If a working storage control module is available, it should be        */
 /* attached to the FatFs via a glue function rather than modifying it.   */
-/* This is an example of glue functions to attach various exsisting      */
+/* This is an example of glue functions to attach various existing      */
 /* storage control modules to the FatFs module with a defined API.       */
 /*-----------------------------------------------------------------------*/
 
@@ -21,7 +21,9 @@ static ff_diskio_impl_t * s_impls[FF_VOLUMES] = { NULL };
 #if FF_MULTI_PARTITION		/* Multiple partition configuration */
 const PARTITION VolToPart[FF_VOLUMES] = {
     {0, 0},    /* Logical drive 0 ==> Physical drive 0, auto detection */
+#if FF_VOLUMES > 1
     {1, 0},    /* Logical drive 1 ==> Physical drive 1, auto detection */
+#endif
 #if FF_VOLUMES > 2
     {2, 0},     /* Logical drive 2 ==> Physical drive 2, auto detection */
 #endif

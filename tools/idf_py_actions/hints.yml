@@ -55,8 +55,8 @@
             hint_variables: ['esp_spiram_get_chip_size and esp_spiram_get_size', 'esp_psram_get_size()']
 
 -
-    re: "error: implicit declaration of function 'esp_secure_boot_verify_sbv2_signature_block|esp_secure_boot_verify_rsa_signature_block'"
-    hint: "'esp_secure_boot_verify_sbv2_signature_block()' and 'esp_secure_boot_verify_rsa_signature_block()' and have been made private and are no longer available."
+    re: "error: implicit declaration of function 'esp_secure_boot_verify_rsa_signature_block'"
+    hint: "'esp_secure_boot_verify_rsa_signature_block()' has been made private and is no longer available."
 
 -
     re: "error: implicit declaration of function '{}'"
@@ -138,14 +138,6 @@
     hint: "You are maybe using pre FreeRTOS V8.0.0 APIs. The backward compatibility of such APIs is no longer enabled by default. Please turn on CONFIG_FREERTOS_ENABLE_BACKWARD_COMPATIBILITY explicitly to use such APIs."
     match_to_output: True
 -
-    re: "error: unknown type name 'TaskSnapshot_t'"
-    hint: "The header file task_snapshot.h is no longer included as part of freertos/task.h. Users need to include freertos/task_snapshot.h explicitly."
-    match_to_output: True
--
-    re: "error: implicit declaration of function '(pxTaskGetNext|vTaskGetSnapshot|uxTaskGetSnapshotAll)'"
-    hint: "The header file task_snapshot.h is no longer included as part of freertos/task.h. Users need to include freertos/task_snapshot.h explicitly."
-    match_to_output: True
--
     re: "error: implicit declaration of function '(portENTER_CRITICAL_NESTED|portEXIT_CRITICAL_NESTED|vPortCPUInitializeMutex|vPortCPUAcquireMutex|vPortCPUAcquireMutexTimeout|vPortCPUReleaseMutex)'"
     hint: "The header file portmacro_deprecated.h has been removed. Users should refer the migration guide for alternative functions."
     match_to_output: True
@@ -224,7 +216,7 @@
 
 -
     re: "Failed to resolve component '(?!esp_ipc)(\\w+)'"
-    hint: "The component {} could not be found. This could be because: component name was misspelled, the component was not added to the build, the component has been moved to the IDF component manager or has been removed and refactored into some other component.\nPlease look out for component in 'https://components.espressif.com' and add using 'idf.py add-dependency' command.\nRefer to the migration guide for more details about moved components.\nRefer to the build-system guide for more details about how components are found and included in the build."
+    hint: "The component '{}' could not be found. This could be because: component name was misspelled, the component was not added to the build, the component has been moved to the IDF component manager, the component has been removed and refactored into some other component or the component may not be supported by the selected target.\nPlease look out for component in 'https://components.espressif.com' and add using 'idf.py add-dependency' command.\nRefer to the migration guide for more details about moved components.\nRefer to the build-system guide for more details about how components are found and included in the build."
     match_to_output: True
 
 -
@@ -267,7 +259,7 @@
 
 -
     re: "`iram0_0_seg' overflowed"
-    hint: "The applications static IRAM usage is larger than the available IRAM size.\nFor more information on how to reduze IRAM usage run 'idf.py docs -sp api-guides/performance/ram-usage.html#optimizing-iram-usage' "
+    hint: "The applications static IRAM usage is larger than the available IRAM size.\nFor more information on how to reduce IRAM usage run 'idf.py docs -sp api-guides/performance/ram-usage.html#optimizing-iram-usage' "
 
 -
     re: "fatal error: (tinyusb.h): No such file or directory"
@@ -284,6 +276,35 @@
     hint: "``esp_vfs_fat_sdmmc_unmount()`` is now deprecated, you can use :cpp:func:`esp_vfs_fat_sdcard_unmount()` instead. See Storage migration guide 5.1 for more details"
 
 -
+    re: "vfs_fat_sdmmc: sdmmc_card_init failed"
+    hint: "Please verify if there is an SD card inserted into the SD slot. Then, try rebooting the board."
+
+-
+    re: "sdmmc_common: sdmmc_init_ocr: send_op_cond"
+    hint: "Please reboot the board and then try again"
+
+-
+    re: "sdmmc_io: sdmmc_io_read_byte: sdmmc_io_rw_direct"
+    hint: "Please verify that card supports IO capabilities. Refer 'IDF_PATH/examples/peripherals/sdio/host/README.md' for more details"
+
+-
+    re: "example: Failed to initialize the card \\({}\\). Make sure SD card lines have pull-up resistors in place."
+    hint: "Please refer ./README.md for details"
+    variables:
+        -
+            re_variables: ['ESP_ERR_TIMEOUT']
+            hint_variables: []
+        -
+            re_variables: ['ESP_ERR_INVALID_RESPONSE']
+            hint_variables: []
+        -
+            re_variables: ['ESP_ERR_INVALID_STATE']
+            hint_variables: []
+        -
+            re_variables: ['ESP_ERR_INVALID_ARG']
+            hint_variables: []
+
+-
     re: "esp_usb_jtag: could not find or open device!"
     hint: "Please check the wire connection to debugging device or access rights to a serial port."
 
@@ -296,6 +317,151 @@
     hint: "OpenOCD process does not have permissions to access the USB JTAG/serial device. Please use 'LIBUSB_DEBUG=1 idf.py openocd' to find out the device name and check its access rights."
 
 -
+    re: "Error: libusb_open\\(\\) failed with LIBUSB_ERROR_NOT_FOUND"
+    hint: "Device drivers are not correct.\nPlease check configuration of USB drivers: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/jtag-debugging/configure-ft2232h-jtag.html?highlight=zadig#configure-usb-drivers"
+
+-
+    re: "\\[-Werror=(address-of-packed-member|aggressive-loop-optimizations|attribute-warning|builtin-macro-redefined|cpp|designated-init|deprecated-declarations|discarded-array-qualifiers|discarded-qualifiers|div-by-zero|endif-labels|free-nonheap-object|if-not-aligned|ignored-attributes|incompatible-pointer-types|int-conversion|int-to-pointer-cast|lto-type-mismatch|multichar|overflow|override-init-side-effects|packed-bitfield-compat|pointer-compare|pointer-to-int-cast|return-local-addr|scalar-storage-order|shift-count-negative|shift-count-overflow|sizeof-array-argument|stringop-truncation| switch-bool|switch-outside-range|varargs)\\]"
+    hint: "The error(s) '{}' may appear after IDF upgrade since previous versions were not considering those warnings as errors.\nTo suppress these warnings use 'idf.py menuconfig' to enable configure option 'Compiler options' -> 'Disable errors for default warnings'\nPlease note that this is not a permanent solution, and this option will be removed in a future update of the ESP-IDF.\nIt is strongly recommended to fix all warnings, as they may indicate potential issues!"
+    match_to_output: True
+
+-
     re: "(-Werror=address|-Werror=use-after-free)"
     hint: "The warning(s) '{}' may appear after compiler update above GCC-12\nTo suppress these warnings use 'idf.py menuconfig' to enable configure option 'Compiler options' -> 'Disable new warnings introduced in GCC 12'\nPlease note that this is not a permanent solution, and this option will be removed in a future update of the ESP-IDF.\nIt is strongly recommended to fix all warnings, as they may indicate potential issues!"
+    match_to_output: True
+
+-
+    re: "error: implicit declaration of function '{}'"
+    hint: "The HFP AG API function '{}' has been renamed to '{}'."
+    variables:
+        -
+            re_variables: ['esp_bt_hf_init']
+            hint_variables: ['esp_bt_hf_init', 'esp_hf_ag_init']
+        -
+            re_variables: ['esp_bt_hf_deinit']
+            hint_variables: ['esp_bt_hf_deinit', 'esp_hf_ag_deinit']
+        -
+            re_variables: ['esp_bt_hf_register_callback']
+            hint_variables: ['esp_bt_hf_register_callback', 'esp_hf_ag_register_callback']
+        -
+            re_variables: ['esp_bt_hf_connect']
+            hint_variables: ['esp_bt_hf_connect', 'esp_hf_ag_slc_connect']
+        -
+            re_variables: ['esp_bt_hf_disconnect']
+            hint_variables: ['esp_bt_hf_disconnect', 'esp_hf_ag_slc_disconnect']
+        -
+            re_variables: ['esp_bt_hf_connect_audio']
+            hint_variables: ['esp_bt_hf_connect_audio', 'esp_hf_ag_audio_connect']
+        -
+            re_variables: ['esp_bt_hf_disconnect_audio']
+            hint_variables: ['esp_bt_hf_disconnect_audio', 'esp_hf_ag_audio_disconnect']
+        -
+            re_variables: ['esp_bt_hf_vra']
+            hint_variables: ['esp_bt_hf_vra', 'esp_hf_ag_vra_control']
+        -
+            re_variables: ['esp_bt_hf_volume_control']
+            hint_variables: ['esp_bt_hf_volume_control', 'esp_hf_ag_volume_control']
+        -
+            re_variables: ['esp_hf_unat_response']
+            hint_variables: ['esp_hf_unat_response', 'esp_hf_ag_unknown_at_send']
+        -
+            re_variables: ['esp_bt_hf_cmee_response']
+            hint_variables: ['esp_bt_hf_cmee_response', 'esp_hf_ag_cmee_send']
+        -
+            re_variables: ['esp_bt_hf_indchange_notification']
+            hint_variables: ['esp_bt_hf_indchange_notification', 'esp_hf_ag_devices_status_indchange']
+        -
+            re_variables: ['esp_bt_hf_cind_response']
+            hint_variables: ['esp_bt_hf_cind_response', 'esp_hf_ag_cind_response']
+        -
+            re_variables: ['esp_bt_hf_cops_response']
+            hint_variables: ['esp_bt_hf_cops_response', 'esp_hf_ag_cops_response']
+        -
+            re_variables: ['esp_bt_hf_clcc_response']
+            hint_variables: ['esp_bt_hf_clcc_response', 'esp_hf_ag_clcc_response']
+        -
+            re_variables: ['esp_bt_hf_cnum_response']
+            hint_variables: ['esp_bt_hf_cnum_response', 'esp_hf_ag_cnum_response']
+        -
+            re_variables: ['esp_bt_hf_bsir']
+            hint_variables: ['esp_bt_hf_bsir', 'esp_hf_ag_bsir']
+        -
+            re_variables: ['esp_bt_hf_answer_call']
+            hint_variables: ['esp_bt_hf_answer_call', 'esp_hf_ag_answer_call']
+        -
+            re_variables: ['esp_bt_hf_reject_call']
+            hint_variables: ['esp_bt_hf_reject_call', 'esp_hf_ag_reject_call']
+        -
+            re_variables: ['esp_bt_hf_out_call']
+            hint_variables: ['esp_bt_hf_out_call', 'esp_hf_ag_out_call']
+        -
+            re_variables: ['esp_bt_hf_end_call']
+            hint_variables: ['esp_bt_hf_end_call', 'esp_hf_ag_end_call']
+        -
+            re_variables: ['esp_bt_hf_register_data_callback']
+            hint_variables: ['esp_bt_hf_register_data_callback', 'esp_hf_ag_register_data_callback']
+        -
+            re_variables: ['esp_hf_outgoing_data_ready']
+            hint_variables: ['esp_hf_outgoing_data_ready', 'esp_hf_ag_outgoing_data_ready']
+
+-
+    re: "error: '{}' undeclared"
+    hint: "The union element '{}' in 'esp_hf_cme_err_t' has been renamed to '{}'"
+    variables:
+        -
+            re_variables: ['ESP_HF_CME_MEMEORY_FULL']
+            hint_variables: ['ESP_HF_CME_MEMEORY_FULL', 'ESP_HF_CME_MEMORY_FULL']
+        -
+            re_variables: ['ESP_HF_CME_MEMEORY_FAILURE']
+            hint_variables: ['ESP_HF_CME_MEMEORY_FAILURE', 'ESP_HF_CME_MEMORY_FAILURE ']
+
+-
+    re: "intr_alloc: No free interrupt inputs for [_\\w]+ interrupt"
+    hint: "For troubleshooting instructions related to interrupt allocation, run 'idf.py docs -sp api-reference/system/intr_alloc.html'"
+
+-
+    re: "assert failed: [\\w]+ tlsf.c:[\\d]+"
+    hint: "CORRUPT HEAP: heap metadata corrupted resulting in TLSF malfunction.\nMake sure you are not making out of bound writing on the memory you allocate in your application.\nMake sure you are not writing on freed memory.\nFor more information run 'idf.py docs -sp api-reference/system/heap_debug.html'."
+
+-
+    re: "-Werror=(xor-used-as-pow|enum-int-mismatch|self-move|dangling-reference)"
+    hint: "The warning(s) '{}' may appear after compiler update above GCC-13\nTo suppress these warnings use 'idf.py menuconfig' to enable configure option 'Compiler options' -> 'Disable new warnings introduced in GCC 13'\nPlease note that this is not a permanent solution, and this option will be removed in a future update of the ESP-IDF.\nIt is strongly recommended to fix all warnings, as they may indicate potential issues!"
+    match_to_output: True
+
+-
+    re: "implicit declaration of function '(opendir|readdir|telldir|seekdir|rewinddir|closedir|readdir_r|scandir|alphasort)'"
+    hint: "Please include <dirent.h> (not <sys/dirent.h>)"
+
+-
+    re: "unplaced orphan section"
+    hint: "Avoid creating custom sections. Please refer to the 'Linker Script Generation' article in the IDF documentation to address this. Or set option CONFIG_COMPILER_ORPHAN_SECTIONS_PLACE (not recommended)."
+
+-
+    re: "the current mclk multiple cannot perform integer division"
+    hint: "Please adjust the mclk multiple to get the accurate sample rate.\nFor example, if you're using 24-bit slot width or enabled 3 slots, then the mclk multiple should be a multiple of 3, otherwise the sample rate will be inaccurate."
+
+-
+    re: "discarded output section: .*\\.got"
+    hint: "Some objects being linked were compiled with the \"-fpic\"/\"-fpie\" options. These options may be suitable for \"linux\" builds, but must not be applied for esp32XX targets."
+
+-
+    re: "(error: Total discarded sections size is \\d+ bytes)|(region [`'.\\w]+ overflowed by \\d+ bytes)"
+    hint: "The binary size has exceeded the limit. To resolve the issue consider reducing the binary size.\nYou can explore size optimization techniques in the documentation by running 'idf.py docs -sp api-guides/performance/size.html#reducing-overall-size'.\nNote that the linker performed the dead code elimination."
+
+-
+    re: "implicit declaration of function '__VA_NARG__'"
+    hint: "__VA_NARG_ has been renamed. Please use ESP_VA_NARG instead"
+
+-
+    re: "Configuration descriptor larger than control transfer max length"
+    hint: "Connected USB device has a large Configuration descriptor.\nTo increase the transfer size, go to 'idf.py menuconfig' -> 'Component config' -> 'USB-OTG' -> 'Largest size of transfers to/from default endpoints' and set appropriate size."
+
+-
+    re: "error: implicit declaration of function '(socketpair|gai_strerror|getifaddrs|freeifaddrs)'"
+    hint: "{}() is not supported in IDF.\nTo use a simplified implementation of this function, add a dependency to sock_utils library 'idf.py add-dependency espressif/sock_utils'"
+    match_to_output: True
+
+-
+    re: "undefined reference to `(socketpair|gai_strerror|gethostname|getnameinfo|pipe|getifaddrs|freeifaddrs)'"
+    hint: "{}() is not supported in IDF.\nTo use a simplified implementation of this function, add a dependency to sock_utils library 'idf.py add-dependency espressif/sock_utils'"
     match_to_output: True

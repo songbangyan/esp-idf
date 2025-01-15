@@ -1,3 +1,15 @@
+idf_build_get_property(target IDF_TARGET)
+idf_build_get_property(esp_tee_build ESP_TEE_BUILD)
+
+if(${target} STREQUAL "linux")
+    return() # This component is not supported by the POSIX/Linux simulator
+endif()
+
+if(esp_tee_build)
+    idf_component_register()
+    return()
+endif()
+
 idf_component_register(REQUIRES bootloader PRIV_REQUIRES partition_table)
 
 if(NOT BOOTLOADER_BUILD)
@@ -60,10 +72,19 @@ consist of two ota app without factory or test partitions.")
 endif()  # NOT BOOTLOADER_BUILD
 
 if(BOOTLOADER_BUILD)
-  # Generate bootloader post-build check of the bootloader size against the offset
-  partition_table_add_check_bootloader_size_target(bootloader_check_size
-      DEPENDS gen_project_binary
-      BOOTLOADER_BINARY_PATH "${build_dir}/${PROJECT_BIN}"
-      RESULT bootloader_check_size_command)
-  add_dependencies(app bootloader_check_size)  # note: in the subproject, so the target is 'app'...
+    # Generate bootloader post-build check of the bootloader size against the offset
+    partition_table_add_check_bootloader_size_target(bootloader_check_size
+        DEPENDS gen_project_binary
+        BOOTLOADER_BINARY_PATH "${build_dir}/${PROJECT_BIN}"
+        RESULT bootloader_check_size_command)
+    add_dependencies(app bootloader_check_size)  # note: in the subproject, so the target is 'app'...
+
+    if(CONFIG_SECURE_BOOT_V2_ENABLED AND CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)
+        # Check the size of the bootloader + signature block.
+        partition_table_add_check_bootloader_size_target(bootloader_check_size_signed
+            DEPENDS gen_signed_bootloader
+            BOOTLOADER_BINARY_PATH "${build_dir}/${PROJECT_BIN}"
+            RESULT bootloader_check_size_signed_command)
+        add_dependencies(app bootloader_check_size_signed)  # note: in the subproject, so the target is 'app'...
+    endif()
 endif()

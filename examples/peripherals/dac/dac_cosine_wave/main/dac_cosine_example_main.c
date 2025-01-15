@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -19,7 +19,7 @@
 #define EXAMPLE_DAC_CHAN1_ADC_CHAN          ADC_CHANNEL_7   // GPIO18, same as DAC channel 1
 #define EXAMPLE_ADC_WIDTH                   ADC_WIDTH_BIT_13
 #endif
-#define EXAMPLE_ADC_ATTEN                   ADC_ATTEN_DB_11
+#define EXAMPLE_ADC_ATTEN                   ADC_ATTEN_DB_12
 
 static void adc_monitor_task(void *args)
 {

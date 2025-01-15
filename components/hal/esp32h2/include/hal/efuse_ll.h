@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include "soc/efuse_periph.h"
 #include "hal/assert.h"
-#include "esp32h2/rom/efuse.h"
+#include "rom/efuse.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,6 +38,26 @@ __attribute__((always_inline)) static inline uint32_t efuse_ll_get_mac0(void)
 __attribute__((always_inline)) static inline uint32_t efuse_ll_get_mac1(void)
 {
     return EFUSE.rd_mac_sys_1.mac_1;
+}
+
+__attribute__((always_inline)) static inline uint32_t efuse_ll_get_active_hp_dbias(void)
+{
+    return EFUSE.rd_mac_sys_2.active_hp_dbias;
+}
+
+__attribute__((always_inline)) static inline uint32_t efuse_ll_get_active_lp_dbias(void)
+{
+    return EFUSE.rd_mac_sys_2.active_lp_dbias;
+}
+
+__attribute__((always_inline)) static inline uint32_t efuse_ll_get_dslp_dbias(void)
+{
+    return EFUSE.rd_mac_sys_2.dslp_dbias;
+}
+
+__attribute__((always_inline)) static inline int32_t efuse_ll_get_dbias_vol_gap(void)
+{
+    return (EFUSE.rd_mac_sys_3.dbias_vol_gap_sign << 4)|(EFUSE.rd_mac_sys_3.dbias_vol_gap_value2 << 1)|EFUSE.rd_mac_sys_2.dbias_vol_gap_value1;
 }
 
 __attribute__((always_inline)) static inline bool efuse_ll_get_secure_boot_v2_en(void)
@@ -82,6 +102,16 @@ __attribute__((always_inline)) static inline uint32_t efuse_ll_get_chip_ver_pkg(
     return EFUSE.rd_mac_sys_4.pkg_version;
 }
 
+__attribute__((always_inline)) static inline uint32_t efuse_ll_get_ecdsa_key_blk(void)
+{
+    return EFUSE.conf.cfg_ecdsa_blk;
+}
+
+__attribute__((always_inline)) static inline void efuse_ll_set_ecdsa_key_blk(int efuse_blk)
+{
+    EFUSE.conf.cfg_ecdsa_blk = efuse_blk;
+}
+
 /******************* eFuse control functions *************************/
 
 __attribute__((always_inline)) static inline bool efuse_ll_get_read_cmd(void)
@@ -115,9 +145,29 @@ __attribute__((always_inline)) static inline void efuse_ll_set_conf_write_op_cod
     EFUSE.conf.op_code = EFUSE_WRITE_OP_CODE;
 }
 
+__attribute__((always_inline)) static inline void efuse_ll_set_dac_num(uint8_t val)
+{
+    EFUSE.dac_conf.dac_num = val;
+}
+
+__attribute__((always_inline)) static inline void efuse_ll_set_dac_clk_div(uint8_t val)
+{
+    EFUSE.dac_conf.dac_clk_div = val;
+}
+
+__attribute__((always_inline)) static inline void efuse_ll_set_pwr_on_num(uint16_t val)
+{
+    EFUSE.wr_tim_conf1.pwr_on_num = val;
+}
+
 __attribute__((always_inline)) static inline void efuse_ll_set_pwr_off_num(uint16_t value)
 {
     EFUSE.wr_tim_conf2.pwr_off_num = value;
+}
+
+__attribute__((always_inline)) static inline void efuse_ll_rs_bypass_update(void)
+{
+    EFUSE.wr_tim_conf0_rs_bypass.update = 1;
 }
 
 /******************* eFuse control functions *************************/

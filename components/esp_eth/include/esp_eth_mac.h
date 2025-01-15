@@ -1,16 +1,14 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include <stdbool.h>
+#include "soc/soc_caps.h"
 #include "esp_eth_com.h"
 #include "sdkconfig.h"
-#if CONFIG_ETH_USE_SPI_ETHERNET
-#include "driver/spi_master.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,7 +105,30 @@ struct esp_eth_mac_s {
     esp_err_t (*transmit)(esp_eth_mac_t *mac, uint8_t *buf, uint32_t length);
 
     /**
+    * @brief Transmit packet with extended control from Ethernet MAC and constructed with special parameters at Layer2.
+    *
+    * @param[in] mac: Ethernet MAC instance
+    * @param[in] ctrl: optional transmit control structure (chip specific), set to NULL when not required
+    * @param[in] argc: number variable arguments
+    * @param[in] args: variable arguments
+    *
+    * @note Typical intended use case is to make possible to construct a frame from multiple higher layer
+    *       buffers without a need of buffer reallocations. However, other use cases are not limited.
+    *
+    * @return
+    *      - ESP_OK: transmit packet successfully
+    *      - ESP_ERR_INVALID_SIZE: number of actually sent bytes differs to expected
+    *      - ESP_FAIL: transmit packet failed because some other error occurred
+    *
+    * @note Returned error codes may differ for each specific MAC chip.
+    *
+    */
+    esp_err_t (*transmit_ctrl_vargs)(esp_eth_mac_t *mac, void *ctrl, uint32_t argc, va_list args);
+
+    /**
     * @brief Transmit packet from Ethernet MAC constructed with special parameters at Layer2.
+    *
+    * @warning Deprecated, use `transmit_ctrl_vargs()` function instead.
     *
     * @param[in] mac: Ethernet MAC instance
     * @param[in] argc: number variable arguments
@@ -124,7 +145,7 @@ struct esp_eth_mac_s {
     * @note Returned error codes may differ for each specific MAC chip.
     *
     */
-    esp_err_t (*transmit_vargs)(esp_eth_mac_t *mac, uint32_t argc, va_list args);
+    esp_err_t (*transmit_vargs)(esp_eth_mac_t *mac, uint32_t argc, va_list args) __attribute__((deprecated("Use transmit_ctrl_vargs instead")));
 
     /**
     * @brief Receive packet from Ethernet MAC
@@ -305,7 +326,7 @@ struct esp_eth_mac_s {
     *       - ESP_FAIL: process io command failed because some other error occurred
     *       - ESP_ERR_NOT_SUPPORTED: requested feature is not supported
     */
-    esp_err_t (*custom_ioctl)(esp_eth_mac_t *mac, uint32_t cmd, void *data);
+    esp_err_t (*custom_ioctl)(esp_eth_mac_t *mac, int cmd, void *data);
 
     /**
     * @brief Free memory of Ethernet MAC
@@ -321,82 +342,13 @@ struct esp_eth_mac_s {
 };
 
 /**
- * @brief RMII Clock Mode Options
+ * @brief Ethernet MAC Time Stamp
  *
  */
-typedef enum {
-    /**
-     * @brief Default values configured using Kconfig are going to be used when "Default" selected.
-     *
-     */
-    EMAC_CLK_DEFAULT,
-
-    /**
-     * @brief Input RMII Clock from external. EMAC Clock GPIO number needs to be configured when this option is selected.
-     *
-     * @note MAC will get RMII clock from outside. Note that ESP32 only supports GPIO0 to input the RMII clock.
-     *
-     */
-    EMAC_CLK_EXT_IN,
-
-    /**
-     * @brief Output RMII Clock from internal APLL Clock. EMAC Clock GPIO number needs to be configured when this option is selected.
-     *
-     */
-    EMAC_CLK_OUT
-} emac_rmii_clock_mode_t;
-
-/**
- * @brief RMII Clock GPIO number Options
- *
- */
-typedef enum {
-    /**
-     * @brief MAC will get RMII clock from outside at this GPIO.
-     *
-     * @note ESP32 only supports GPIO0 to input the RMII clock.
-     *
-     */
-    EMAC_CLK_IN_GPIO = 0,
-
-    /**
-     * @brief Output RMII Clock from internal APLL Clock available at GPIO0
-     *
-     * @note GPIO0 can be set to output a pre-divided PLL clock (test only!). Enabling this option will configure GPIO0 to output a 50MHz clock.
-     * In fact this clock doesn’t have directly relationship with EMAC peripheral. Sometimes this clock won’t work well with your PHY chip.
-     * You might need to add some extra devices after GPIO0 (e.g. inverter). Note that outputting RMII clock on GPIO0 is an experimental practice.
-     * If you want the Ethernet to work with WiFi, don’t select GPIO0 output mode for stability.
-     *
-     */
-    EMAC_APPL_CLK_OUT_GPIO = 0,
-
-    /**
-     * @brief Output RMII Clock from internal APLL Clock available at GPIO16
-     *
-     */
-    EMAC_CLK_OUT_GPIO = 16,
-
-    /**
-     * @brief Inverted Output RMII Clock from internal APLL Clock available at GPIO17
-     *
-     */
-    EMAC_CLK_OUT_180_GPIO = 17
-} emac_rmii_clock_gpio_t;
-
-/**
- * @brief Ethernet MAC Clock Configuration
- *
- */
-typedef union {
-    struct {
-        // MII interface is not fully implemented...
-        // Reserved for GPIO number, clock source, etc. in MII mode
-    } mii; /*!< EMAC MII Clock Configuration */
-    struct {
-        emac_rmii_clock_mode_t clock_mode; /*!< RMII Clock Mode Configuration */
-        emac_rmii_clock_gpio_t clock_gpio; /*!< RMII Clock GPIO Configuration */
-    } rmii; /*!< EMAC RMII Clock Configuration */
-} eth_mac_clock_config_t;
+typedef struct {
+    uint32_t seconds;       /*!< Seconds */
+    uint32_t nanoseconds;   /*!< Nanoseconds */
+} eth_mac_time_t;
 
 /**
 * @brief Configuration of Ethernet MAC object
@@ -419,174 +371,10 @@ typedef struct {
 #define ETH_MAC_DEFAULT_CONFIG()                          \
     {                                                     \
         .sw_reset_timeout_ms = 100,                       \
-        .rx_task_stack_size = 2048,                       \
+        .rx_task_stack_size = 4096,                       \
         .rx_task_prio = 15,                               \
         .flags = 0,                                       \
     }
-
-#if CONFIG_ETH_USE_ESP32_EMAC
-/**
-* @brief EMAC specific configuration
-*
-*/
-typedef struct {
-    int smi_mdc_gpio_num;                   /*!< SMI MDC GPIO number, set to -1 could bypass the SMI GPIO configuration */
-    int smi_mdio_gpio_num;                  /*!< SMI MDIO GPIO number, set to -1 could bypass the SMI GPIO configuration */
-    eth_data_interface_t interface;         /*!< EMAC Data interface to PHY (MII/RMII) */
-    eth_mac_clock_config_t clock_config;    /*!< EMAC Interface clock configuration */
-    eth_mac_dma_burst_len_t dma_burst_len;  /*!< EMAC DMA burst length for both Tx and Rx */
-} eth_esp32_emac_config_t;
-
-/**
- * @brief Default ESP32's EMAC specific configuration
- *
- */
-#define ETH_ESP32_EMAC_DEFAULT_CONFIG()               \
-    {                                                 \
-        .smi_mdc_gpio_num = 23,                       \
-        .smi_mdio_gpio_num = 18,                      \
-        .interface = EMAC_DATA_INTERFACE_RMII,        \
-        .clock_config =                               \
-        {                                             \
-            .rmii =                                   \
-            {                                         \
-                .clock_mode = EMAC_CLK_DEFAULT,       \
-                .clock_gpio = EMAC_CLK_IN_GPIO        \
-            }                                         \
-        },                                            \
-        .dma_burst_len = ETH_DMA_BURST_LEN_32         \
-    }
-
-/**
-* @brief Create ESP32 Ethernet MAC instance
-*
-* @param esp32_config: EMAC specific configuration
-* @param config:       Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_esp32(const eth_esp32_emac_config_t *esp32_config, const eth_mac_config_t *config);
-#endif // CONFIG_ETH_USE_ESP32_EMAC
-
-#if CONFIG_ETH_SPI_ETHERNET_DM9051
-/**
- * @brief DM9051 specific configuration
- *
- */
-typedef struct {
-    spi_host_device_t spi_host_id;              /*!< SPI peripheral */
-    spi_device_interface_config_t *spi_devcfg;  /*!< SPI device configuration */
-    int int_gpio_num;                           /*!< Interrupt GPIO number */
-} eth_dm9051_config_t;
-
-/**
- * @brief Default DM9051 specific configuration
- *
- */
-#define ETH_DM9051_DEFAULT_CONFIG(spi_host, spi_devcfg_p) \
-    {                                           \
-        .spi_host_id = spi_host,                \
-        .spi_devcfg = spi_devcfg_p,             \
-        .int_gpio_num = 4,                      \
-    }
-
-/**
-* @brief Create DM9051 Ethernet MAC instance
-*
-* @param dm9051_config: DM9051 specific configuration
-* @param mac_config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_dm9051(const eth_dm9051_config_t *dm9051_config, const eth_mac_config_t *mac_config);
-#endif // CONFIG_ETH_SPI_ETHERNET_DM9051
-
-#if CONFIG_ETH_SPI_ETHERNET_W5500
-/**
- * @brief W5500 specific configuration
- *
- */
-typedef struct {
-    spi_host_device_t spi_host_id;              /*!< SPI peripheral */
-    spi_device_interface_config_t *spi_devcfg;  /*!< SPI device configuration */
-    int int_gpio_num;                           /*!< Interrupt GPIO number */
-} eth_w5500_config_t;
-
-/**
- * @brief Default W5500 specific configuration
- *
- */
-#define ETH_W5500_DEFAULT_CONFIG(spi_host, spi_devcfg_p) \
-    {                                          \
-        .spi_host_id = spi_host,               \
-        .spi_devcfg = spi_devcfg_p,            \
-        .int_gpio_num = 4,                     \
-    }
-
-/**
-* @brief Create W5500 Ethernet MAC instance
-*
-* @param w5500_config: W5500 specific configuration
-* @param mac_config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_w5500(const eth_w5500_config_t *w5500_config, const eth_mac_config_t *mac_config);
-#endif // CONFIG_ETH_SPI_ETHERNET_W5500
-
-#if CONFIG_ETH_SPI_ETHERNET_KSZ8851SNL
-/**
- * @brief KSZ8851SNL specific configuration
- *
- */
-typedef struct {
-    spi_host_device_t spi_host_id;              /*!< SPI peripheral */
-    spi_device_interface_config_t *spi_devcfg;  /*!< SPI device configuration */
-    int int_gpio_num;                           /*!< Interrupt GPIO number */
-} eth_ksz8851snl_config_t;
-
-/**
- * @brief Default KSZ8851SNL specific configuration
- *
- */
-#define ETH_KSZ8851SNL_DEFAULT_CONFIG(spi_host, spi_devcfg_p) \
-    {                                               \
-        .spi_host_id = spi_host,                    \
-        .spi_devcfg = spi_devcfg_p,                 \
-        .int_gpio_num = 14,                         \
-    }
-
-/**
-* @brief Create KSZ8851SNL Ethernet MAC instance
-*
-* @param ksz8851snl_config: KSZ8851SNL specific configuration
-* @param mac_config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_ksz8851snl(const eth_ksz8851snl_config_t *ksz8851snl_config, const eth_mac_config_t *mac_config);
-#endif // CONFIG_ETH_SPI_ETHERNET_KSZ8851
-
-#if CONFIG_ETH_USE_OPENETH
-/**
-* @brief Create OpenCores Ethernet MAC instance
-*
-* @param config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_openeth(const eth_mac_config_t *config);
-#endif // CONFIG_ETH_USE_OPENETH
 
 #ifdef __cplusplus
 }

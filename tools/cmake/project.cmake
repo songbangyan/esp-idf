@@ -1,12 +1,29 @@
 # Designed to be included from an IDF app's CMakeLists.txt file
 cmake_minimum_required(VERSION 3.16)
 
+# Get the currently selected sdkconfig file early, so this doesn't
+# have to be done multiple times on different places.
+if(SDKCONFIG)
+    get_filename_component(sdkconfig "${SDKCONFIG}" ABSOLUTE)
+else()
+    set(sdkconfig "${CMAKE_SOURCE_DIR}/sdkconfig")
+endif()
+
+# Check if the cmake was started as part of the set-target action.
+# If so, check for existing sdkconfig file and rename it.
+# This is done before __target_init, so the existing IDF_TARGET from sdkconfig
+# is not considered for consistence checking.
+if("$ENV{_IDF_PY_SET_TARGET_ACTION}" EQUAL "1" AND EXISTS "${sdkconfig}")
+    file(RENAME "${sdkconfig}" "${sdkconfig}.old")
+    message(STATUS "Existing sdkconfig '${sdkconfig}' renamed to '${sdkconfig}.old'.")
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/targets.cmake)
 # Initialize build target for this build using the environment variable or
 # value passed externally.
-__target_init()
+__target_init("${sdkconfig}")
 
-# The mere inclusion of this CMake file sets up some interal build properties.
+# The mere inclusion of this CMake file sets up some internal build properties.
 # These properties can be modified in between this inclusion the the idf_build_process
 # call.
 include(${CMAKE_CURRENT_LIST_DIR}/idf.cmake)
@@ -44,33 +61,90 @@ if(NOT "$ENV{IDF_COMPONENT_MANAGER}" EQUAL "0")
     idf_build_set_property(IDF_COMPONENT_MANAGER 1)
 endif()
 # Set component manager interface version
-idf_build_set_property(__COMPONENT_MANAGER_INTERFACE_VERSION 2)
+idf_build_set_property(__COMPONENT_MANAGER_INTERFACE_VERSION 3)
 
 #
-# Get the project version from either a version file or the Git revision. This is passed
-# to the idf_build_process call. Dependencies are also set here for when the version file
-# changes (if it is used).
+# Parse and store the VERSION argument provided to the project() command.
 #
-function(__project_get_revision var)
-    set(_project_path "${CMAKE_CURRENT_LIST_DIR}")
-    if(NOT DEFINED PROJECT_VER)
-        if(EXISTS "${_project_path}/version.txt")
-            file(STRINGS "${_project_path}/version.txt" PROJECT_VER)
-            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_project_path}/version.txt")
-        else()
-            git_describe(PROJECT_VER_GIT "${_project_path}")
-            if(PROJECT_VER_GIT)
-                set(PROJECT_VER ${PROJECT_VER_GIT})
-            else()
-                message(STATUS "Project is not inside a git repository, or git repository has no commits;"
-                        " will not use 'git describe' to determine PROJECT_VER.")
-                set(PROJECT_VER 1)
-            endif()
+function(__parse_and_store_version_arg)
+    # The project_name is the first argument that was passed to the project() command
+    set(project_name ${ARGV0})
+
+    # Parse other arguments passed to the project() call
+    set(options)
+    set(oneValueArgs VERSION)
+    set(multiValueArgs)
+    cmake_parse_arguments(PROJECT "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    # If the VERSION keyword exists but no version string is provided then raise a warning
+    if((NOT PROJECT_VERSION
+        OR PROJECT_VERSION STREQUAL "NOTFOUND")
+        AND NOT PROJECT_VERSION STREQUAL "0")
+        message(STATUS "VERSION keyword not followed by a value or was followed by a value that expanded to nothing.")
+        # Default the version to 1 in this case
+        set(project_ver 1)
+    else()
+        # Check if version is valid. cmake allows the version to be in the format <major>[.<minor>[.<patch>[.<tweak>]]]]
+        string(REGEX MATCH "^([0-9]+(\\.[0-9]+(\\.[0-9]+(\\.[0-9]+)?)?)?)?$" version_valid ${PROJECT_VERSION})
+        if(NOT version_valid AND NOT PROJECT_VERSION STREQUAL "0")
+            message(SEND_ERROR "Version \"${PROJECT_VERSION}\" format invalid.")
+            return()
         endif()
+
+        # Split the version string into major, minor, patch, and tweak components
+        string(REPLACE "." ";" version_components ${PROJECT_VERSION})
+        list(GET version_components 0 PROJECT_VERSION_MAJOR)
+        list(LENGTH version_components version_length)
+        if(version_length GREATER 1)
+            list(GET version_components 1 PROJECT_VERSION_MINOR)
+        endif()
+        if(version_length GREATER 2)
+            list(GET version_components 2 PROJECT_VERSION_PATCH)
+        endif()
+        if(version_length GREATER 3)
+            list(GET version_components 3 PROJECT_VERSION_TWEAK)
+        endif()
+
+        # Store the version string in cmake specified variables to access the version
+        set(PROJECT_VERSION ${PROJECT_VERSION} PARENT_SCOPE)
+        set(PROJECT_VERSION_MAJOR ${PROJECT_VERSION_MAJOR} PARENT_SCOPE)
+        if(PROJECT_VERSION_MINOR)
+            set(PROJECT_VERSION_MINOR ${PROJECT_VERSION_MINOR} PARENT_SCOPE)
+        endif()
+        if(PROJECT_VERSION_PATCH)
+            set(PROJECT_VERSION_PATCH ${PROJECT_VERSION_PATCH} PARENT_SCOPE)
+        endif()
+        if(PROJECT_VERSION_TWEAK)
+            set(PROJECT_VERSION_TWEAK ${PROJECT_VERSION_TWEAK} PARENT_SCOPE)
+        endif()
+
+        # Also store the version string in the specified variables for the project_name
+        set(${project_name}_VERSION ${PROJECT_VERSION} PARENT_SCOPE)
+        set(${project_name}_VERSION_MAJOR ${PROJECT_VERSION_MAJOR} PARENT_SCOPE)
+        if(PROJECT_VERSION_MINOR)
+            set(${project_name}_VERSION_MINOR ${PROJECT_VERSION_MINOR} PARENT_SCOPE)
+        endif()
+        if(PROJECT_VERSION_PATCH)
+            set(${project_name}_VERSION_PATCH ${PROJECT_VERSION_PATCH} PARENT_SCOPE)
+        endif()
+        if(PROJECT_VERSION_TWEAK)
+            set(${project_name}_VERSION_TWEAK ${PROJECT_VERSION_TWEAK} PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
+#
+# Get the project version from a version file. This is passed to the idf_build_process call.
+# Dependencies are also set here for when the version file changes (if it is used).
+#
+function(__project_get_revision_from_version_file var)
+    set(_project_path "${CMAKE_CURRENT_LIST_DIR}")
+    if(EXISTS "${_project_path}/version.txt")
+        file(STRINGS "${_project_path}/version.txt" PROJECT_VER)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_project_path}/version.txt")
     endif()
     set(${var} "${PROJECT_VER}" PARENT_SCOPE)
 endfunction()
-
 
 # paths_with_spaces_to_list
 #
@@ -101,6 +175,130 @@ function(paths_with_spaces_to_list variable_name)
         endif()
         set("${variable_name}" "${result}" PARENT_SCOPE)
     endif()
+endfunction()
+
+function(__build_component_info components output)
+    set(components_json "")
+    foreach(name ${components})
+        __component_get_target(target ${name})
+        __component_get_property(alias ${target} COMPONENT_ALIAS)
+        __component_get_property(prefix ${target} __PREFIX)
+        __component_get_property(dir ${target} COMPONENT_DIR)
+        __component_get_property(type ${target} COMPONENT_TYPE)
+        __component_get_property(lib ${target} COMPONENT_LIB)
+        __component_get_property(reqs ${target} REQUIRES)
+        __component_get_property(include_dirs ${target} INCLUDE_DIRS)
+        __component_get_property(priv_reqs ${target} PRIV_REQUIRES)
+        __component_get_property(managed_reqs ${target} MANAGED_REQUIRES)
+        __component_get_property(managed_priv_reqs ${target} MANAGED_PRIV_REQUIRES)
+        if("${type}" STREQUAL "LIBRARY")
+            set(file "$<TARGET_LINKER_FILE:${lib}>")
+
+            # The idf_component_register function is converting each source file path defined
+            # in SRCS into absolute one. But source files can be also added with cmake's
+            # target_sources and have relative paths. This is used for example in log
+            # component. Let's make sure all source files have absolute path.
+            set(sources "")
+            get_target_property(srcs ${lib} SOURCES)
+            foreach(src ${srcs})
+                get_filename_component(src "${src}" ABSOLUTE BASE_DIR "${dir}")
+                list(APPEND sources "${src}")
+            endforeach()
+
+        else()
+            set(file "")
+            set(sources "")
+        endif()
+
+        make_json_list("${reqs}" reqs)
+        make_json_list("${priv_reqs}" priv_reqs)
+        make_json_list("${managed_reqs}" managed_reqs)
+        make_json_list("${managed_priv_reqs}" managed_priv_reqs)
+        make_json_list("${include_dirs}" include_dirs)
+        make_json_list("${sources}" sources)
+
+        string(JOIN "\n" component_json
+            "        \"${name}\": {"
+            "            \"alias\": \"${alias}\","
+            "            \"target\": \"${target}\","
+            "            \"prefix\": \"${prefix}\","
+            "            \"dir\": \"${dir}\","
+            "            \"type\": \"${type}\","
+            "            \"lib\": \"${lib}\","
+            "            \"reqs\": ${reqs},"
+            "            \"priv_reqs\": ${priv_reqs},"
+            "            \"managed_reqs\": ${managed_reqs},"
+            "            \"managed_priv_reqs\": ${managed_priv_reqs},"
+            "            \"file\": \"${file}\","
+            "            \"sources\": ${sources},"
+            "            \"include_dirs\": ${include_dirs}"
+            "        }"
+        )
+        string(CONFIGURE "${component_json}" component_json)
+        if(NOT "${components_json}" STREQUAL "")
+            string(APPEND components_json ",\n")
+        endif()
+        string(APPEND components_json "${component_json}")
+    endforeach()
+    string(PREPEND components_json "{\n")
+    string(APPEND components_json "\n    }")
+    set(${output} "${components_json}" PARENT_SCOPE)
+endfunction()
+
+function(__all_component_info output)
+    set(components_json "")
+
+    idf_build_get_property(build_prefix __PREFIX)
+    idf_build_get_property(component_targets __COMPONENT_TARGETS)
+
+    foreach(target ${component_targets})
+        __component_get_property(name ${target} COMPONENT_NAME)
+        __component_get_property(alias ${target} COMPONENT_ALIAS)
+        __component_get_property(prefix ${target} __PREFIX)
+        __component_get_property(dir ${target} COMPONENT_DIR)
+        __component_get_property(type ${target} COMPONENT_TYPE)
+        __component_get_property(lib ${target} COMPONENT_LIB)
+        __component_get_property(reqs ${target} REQUIRES)
+        __component_get_property(include_dirs ${target} INCLUDE_DIRS)
+        __component_get_property(priv_reqs ${target} PRIV_REQUIRES)
+        __component_get_property(managed_reqs ${target} MANAGED_REQUIRES)
+        __component_get_property(managed_priv_reqs ${target} MANAGED_PRIV_REQUIRES)
+
+        if(prefix STREQUAL build_prefix)
+            set(name ${name})
+        else()
+            set(name ${alias})
+        endif()
+
+        make_json_list("${reqs}" reqs)
+        make_json_list("${priv_reqs}" priv_reqs)
+        make_json_list("${managed_reqs}" managed_reqs)
+        make_json_list("${managed_priv_reqs}" managed_priv_reqs)
+        make_json_list("${include_dirs}" include_dirs)
+
+        string(JOIN "\n" component_json
+            "        \"${name}\": {"
+            "            \"alias\": \"${alias}\","
+            "            \"target\": \"${target}\","
+            "            \"prefix\": \"${prefix}\","
+            "            \"dir\": \"${dir}\","
+            "            \"lib\": \"${lib}\","
+            "            \"reqs\": ${reqs},"
+            "            \"priv_reqs\": ${priv_reqs},"
+            "            \"managed_reqs\": ${managed_reqs},"
+            "            \"managed_priv_reqs\": ${managed_priv_reqs},"
+            "            \"include_dirs\": ${include_dirs}"
+            "        }"
+        )
+        string(CONFIGURE "${component_json}" component_json)
+        if(NOT "${components_json}" STREQUAL "")
+            string(APPEND components_json ",\n")
+        endif()
+        string(APPEND components_json "${component_json}")
+    endforeach()
+    string(PREPEND components_json "{\n")
+    string(APPEND components_json "\n    }")
+    set(${output} "${components_json}" PARENT_SCOPE)
 endfunction()
 
 #
@@ -139,6 +337,7 @@ function(__project_info test_components)
     endforeach()
 
     set(PROJECT_NAME ${CMAKE_PROJECT_NAME})
+    idf_build_get_property(PROJECT_VER PROJECT_VER)
     idf_build_get_property(PROJECT_PATH PROJECT_DIR)
     idf_build_get_property(BUILD_DIR BUILD_DIR)
     idf_build_get_property(SDKCONFIG SDKCONFIG)
@@ -146,12 +345,20 @@ function(__project_info test_components)
     idf_build_get_property(PROJECT_EXECUTABLE EXECUTABLE)
     set(PROJECT_BIN ${CMAKE_PROJECT_NAME}.bin)
     idf_build_get_property(IDF_VER IDF_VER)
+    idf_build_get_property(common_component_reqs __COMPONENT_REQUIRES_COMMON)
 
     idf_build_get_property(sdkconfig_cmake SDKCONFIG_CMAKE)
     include(${sdkconfig_cmake})
     idf_build_get_property(COMPONENT_KCONFIGS KCONFIGS)
     idf_build_get_property(COMPONENT_KCONFIGS_PROJBUILD KCONFIG_PROJBUILDS)
     idf_build_get_property(debug_prefix_map_gdbinit DEBUG_PREFIX_MAP_GDBINIT)
+
+    __generate_gdbinit()
+    idf_build_get_property(gdbinit_files_prefix_map GDBINIT_FILES_PREFIX_MAP)
+    idf_build_get_property(gdbinit_files_symbols GDBINIT_FILES_SYMBOLS)
+    idf_build_get_property(gdbinit_files_py_extensions GDBINIT_FILES_PY_EXTENSIONS)
+    idf_build_get_property(gdbinit_files_connect GDBINIT_FILES_CONNECT)
+    __get_openocd_options(debug_arguments_openocd)
 
     if(CONFIG_APP_BUILD_TYPE_RAM)
         set(PROJECT_BUILD_TYPE ram_app)
@@ -163,8 +370,23 @@ function(__project_info test_components)
     idf_build_get_property(build_dir BUILD_DIR)
     make_json_list("${build_components};${test_components}" build_components_json)
     make_json_list("${build_component_paths};${test_component_paths}" build_component_paths_json)
+    make_json_list("${common_component_reqs}" common_component_reqs_json)
+
+    __build_component_info("${build_components};${test_components}" build_component_info_json)
+    __all_component_info(all_component_info_json)
+
+    # The configure_file function doesn't process generator expressions, which are needed
+    # e.g. to get component target library(TARGET_LINKER_FILE), so the project_description
+    # file is created in two steps. The first step, with configure_file, creates a temporary
+    # file with cmake's variables substituted and unprocessed generator expressions. The second
+    # step, with file(GENERATE), processes the temporary file and substitute generator expression
+    # into the final project_description.json file.
     configure_file("${idf_path}/tools/cmake/project_description.json.in"
-        "${build_dir}/project_description.json")
+        "${build_dir}/project_description.json.templ")
+    file(READ "${build_dir}/project_description.json.templ" project_description_json_templ)
+    file(REMOVE "${build_dir}/project_description.json.templ")
+    file(GENERATE OUTPUT "${build_dir}/project_description.json"
+         CONTENT "${project_description_json_templ}")
 
     # Generate component dependency graph
     depgraph_generate("${build_dir}/component_deps.dot")
@@ -205,19 +427,20 @@ function(__project_init components_var test_components_var)
     idf_build_set_property(CXX_COMPILE_OPTIONS "${extra_cxxflags}" APPEND)
     idf_build_set_property(COMPILE_OPTIONS "${extra_cppflags}" APPEND)
 
-    function(__project_component_dir component_dir)
+    function(__project_component_dir component_dir component_source)
         get_filename_component(component_dir "${component_dir}" ABSOLUTE)
         # The directory itself is a valid idf component
         if(EXISTS ${component_dir}/CMakeLists.txt)
-            idf_build_component(${component_dir})
+            idf_build_component(${component_dir} ${component_source})
         else()
+            idf_build_get_property(exclude_dirs EXTRA_COMPONENT_EXCLUDE_DIRS)
             # otherwise, check whether the subfolders are potential idf components
             file(GLOB component_dirs ${component_dir}/*)
             foreach(component_dir ${component_dirs})
-                if(IS_DIRECTORY ${component_dir})
+                if(IS_DIRECTORY ${component_dir} AND NOT ${component_dir} IN_LIST exclude_dirs)
                     __component_dir_quick_check(is_component ${component_dir})
                     if(is_component)
-                        idf_build_component(${component_dir})
+                        idf_build_component(${component_dir} ${component_source})
                     endif()
                 endif()
             endforeach()
@@ -235,11 +458,11 @@ function(__project_init components_var test_components_var)
             if(NOT EXISTS ${component_abs_path})
                 message(FATAL_ERROR "Directory specified in COMPONENT_DIRS doesn't exist: ${component_abs_path}")
             endif()
-            __project_component_dir(${component_dir})
+            __project_component_dir(${component_dir} "project_components")
         endforeach()
     else()
         if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/main")
-            __project_component_dir("${CMAKE_CURRENT_LIST_DIR}/main")
+            __project_component_dir("${CMAKE_CURRENT_LIST_DIR}/main" "project_components")
         endif()
 
         paths_with_spaces_to_list(EXTRA_COMPONENT_DIRS)
@@ -248,12 +471,12 @@ function(__project_init components_var test_components_var)
             if(NOT EXISTS ${component_abs_path})
                 message(FATAL_ERROR "Directory specified in EXTRA_COMPONENT_DIRS doesn't exist: ${component_abs_path}")
             endif()
-            __project_component_dir("${component_dir}")
+            __project_component_dir("${component_dir}" "project_extra_components")
         endforeach()
 
         # Look for components in the usual places: CMAKE_CURRENT_LIST_DIR/main,
         # extra component dirs, and CMAKE_CURRENT_LIST_DIR/components
-        __project_component_dir("${CMAKE_CURRENT_LIST_DIR}/components")
+        __project_component_dir("${CMAKE_CURRENT_LIST_DIR}/components" "project_components")
     endif()
 
     # For bootloader components, we only need to set-up the Kconfig files.
@@ -271,6 +494,24 @@ function(__project_init components_var test_components_var)
             endif()
         endif()
     endforeach()
+
+    # If a minimal build is requested, set COMPONENTS to "main" only if the COMPONENTS
+    # variable is not already defined. The COMPONENTS variable takes precedence over
+    # the MINIMAL_BUILD property.
+    idf_build_get_property(minimal_build MINIMAL_BUILD)
+    if(minimal_build)
+        if(DEFINED COMPONENTS)
+            message(WARNING "The MINIMAL_BUILD property is disregarded because the COMPONENTS variable is defined.")
+            set(minimal_build OFF)
+        else()
+            set(COMPONENTS main)
+            set(minimal_build ON)
+        endif()
+    else()
+        set(minimal_build OFF)
+    endif()
+
+    message(STATUS "Minimal build - ${minimal_build}")
 
     spaces2list(COMPONENTS)
     spaces2list(EXCLUDE_COMPONENTS)
@@ -305,7 +546,7 @@ function(__project_init components_var test_components_var)
                     set(include 0)
                 endif()
                 if(include AND EXISTS ${component_dir}/test)
-                    __component_add(${component_dir}/test ${component_name})
+                    __component_add(${component_dir}/test ${component_name} "project_components")
                     list(APPEND test_components ${component_name}::test)
                 endif()
             endif()
@@ -316,7 +557,7 @@ function(__project_init components_var test_components_var)
     set(${test_components_var} "${test_components}" PARENT_SCOPE)
 endfunction()
 
-# Trick to temporarily redefine project(). When functions are overriden in CMake, the originals can still be accessed
+# Trick to temporarily redefine project(). When functions are overridden in CMake, the originals can still be accessed
 # using an underscore prefixed function of the same name. The following lines make sure that __project  calls
 # the original project(). See https://cmake.org/pipermail/cmake/2015-October/061751.html.
 function(project)
@@ -431,12 +672,6 @@ macro(project project_name)
         list(APPEND sdkconfig_defaults ${sdkconfig_default})
     endforeach()
 
-    if(SDKCONFIG)
-        get_filename_component(sdkconfig "${SDKCONFIG}" ABSOLUTE)
-    else()
-        set(sdkconfig "${CMAKE_CURRENT_LIST_DIR}/sdkconfig")
-    endif()
-
     if(BUILD_DIR)
         get_filename_component(build_dir "${BUILD_DIR}" ABSOLUTE)
         if(NOT EXISTS "${build_dir}")
@@ -446,7 +681,54 @@ macro(project project_name)
         set(build_dir ${CMAKE_BINARY_DIR})
     endif()
 
-    __project_get_revision(project_ver)
+    # If PROJECT_VER has not been set yet, look for the version from various sources in the following order of priority:
+    #
+    # 1. version.txt file in the top level project directory
+    # 2. From the VERSION argument if passed to the project() macro
+    # 3. git describe if the project is in a git repository
+    # 4. Default to 1 if none of the above conditions are true
+    #
+    # PS: PROJECT_VER will get overridden later if CONFIG_APP_PROJECT_VER_FROM_CONFIG is defined.
+    #     See components/esp_app_format/CMakeLists.txt.
+    if(NOT DEFINED PROJECT_VER)
+        # Read the version information from the version.txt file if it is present
+        __project_get_revision_from_version_file(project_ver)
+
+        # If the version is not set from the version.txt file, check other sources for the version information
+        if(NOT project_ver)
+            # Check if version information was passed to project() via the VERSION argument
+            set(version_keyword_present FALSE)
+            foreach(arg ${ARGN})
+                if(${arg} STREQUAL "VERSION")
+                    set(version_keyword_present TRUE)
+                endif()
+            endforeach()
+
+            if(version_keyword_present)
+                __parse_and_store_version_arg(${project_name} ${ARGN})
+                set(project_ver ${PROJECT_VERSION})
+
+                # If the project() command is called from the top-level CMakeLists.txt,
+                # store the version in CMAKE_PROJECT_VERSION.
+                if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+                    set(CMAKE_PROJECT_VERSION ${PROJECT_VERSION})
+                endif()
+            else()
+                # Use git describe to determine the version
+                git_describe(PROJECT_VER_GIT "${CMAKE_CURRENT_LIST_DIR}")
+                if(PROJECT_VER_GIT)
+                    set(project_ver ${PROJECT_VER_GIT})
+                else()
+                    message(STATUS "Could not use 'git describe' to determine PROJECT_VER.")
+                    # None of sources contain the version information. Default PROJECT_VER to 1.
+                    set(project_ver 1)
+                endif() #if(PROJECT_VER_GIT)
+            endif() #if(version_keyword_present)
+        endif() #if(NOT project_ver)
+    else()
+        # PROJECT_VER has been set before calling project(). Copy it into project_ver for idf_build_process() later.
+        set(project_ver ${PROJECT_VER})
+    endif() #if(NOT DEFINED PROJECT_VER)
 
     message(STATUS "Building ESP-IDF components for target ${IDF_TARGET}")
 
@@ -490,7 +772,7 @@ macro(project project_name)
     set(project_elf ${CMAKE_PROJECT_NAME}.elf)
 
     # Create a dummy file to work around CMake requirement of having a source file while adding an
-    # executable. This is also used by idf_size.py to detect the target
+    # executable. This is also used by esp_idf_size to detect the target
     set(project_elf_src ${CMAKE_BINARY_DIR}/project_elf_src_${IDF_TARGET}.c)
     add_custom_command(OUTPUT ${project_elf_src}
         COMMAND ${CMAKE_COMMAND} -E touch ${project_elf_src}
@@ -555,7 +837,7 @@ macro(project project_name)
         string(TOUPPER ${idf_target} idf_target)
         # Add cross-reference table to the map file
         target_link_options(${project_elf} PRIVATE "-Wl,--cref")
-        # Add this symbol as a hint for idf_size.py to guess the target name
+        # Add this symbol as a hint for esp_idf_size to guess the target name
         target_link_options(${project_elf} PRIVATE "-Wl,--defsym=IDF_TARGET_${idf_target}=0")
         # Enable map file output
         target_link_options(${project_elf} PRIVATE "-Wl,--Map=${mapfile}")
@@ -568,19 +850,30 @@ macro(project project_name)
             # Do not print RWX segment warnings
             target_link_options(${project_elf} PRIVATE "-Wl,--no-warn-rwx-segments")
         endif()
+        if(CONFIG_COMPILER_ORPHAN_SECTIONS_WARNING)
+            # Print warnings if orphan sections are found
+            target_link_options(${project_elf} PRIVATE "-Wl,--orphan-handling=warn")
+        endif()
         unset(idf_target)
     endif()
 
+
+    if(CONFIG_LIBC_PICOLIBC)
+        idf_build_set_property(C_COMPILE_OPTIONS "-specs=picolibc.specs" APPEND)
+        idf_build_set_property(CXX_COMPILE_OPTIONS "-specs=picolibcpp.specs" APPEND)
+        idf_build_set_property(LINK_OPTIONS "-specs=picolibc.specs" APPEND)
+    endif()
+
     set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY
-        ADDITIONAL_MAKE_CLEAN_FILES
+        ADDITIONAL_CLEAN_FILES
         "${mapfile}" "${project_elf_src}")
 
     idf_build_get_property(idf_path IDF_PATH)
     idf_build_get_property(python PYTHON)
 
-    set(idf_size ${python} ${idf_path}/tools/idf_size.py)
+    set(idf_size ${python} -m esp_idf_size)
 
-    # Add size targets, depend on map file, run idf_size.py
+    # Add size targets, depend on map file, run esp_idf_size
     # OUTPUT_JSON is passed for compatibility reasons, SIZE_OUTPUT_FORMAT
     # environment variable is recommended and has higher priority
     add_custom_target(size
@@ -623,8 +916,32 @@ macro(project project_name)
     # Add DFU build and flash targets
     __add_dfu_targets()
 
-    # Add UF2 build targets
-    __add_uf2_targets()
+    # Add uf2 related targets
+    idf_build_get_property(idf_path IDF_PATH)
+    idf_build_get_property(python PYTHON)
+
+    set(UF2_ARGS --json "${CMAKE_CURRENT_BINARY_DIR}/flasher_args.json")
+    set(UF2_CMD ${python} "${idf_path}/tools/mkuf2.py" write --chip ${chip_model})
+
+    add_custom_target(uf2
+        COMMAND ${CMAKE_COMMAND}
+        -D "IDF_PATH=${idf_path}"
+        -D "UF2_CMD=${UF2_CMD}"
+        -D "UF2_ARGS=${UF2_ARGS};-o;${CMAKE_CURRENT_BINARY_DIR}/uf2.bin"
+        -P "${idf_path}/tools/cmake/run_uf2_cmds.cmake"
+        USES_TERMINAL
+        VERBATIM
+        )
+
+    add_custom_target(uf2-app
+        COMMAND ${CMAKE_COMMAND}
+        -D "IDF_PATH=${idf_path}"
+        -D "UF2_CMD=${UF2_CMD}"
+        -D "UF2_ARGS=${UF2_ARGS};-o;${CMAKE_CURRENT_BINARY_DIR}/uf2-app.bin;--bin;app"
+        -P "${idf_path}/tools/cmake/run_uf2_cmds.cmake"
+        USES_TERMINAL
+        VERBATIM
+        )
 
     idf_build_executable(${project_elf})
 

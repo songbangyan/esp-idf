@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -82,7 +82,7 @@ void esp_blufi_gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *a
     char buf[BLE_UUID_STR_LEN];
     switch (ctxt->op) {
     case BLE_GATT_REGISTER_OP_SVC:
-        ESP_LOGI(TAG, "registered service %s with handle=%d\n",
+        ESP_LOGI(TAG, "registered service %s with handle=%d",
                  ble_uuid_to_str(ctxt->svc.svc_def->uuid, buf),
                  ctxt->svc.handle);
         break;
@@ -96,7 +96,7 @@ void esp_blufi_gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *a
         break;
 
     case BLE_GATT_REGISTER_OP_DSC:
-        ESP_LOGI(TAG, "registering descriptor %s with handle=%d\n",
+        ESP_LOGI(TAG, "registering descriptor %s with handle=%d",
                  ble_uuid_to_str(ctxt->dsc.dsc_def->uuid, buf),
                  ctxt->dsc.handle);
         break;
@@ -124,7 +124,31 @@ static size_t write_value(uint16_t conn_handle, uint16_t attr_handle,
         }
     }
 
-    btc_blufi_recv_handler(&ctxt->om->om_data[0], ctxt->om->om_len);
+    /* Data may come in linked om. So retrieve all data */
+    if (SLIST_NEXT(ctxt->om, om_next) != NULL) {
+	uint8_t *fw_buf = (uint8_t *)malloc(517 * sizeof(uint8_t));
+	memset(fw_buf, 0x0, 517);
+
+        memcpy(fw_buf, &ctxt->om->om_data[0], ctxt->om->om_len);
+        struct os_mbuf *last;
+        last = ctxt->om;
+        uint32_t offset = ctxt->om->om_len;
+
+        while (SLIST_NEXT(last, om_next) != NULL) {
+              struct os_mbuf *temp = SLIST_NEXT(last, om_next);
+	      memcpy(fw_buf + offset  , &temp->om_data[0], temp->om_len);
+	      offset += temp->om_len;
+	      last = SLIST_NEXT(last, om_next);
+              temp = NULL;
+        }
+	btc_blufi_recv_handler(fw_buf, offset);
+
+	free(fw_buf);
+    }
+    else {
+        btc_blufi_recv_handler(&ctxt->om->om_data[0], ctxt->om->om_len);
+    }
+
     rc = ble_hs_mbuf_to_flat(ctxt->om, value->buf->om_data,
                              value->buf->om_len, &len);
     if (rc != 0) {
@@ -216,6 +240,32 @@ static void init_gatt_values(void)
 
 }
 
+static void deinit_gatt_values(void)
+{
+    int i = 0;
+    const struct ble_gatt_svc_def *svc;
+    const struct ble_gatt_chr_def *chr;
+    const struct ble_gatt_dsc_def *dsc;
+
+    for (svc = gatt_svr_svcs; svc && svc->uuid; svc++) {
+        for (chr = svc->characteristics; chr && chr->uuid; chr++) {
+            if (i < SERVER_MAX_VALUES && gatt_values[i].buf != NULL) {
+                os_mbuf_free(gatt_values[i].buf);  /* Free the buffer */
+                gatt_values[i].buf = NULL;         /* Nullify the pointer to avoid dangling references */
+            }
+            ++i;
+
+            for (dsc = chr->descriptors; dsc && dsc->uuid; dsc++) {
+                if (i < SERVER_MAX_VALUES && gatt_values[i].buf != NULL) {
+                    os_mbuf_free(gatt_values[i].buf);  /* Free the buffer */
+                    gatt_values[i].buf = NULL;         /* Nullify the pointer to avoid dangling references */
+                }
+                ++i;
+            }
+        }
+    }
+}
+
 int esp_blufi_gatt_svr_init(void)
 {
     int rc;
@@ -236,6 +286,18 @@ int esp_blufi_gatt_svr_init(void)
     return 0;
 }
 
+int esp_blufi_gatt_svr_deinit(void)
+{
+    deinit_gatt_values();
+
+    ble_gatts_free_svcs();
+    /* Deinitialize BLE GATT and GAP services */
+    ble_svc_gatt_deinit();
+    ble_svc_gap_deinit();
+
+    return 0;
+}
+
 static int
 esp_blufi_gap_event(struct ble_gap_event *event, void *arg)
 {
@@ -245,7 +307,7 @@ esp_blufi_gap_event(struct ble_gap_event *event, void *arg)
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         /* A new connection was established or a connection attempt failed. */
-        ESP_LOGI(TAG, "connection %s; status=%d\n",
+        ESP_LOGI(TAG, "connection %s; status=%d",
                  event->connect.status == 0 ? "established" : "failed",
                  event->connect.status);
         if (event->connect.status == 0) {
@@ -273,7 +335,7 @@ esp_blufi_gap_event(struct ble_gap_event *event, void *arg)
         }
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGI(TAG, "disconnect; reason=%d\n", event->disconnect.reason);
+        ESP_LOGI(TAG, "disconnect; reason=%d", event->disconnect.reason);
         memcpy(blufi_env.remote_bda, event->disconnect.conn.peer_id_addr.val, ESP_BLUFI_BD_ADDR_LEN);
         blufi_env.is_connected = false;
         blufi_env.recv_seq = blufi_env.send_seq = 0;
@@ -297,7 +359,7 @@ esp_blufi_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
     case BLE_GAP_EVENT_CONN_UPDATE:
         /* The central has updated the connection parameters. */
-        ESP_LOGI(TAG, "connection updated; status=%d\n",
+        ESP_LOGI(TAG, "connection updated; status=%d",
                  event->conn_update.status);
         return 0;
 
@@ -320,7 +382,7 @@ esp_blufi_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_MTU:
-        ESP_LOGI(TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d\n",
+        ESP_LOGI(TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d",
                  event->mtu.conn_handle,
                  event->mtu.channel_id,
                  event->mtu.value);
@@ -390,7 +452,7 @@ void esp_blufi_adv_start(void)
     fields.uuids16_is_complete = 1;
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
-        ESP_LOGE(TAG, "error setting advertisement data; rc=%d\n", rc);
+        ESP_LOGE(TAG, "error setting advertisement data; rc=%d", rc);
         return;
     }
 
@@ -401,7 +463,7 @@ void esp_blufi_adv_start(void)
     rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, esp_blufi_gap_event, NULL);
     if (rc != 0) {
-        ESP_LOGE(TAG, "error enabling advertisement; rc=%d\n", rc);
+        ESP_LOGE(TAG, "error enabling advertisement; rc=%d", rc);
         return;
     }
 }
@@ -418,8 +480,10 @@ uint8_t esp_blufi_init(void)
 void esp_blufi_deinit(void)
 {
     blufi_env.enabled = false;
-    btc_msg_t msg;
     esp_blufi_cb_param_t param;
+    btc_msg_t msg;
+    memset (&msg, 0x0, sizeof (msg));
+    msg.sig = BTC_SIG_API_CB;
     msg.pid = BTC_PID_BLUFI;
     msg.act = ESP_BLUFI_EVENT_DEINIT_FINISH;
     param.deinit_finish.state = ESP_BLUFI_DEINIT_OK;

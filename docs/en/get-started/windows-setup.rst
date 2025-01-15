@@ -9,15 +9,17 @@ Introduction
 
 ESP-IDF requires some prerequisite tools to be installed so you can build firmware for supported chips. The prerequisite tools include Python, Git, cross-compilers, CMake and Ninja build tools.
 
-For this Getting Started we're going to use the Command Prompt, but after ESP-IDF is installed you can use `Eclipse Plugin <https://github.com/espressif/idf-eclipse-plugin/blob/master/README.md>`_ or another graphical IDE with CMake support instead.
+For this Getting Started we are going to use the Command Prompt, but after ESP-IDF is installed you can use `Eclipse Plugin <https://github.com/espressif/idf-eclipse-plugin/blob/master/README.md>`_ or another graphical IDE with CMake support instead.
 
 .. note::
+
     Limitations:
+
     - The installation path of ESP-IDF and ESP-IDF Tools must not be longer than 90 characters. Too long installation paths might result in a failed build.
     - The installation path of Python or ESP-IDF must not contain white spaces or parentheses.
     - The installation path of Python or ESP-IDF should not contain special characters (non-ASCII) unless the operating system is configured with "Unicode UTF-8" support.
 
-    System Administrator can enable the support via Control Panel - Change date, time, or number formats - Administrative tab - Change system locale - check the option "Beta: Use Unicode UTF-8 for worldwide language support" - Ok and reboot the computer.
+    System Administrator can enable the support via ``Control Panel`` > Change ``date``, ``time``, or ``number`` formats > ``Administrative tab`` > Change ``system locale`` > check the option ``Beta: Use Unicode UTF-8 for worldwide language support`` > ``Ok`` > reboot the computer.
 
 .. _get-started-windows-tools-installer:
 
@@ -36,14 +38,14 @@ The easiest way to install ESP-IDF's prerequisites is to download one of ESP-IDF
 .. _Windows Installer Download: https://dl.espressif.com/dl/esp-idf/?idf=4.4
 
 
-What is the usecase for Online and Offline Installer
+What Is the Usecase for Online and Offline Installer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Online Installer is very small and allows the installation of all available releases of ESP-IDF. The installer will download only necessary dependencies including `Git For Windows`_  during the installation process. The installer stores downloaded files in the cache directory ``%userprofile%\.espressif``
+Online Installer is very small and allows the installation of all available releases of ESP-IDF. The installer downloads only necessary dependencies including `Git For Windows`_  during the installation process. The installer stores downloaded files in the cache directory ``%userprofile%\.espressif``
 
-Offline Installer does not require any network connection. The installer contains all required dependencies including `Git For Windows`_ .
+Offline Installer does not require any network connection. The installer contains all required dependencies including `Git For Windows`_.
 
-Components of the installation
+Components of the Installation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The installer deploys the following components:
@@ -59,7 +61,7 @@ The installer also allows reusing the existing directory with ESP-IDF. The recom
 Launching ESP-IDF Environment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-At the end of the installation process you can check out option ``Run ESP-IDF PowerShell Environment`` or ``Run ESP-IDF Command Prompt (cmd.exe)``. The installer will launch ESP-IDF environment in selected prompt.
+At the end of the installation process you can check out option ``Run ESP-IDF PowerShell Environment`` or ``Run ESP-IDF Command Prompt (cmd.exe)``. The installer launches ESP-IDF environment in selected prompt.
 
 ``Run ESP-IDF PowerShell Environment``:
 
@@ -96,7 +98,7 @@ At the end of the installation process you can check out option ``Run ESP-IDF Po
 Using the Command Prompt
 ========================
 
-For the remaining Getting Started steps, we're going to use the Windows Command Prompt.
+For the remaining Getting Started steps, we are going to use the Windows Command Prompt.
 
 ESP-IDF Tools Installer also creates a shortcut in the Start menu to launch the ESP-IDF Command Prompt. This shortcut launches the Command Prompt (cmd.exe) and runs ``export.bat`` script to set up the environment variables (``PATH``, ``IDF_PATH`` and others). Inside this command prompt, all the installed tools are available.
 
@@ -132,7 +134,6 @@ For advanced users who want to customize the install process:
     windows-setup-update
     establish-serial-connection
     flashing-troubleshooting
-    ../api-guides/tools/idf-monitor
 
 .. _CMake: https://cmake.org/download/
 .. _Ninja: https://ninja-build.org/

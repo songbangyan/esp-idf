@@ -1,11 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <sys/param.h>
-#include "sdkconfig.h"
 #include "soc/soc_caps.h"
 #include "hal/adc_hal_common.h"
 #include "hal/adc_ll.h"
@@ -18,8 +17,8 @@ static adc_ll_controller_t get_controller(adc_unit_t unit, adc_hal_work_mode_t w
 {
     if (unit == ADC_UNIT_1) {
         switch (work_mode) {
-#if SOC_ULP_SUPPORTED
-            case ADC_HAL_ULP_FSM_MODE:
+#if SOC_ULP_HAS_ADC || SOC_LP_CORE_SUPPORT_LP_ADC
+            case ADC_HAL_LP_MODE:
                 return ADC_LL_CTRL_ULP;
 #endif
             case ADC_HAL_SINGLE_READ_MODE:
@@ -35,8 +34,8 @@ static adc_ll_controller_t get_controller(adc_unit_t unit, adc_hal_work_mode_t w
         }
     } else {
         switch (work_mode) {
-#if SOC_ULP_SUPPORTED
-            case ADC_HAL_ULP_FSM_MODE:
+#if SOC_ULP_HAS_ADC || SOC_LP_CORE_SUPPORT_LP_ADC
+            case ADC_HAL_LP_MODE:
                 return ADC_LL_CTRL_ULP;
 #endif
 #if !SOC_ADC_ARBITER_SUPPORTED                  //No ADC2 arbiter on ESP32
@@ -204,7 +203,6 @@ uint32_t adc_hal_self_calibration(adc_unit_t adc_n, adc_atten_t atten, bool inte
 
     adc_ll_calibration_finish(adc_n);
     return ret;
-    return 0;
 }
 #endif  //#if SOC_ADC_SELF_HW_CALI_SUPPORTED
 #endif //SOC_ADC_CALIBRATION_V1_SUPPORTED

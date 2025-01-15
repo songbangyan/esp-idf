@@ -1,14 +1,14 @@
 /*
- * SPDX-FileCopyrightText: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <string.h>
+#include "esp_macros.h"
 #include "esp_system.h"
 #include "esp_private/system_internal.h"
 #include "esp_attr.h"
-#include "esp_efuse.h"
 #include "esp_log.h"
 #include "esp_ipc_isr.h"
 #include "sdkconfig.h"
@@ -22,12 +22,36 @@
 #include "soc/rtc.h"
 #include "esp_private/rtc_clk.h"
 #include "hal/wdt_hal.h"
-#include "freertos/xtensa_api.h"
 #include "soc/soc_memory_layout.h"
 #include "esp_private/cache_err_int.h"
 
 #include "esp32/rom/cache.h"
 #include "esp32/rom/rtc.h"
+
+void IRAM_ATTR esp_system_reset_modules_on_exit(void)
+{
+    // Flush any data left in UART FIFOs before reset the UART peripheral
+    for (int i = 0; i < SOC_UART_HP_NUM; ++i) {
+        if (uart_ll_is_enabled(i)) {
+            esp_rom_output_tx_wait_idle(i);
+        }
+    }
+
+    // Reset wifi/bluetooth/ethernet/sdio (bb/mac)
+    DPORT_SET_PERI_REG_MASK(DPORT_CORE_RST_EN_REG,
+                            DPORT_WIFIBB_RST | DPORT_FE_RST | DPORT_WIFIMAC_RST | DPORT_BTBB_RST |
+                            DPORT_BTMAC_RST  | DPORT_SDIO_RST | DPORT_SDIO_HOST_RST | DPORT_EMAC_RST |
+                            DPORT_MACPWR_RST | DPORT_RW_BTMAC_RST | DPORT_RW_BTLP_RST);
+    DPORT_REG_WRITE(DPORT_CORE_RST_EN_REG, 0);
+
+    // Reset timer, spi, uart, mcpwm
+    DPORT_SET_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG,
+                            //UART TX FIFO cannot be reset correctly on ESP32, so reset the UART memory by DPORT here.
+                            DPORT_TIMERS_RST | DPORT_SPI01_RST | DPORT_SPI2_RST | DPORT_SPI3_RST |
+                            DPORT_SPI_DMA_RST | DPORT_UART_RST | DPORT_UART1_RST | DPORT_UART2_RST |
+                            DPORT_UART_MEM_RST | DPORT_PWM0_RST | DPORT_PWM1_RST);
+    DPORT_REG_WRITE(DPORT_PERIP_RST_EN_REG, 0);
+}
 
 /* "inner" restart function for after RTOS, interrupts & anything else on this
  * core are already stopped. Stalls other core, resets hardware,
@@ -36,7 +60,7 @@
 void IRAM_ATTR esp_restart_noos(void)
 {
     // Disable interrupts
-    xt_ints_off(0xFFFFFFFF);
+    esp_cpu_intr_disable(0xFFFFFFFF);
 
     // Enable RTC watchdog for 1 second
     wdt_hal_context_t rtc_wdt_ctx;
@@ -55,7 +79,7 @@ void IRAM_ATTR esp_restart_noos(void)
     // to the stalled CPU, preventing current CPU from accessing this pool.
     const uint32_t core_id = esp_cpu_get_core_id();
     const uint32_t other_core_id = (core_id == 0) ? 1 : 0;
-    esp_cpu_reset(other_core_id);
+    esp_rom_software_reset_cpu(other_core_id);
     esp_cpu_stall(other_core_id);
 
     // Other core is now stalled, can access DPORT registers directly
@@ -73,14 +97,9 @@ void IRAM_ATTR esp_restart_noos(void)
     wdt_hal_disable(&wdt1_context);
     wdt_hal_write_protect_enable(&wdt1_context);
 
-    // Flush any data left in UART FIFOs
-    esp_rom_uart_tx_wait_idle(0);
-    esp_rom_uart_tx_wait_idle(1);
-    esp_rom_uart_tx_wait_idle(2);
-
-#ifdef CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
+#ifdef CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
     if (esp_ptr_external_ram(esp_cpu_get_sp())) {
-        // If stack_addr is from External Memory (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY is used)
+        // If stack_addr is from External Memory (CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM is used)
         // then need to switch SP to Internal Memory otherwise
         // we will get the "Cache disabled but cached memory region accessed" error after Cache_Read_Disable.
         uint32_t new_sp = SOC_DRAM_LOW + (SOC_DRAM_HIGH - SOC_DRAM_LOW) / 2;
@@ -101,25 +120,8 @@ void IRAM_ATTR esp_restart_noos(void)
     WRITE_PERI_REG(GPIO_FUNC4_IN_SEL_CFG_REG, 0x30);
     WRITE_PERI_REG(GPIO_FUNC5_IN_SEL_CFG_REG, 0x30);
 
-    // Reset wifi/bluetooth/ethernet/sdio (bb/mac)
-    DPORT_SET_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, DPORT_WIFIBB_RST    | \
-                                                   DPORT_FE_RST        | \
-                                                   DPORT_WIFIMAC_RST   | \
-                                                   DPORT_BTBB_RST      | \
-                                                   DPORT_BTMAC_RST     | \
-                                                   DPORT_SDIO_RST      | \
-                                                   DPORT_SDIO_HOST_RST | \
-                                                   DPORT_EMAC_RST      | \
-                                                   DPORT_MACPWR_RST    | \
-                                                   DPORT_RW_BTMAC_RST  | \
-                                                   DPORT_RW_BTLP_RST);
-    DPORT_REG_WRITE(DPORT_CORE_RST_EN_REG, 0);
-
-    // Reset timer/spi/uart
-    DPORT_SET_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG,
-            //UART TX FIFO cannot be reset correctly on ESP32, so reset the UART memory by DPORT here.
-            DPORT_TIMERS_RST | DPORT_SPI01_RST | DPORT_SPI2_RST | DPORT_SPI3_RST | DPORT_SPI_DMA_RST | DPORT_UART_RST | DPORT_UART1_RST | DPORT_UART2_RST | DPORT_UART_MEM_RST);
-    DPORT_REG_WRITE(DPORT_PERIP_RST_EN_REG, 0);
+    // reset necessary peripheral modules
+    esp_system_reset_modules_on_exit();
 
     // Set CPU back to XTAL source, same as hard reset. PLL keeps on to match the behavior with chips.
     rtc_clk_cpu_set_to_default_config();
@@ -130,16 +132,15 @@ void IRAM_ATTR esp_restart_noos(void)
     // Reset CPUs
     if (core_id == 0) {
         // Running on PRO CPU: APP CPU is stalled. Can reset both CPUs.
-        esp_cpu_reset(1);
-        esp_cpu_reset(0);
+        esp_rom_software_reset_cpu(1);
+        esp_rom_software_reset_cpu(0);
     } else {
         // Running on APP CPU: need to reset PRO CPU and unstall it,
         // then reset APP CPU
-        esp_cpu_reset(0);
+        esp_rom_software_reset_cpu(0);
         esp_cpu_unstall(0);
-        esp_cpu_reset(1);
+        esp_rom_software_reset_cpu(1);
     }
-    while(true) {
-        ;
-    }
+
+    ESP_INFINITE_LOOP();
 }

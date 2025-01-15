@@ -1,5 +1,5 @@
-| Supported Targets | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- |
+| Supported Targets | ESP32-P4 | ESP32-S2 | ESP32-S3 |
+| ----------------- | -------- | -------- | -------- |
 
 # USB CDC-ACM Host Driver Example
 
@@ -11,12 +11,11 @@ This example shows how to use the CDC-ACM Host Driver to allow an ESP chip to co
 
 ### Hardware Required
 
-Two ESP boards that have USB-OTG supported. One will act as USB host and the other as USB device.  
-Connect USB_D+, USB_D-, GND and +5V signals of USB host to USB device.
+Two development boards with USB-OTG support. One will act as USB host and the other as USB device.  
 
 #### Pin Assignment
 
-See common pin assignments for USB Device examples from [upper level](../../../README.md#common-pin-assignments).
+Follow instruction in [examples/usb/README.md](../../../README.md) for specific hardware setup.
 
 ### Build and Flash
 
@@ -32,15 +31,6 @@ idf.py -p PORT flash monitor
 (To exit the serial monitor, type ``Ctrl-]``.)
 
 See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
-
-### Running with dual USB CDC device
-USB CDC device example [tusb_serial_device example](../../../device/tusb_serial_device)
-can be configured to act as dual CDC device.
-
-In the device example project, enter command `idf.py menuconfig` and set Component config->TinyUSB Stack->Communication Device Class (CDC)->CDC channel Count to `2`.
-
-This settings also changes device's PID, so `EXAMPLE_USB_DEVICE_PID` in [usb-cdc.c](./main/usb-cdc.c) must be changed to `0x4002`.
-
 
 ## Example Output
 

@@ -1,6 +1,6 @@
 # Multi Adv Example Walkthrough
 
-## introduction 
+## introduction
 
 In this document, we review the Multi Adv example code which implements a Bluetooth Low Energy (BLE5.0) Multi adv profile on the ESP32C3. This example is designed around two Application Profiles and a series of events that are handled in order to execute a sequence of configuration steps, such as defining extended advertising parameters with all phy 1M,2M and coded and Ext adv data.
 
@@ -24,10 +24,10 @@ First, let’s take a look at the include
 #include "esp_bt_defs.h"
 #include "esp_bt_main.h"
 #include "esp_gatt_common_api.h"
-#include "sdkconfig.h" 
+#include "sdkconfig.h"
 ```
 
-These includes are required for the FreeRTOS and underlaying system components to run, including the logging functionality and a library to store data in non-volatile flash memory. We are interested in `"esp_bt.h"`, `"esp_bt_main.h"`, `"esp_gap_ble_api.h"` and `"esp_gatts_api.h"`, which expose the BLE APIs required to implement this example.
+These includes are required for the FreeRTOS and underlying system components to run, including the logging functionality and a library to store data in non-volatile flash memory. We are interested in `"esp_bt.h"`, `"esp_bt_main.h"`, `"esp_gap_ble_api.h"` and `"esp_gatts_api.h"`, which expose the BLE APIs required to implement this example.
 
  * `esp_bt.h`: implements BT controller and VHCI configuration procedures from the host side.
  * `esp_bt_main.h`: implements initialization and enabling of the Bluedroid stack.
@@ -35,9 +35,9 @@ These includes are required for the FreeRTOS and underlaying system components t
  * `esp_gatts_api.h`: implements GATT configuration, such as creating services and characteristics.
 
 ## Main Entry Point
- 
+
 The entry point to this example is the app_main() function:
- 
+
 ```c
 void app_main(void)
 {
@@ -56,30 +56,31 @@ void app_main(void)
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
-        ESP_LOGE(LOG_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+        ESP_LOGE(LOG_TAG, "%s initialize controller failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
     if (ret) {
-        ESP_LOGE(LOG_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+        ESP_LOGE(LOG_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
+
     ret = esp_bluedroid_init();
     if (ret) {
-        ESP_LOGE(LOG_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+        ESP_LOGE(LOG_TAG, "%s init bluetooth failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
     ret = esp_bluedroid_enable();
     if (ret) {
-        ESP_LOGE(LOG_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+        ESP_LOGE(LOG_TAG, "%s enable bluetooth failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
     ret = esp_ble_gap_register_callback(gap_event_handler);
     if (ret){
         ESP_LOGE(LOG_TAG, "gap register error, error code = %x", ret);
         return;
-                                                                                                       
+
    }
 
    vTaskDelay(200 / portTICK_PERIOD_MS);
@@ -111,7 +112,7 @@ void app_main(void)
 
    return;
 
-}                                                                                                                                                    
+}
 ```
 The main function starts by initializing the non-volatile storage library. This library allows tosave key-value pairs in flash memory and is used by some components such as the Wi-Fi library to save the SSID and password:
 
@@ -158,7 +159,7 @@ The functions  `gap_event_handler()` handle all the events that are pu
 shed to the application from the BLE stack.
 
 ## Setting GAP Parameters
- 
+
 The register application event is the first one that is triggered during the lifetime of the program, this example uses the Profile A GATT event handle to configure the advertising parameters upon registration. This example has the option to use both standard Bluetooth Core Specification advertising parameters or a customized raw buffer. The option can be selected with the `CONFIG_SET_RAW_ADV_DATA` define. The raw advertising data can be used to implement iBeacons, Eddystone or other proprietary, and custom frame types such as the ones used for Indoor Location Services that are different from the standard specifications.
 
 The function is used to configure different types of extended advertisement types and legacy adv with 1M,2M and coded phy in esp_ble_gap_ext_adv_set_params , esp_ble_gap_ext_adv_set_rand_addr and esp_ble_gap_config_ext_adv_data_raw. Respective structure of each one of them mentioned below with one example:
@@ -172,7 +173,7 @@ typedef struct {
     uint32_t interval_min;              /*!< ext adv minimum interval */
     uint32_t interval_max;              /*!< ext adv maximum interval */
     esp_ble_adv_channel_t channel_map;  /*!< ext adv channel map */
-    esp_ble_addr_type_t own_addr_type;  /*!< ext adv own addresss type */
+    esp_ble_addr_type_t own_addr_type;  /*!< ext adv own address type */
     esp_ble_addr_type_t peer_addr_type; /*!< ext adv peer address type */
     esp_bd_addr_t peer_addr;            /*!< ext adv peer address */
     esp_ble_adv_filter_t filter_policy; /*!< ext adv filter policy */
@@ -229,7 +230,7 @@ Once the Extended advertising data have been set, the GAP event `ESP_GAP_BLE_EXT
 
 ```c
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{   
+{
     switch (event) {
     case ESP_GAP_BLE_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT:
         xSemaphoreGive(test_sem);
@@ -269,7 +270,7 @@ rt.status);
 ```
 ## Default config
 
-This example by default  configured with 
+This example by default  configured with
 1M phy extend adv, Connectable advertising
 2M phy extend adv, Scannable advertising
 1M phy legacy adv, ADV_IND

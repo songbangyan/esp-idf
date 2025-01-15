@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,7 +19,7 @@ extern "C" {
         return ESP_ERR_INVALID_STATE;                \
     }
 
-#define ESP_BT_STATUS_BASE_FOR_HCI_ERR  0X0100  /* base for coverting HCI error code to ESP status */
+#define ESP_BT_STATUS_BASE_FOR_HCI_ERR  0X0100  /* base for converting HCI error code to ESP status */
 
 /* relate to BT_STATUS_xxx in bt_def.h */
 /// Status Return Value
@@ -47,7 +47,6 @@ typedef enum {
     ESP_BT_STATUS_MEMORY_FULL   = 20,           /* relate to BT_STATUS_MEMORY_FULL in bt_def.h */
     ESP_BT_STATUS_EIR_TOO_LARGE,                /* relate to BT_STATUS_EIR_TOO_LARGE in bt_def.h */
     ESP_BT_STATUS_HCI_SUCCESS   = ESP_BT_STATUS_BASE_FOR_HCI_ERR,
-    ESP_BT_STATUS_HCI_PENDING,
     ESP_BT_STATUS_HCI_ILLEGAL_COMMAND,
     ESP_BT_STATUS_HCI_NO_CONNECTION,
     ESP_BT_STATUS_HCI_HW_FAILURE,
@@ -111,6 +110,14 @@ typedef enum {
     ESP_BT_STATUS_HCI_CONN_TOUT_DUE_TO_MIC_FAILURE,
     ESP_BT_STATUS_HCI_CONN_FAILED_ESTABLISHMENT,
     ESP_BT_STATUS_HCI_MAC_CONNECTION_FAILED,
+    ESP_BT_STATUS_HCI_CCA_REJECTED,
+    ESP_BT_STATUS_HCI_TYPE0_SUBMAP_NOT_DEFINED,
+    ESP_BT_STATUS_HCI_UNKNOWN_ADV_ID,
+    ESP_BT_STATUS_HCI_LIMIT_REACHED,
+    ESP_BT_STATUS_HCI_OPT_CANCEL_BY_HOST,
+    ESP_BT_STATUS_HCI_PKT_TOO_LONG,
+    ESP_BT_STATUS_HCI_TOO_LATE,
+    ESP_BT_STATUS_HCI_TOO_EARLY,
 } esp_bt_status_t;
 
 
@@ -126,18 +133,39 @@ typedef uint8_t esp_link_key[ESP_BT_OCTET16_LEN];      /* Link Key */
 /// Default GATT interface id
 #define ESP_DEFAULT_GATT_IF             0xff
 
+#if BLE_HIGH_DUTY_ADV_INTERVAL
+#define ESP_BLE_PRIM_ADV_INT_MIN            0x000008     /*!< Minimum advertising interval for undirected and low duty cycle directed advertising */
+#else
 #define ESP_BLE_PRIM_ADV_INT_MIN            0x000020     /*!< Minimum advertising interval for undirected and low duty cycle directed advertising */
+#endif
 #define ESP_BLE_PRIM_ADV_INT_MAX            0xFFFFFF     /*!< Maximum advertising interval for undirected and low duty cycle directed advertising */
 #define ESP_BLE_CONN_INT_MIN                0x0006       /*!< relate to BTM_BLE_CONN_INT_MIN in stack/btm_ble_api.h */
 #define ESP_BLE_CONN_INT_MAX                0x0C80       /*!< relate to BTM_BLE_CONN_INT_MAX in stack/btm_ble_api.h */
 #define ESP_BLE_CONN_LATENCY_MAX            499          /*!< relate to ESP_BLE_CONN_LATENCY_MAX in stack/btm_ble_api.h */
 #define ESP_BLE_CONN_SUP_TOUT_MIN           0x000A       /*!< relate to BTM_BLE_CONN_SUP_TOUT_MIN in stack/btm_ble_api.h */
 #define ESP_BLE_CONN_SUP_TOUT_MAX           0x0C80       /*!< relate to ESP_BLE_CONN_SUP_TOUT_MAX in stack/btm_ble_api.h */
-#define ESP_BLE_CONN_PARAM_UNDEF            0xffff       /* use this value when a specific value not to be overwritten */ /* relate to ESP_BLE_CONN_PARAM_UNDEF in stack/btm_ble_api.h */
-#define ESP_BLE_SCAN_PARAM_UNDEF            0xffffffff   /* relate to ESP_BLE_SCAN_PARAM_UNDEF in stack/btm_ble_api.h */
+
+#define ESP_BLE_PHY_1M_PREF_MASK       (1 << 0) /*!< The Host prefers use the LE1M transmitter or receiver PHY */
+#define ESP_BLE_PHY_2M_PREF_MASK       (1 << 1) /*!< The Host prefers use the LE2M transmitter or receiver PHY */
+#define ESP_BLE_PHY_CODED_PREF_MASK    (1 << 2) /*!< The Host prefers use the LE CODED transmitter or receiver PHY */
+typedef uint8_t esp_ble_phy_mask_t;
+
+/**
+* @brief create connection parameters
+*/
+typedef struct {
+    uint16_t scan_interval;       /*!< Initial scan interval, in units of 0.625ms, the range is 0x0004(2.5ms) to 0xFFFF(10.24s). */
+    uint16_t scan_window;         /*!< Initial scan window, in units of 0.625ms, the range is 0x0004(2.5ms) to 0xFFFF(10.24s). */
+    uint16_t interval_min;        /*!< Minimum connection interval, in units of 1.25ms, the range is 0x0006(7.5ms) to 0x0C80(4s). */
+    uint16_t interval_max;        /*!< Maximum connection interval, in units of 1.25ms, the range is 0x0006(7.5ms) to 0x0C80(4s). */
+    uint16_t latency;             /*!< Connection latency, the range is 0x0000(0) to 0x01F3(499). */
+    uint16_t supervision_timeout; /*!< Connection supervision timeout, in units of 10ms, the range is from 0x000A(100ms) to 0x0C80(32s). */
+    uint16_t min_ce_len;          /*!< Minimum connection event length, in units of 0.625ms, setting to 0 for no preferred parameters. */
+    uint16_t max_ce_len;          /*!< Maximum connection event length, in units of 0.625ms, setting to 0 for no preferred parameters. */
+} esp_ble_conn_params_t;
 
 /// Check the param is valid or not
-#define ESP_BLE_IS_VALID_PARAM(x, min, max)  (((x) >= (min) && (x) <= (max)) || ((x) == ESP_BLE_CONN_PARAM_UNDEF))
+#define ESP_BLE_IS_VALID_PARAM(x, min, max)  (((x) >= (min) && (x) <= (max)) )
 
 /// UUID type
 typedef struct {
@@ -162,15 +190,18 @@ typedef enum {
 /// Bluetooth address length
 #define ESP_BD_ADDR_LEN     6
 
+/// Bluetooth peer irk
+#define ESP_PEER_IRK_LEN    16
+
 /// Bluetooth device address
 typedef uint8_t esp_bd_addr_t[ESP_BD_ADDR_LEN];
 
 /// BLE device address type
 typedef enum {
-    BLE_ADDR_TYPE_PUBLIC        = 0x00,
-    BLE_ADDR_TYPE_RANDOM        = 0x01,
-    BLE_ADDR_TYPE_RPA_PUBLIC    = 0x02,
-    BLE_ADDR_TYPE_RPA_RANDOM    = 0x03,
+    BLE_ADDR_TYPE_PUBLIC        = 0x00,     /*!< Public Device Address */
+    BLE_ADDR_TYPE_RANDOM        = 0x01,     /*!< Random Device Address. To set this address, use the function esp_ble_gap_set_rand_addr(esp_bd_addr_t rand_addr) */
+    BLE_ADDR_TYPE_RPA_PUBLIC    = 0x02,     /*!< Resolvable Private Address (RPA) with public identity address */
+    BLE_ADDR_TYPE_RPA_RANDOM    = 0x03,     /*!< Resolvable Private Address (RPA) with random identity address. To set this address, use the function esp_ble_gap_set_rand_addr(esp_bd_addr_t rand_addr) */
 } esp_ble_addr_type_t;
 
 /// white list address type
@@ -196,6 +227,8 @@ typedef uint8_t esp_ble_key_mask_t;            /* the key mask type */
 
 #define ESP_BD_ADDR_STR         "%02x:%02x:%02x:%02x:%02x:%02x"
 #define ESP_BD_ADDR_HEX(addr)   addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
+
+#define ESP_BLE_ADV_NAME_LEN_MAX 29
 
 #ifdef __cplusplus
 }

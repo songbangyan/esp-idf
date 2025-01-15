@@ -1,23 +1,16 @@
 GAP API
 =======
 
-Application Example
--------------------
+:link_to_translation:`zh_CN:[中文]`
 
-Check :example:`bluetooth/bluedroid/ble` folder in ESP-IDF examples, which contains the following demos and their tutorials:
+Application Examples
+--------------------
 
-* This is a SMP security client demo and its tutorial. This demo initiates its security parameters and acts as a GATT client, which can send a security request to the peer device and then complete the encryption procedure.
+- :example:`bluetooth/bluedroid/ble/gatt_security_client` demonstrates how to use ESP BLE security APIs on {IDF_TARGET_NAME} to establish a secure connection and encrypt communication with peer devices while acting as a GATT client.
 
-    - :example:`bluetooth/bluedroid/ble/gatt_security_client`
-    - :example_file:`GATT Security Client Example Walkthrough <bluetooth/bluedroid/ble/gatt_security_client/tutorial/Gatt_Security_Client_Example_Walkthrough.md>`
-
-* This is a SMP security server demo and its tutorial. This demo initiates its security parameters and acts as a GATT server, which can send a pair request to the peer device and then complete the encryption procedure.
-
-    - :example:`bluetooth/bluedroid/ble/gatt_security_server`
-    - :example_file:`GATT Security Server Example Walkthrough <bluetooth/bluedroid/ble/gatt_security_server/tutorial/Gatt_Security_Server_Example_Walkthrough.md>`
+- :example:`bluetooth/bluedroid/ble/gatt_security_server` demonstrates how to use ESP BLE security APIs on {IDF_TARGET_NAME} to establish a secure connection and encrypt communication with peer devices while acting as a GATT server.
 
 API Reference
 -------------
 
 .. include-build-file:: inc/esp_gap_ble_api.inc
-

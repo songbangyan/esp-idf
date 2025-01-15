@@ -1,10 +1,7 @@
 Tips and Quirks
 ---------------
-:link_to_translation:`zh_CN:[中文]`
 
-.. See SOC_CPU_BREAKPOINTS_NUM, SOC_CPU_WATCHPOINTS_NUM in soc_caps.h
-{IDF_TARGET_CPU_BREAKPOINT_NUM:default="Not updated", esp32="2", esp32s2="2", esp32s3="2", esp32c3="8", esp32c2="2", "esp32c6"="4", "esp32h2"="8"}
-{IDF_TARGET_CPU_WATCHPOINT_NUM:default="Not updated", esp32="2", esp32s2="2", esp32s3="2", esp32c3="8", esp32c2="2", "esp32c6"="4", "esp32h2"="8"}
+:link_to_translation:`zh_CN:[中文]`
 
 This section provides collection of all tips and quirks referred to from various parts of this guide.
 
@@ -13,7 +10,7 @@ This section provides collection of all tips and quirks referred to from various
 Breakpoints and Watchpoints Available
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-{IDF_TARGET_NAME} debugger supports {IDF_TARGET_CPU_BREAKPOINT_NUM} hardware implemented breakpoints and 64 software ones. Hardware breakpoints are implemented by {IDF_TARGET_NAME} chip's logic and can be set anywhere in the code: either in flash or IRAM program's regions. Additionally there are 2 types of software breakpoints implemented by OpenOCD: flash (up to 32) and IRAM (up to 32) breakpoints. Currently GDB can not set software breakpoints in flash. So until this limitation is removed those breakpoints have to be emulated by OpenOCD as hardware ones (see :ref:`below <jtag-debugging-tip-where-breakpoints>` for details). {IDF_TARGET_NAME} also supports {IDF_TARGET_CPU_WATCHPOINT_NUM} watchpoints, so {IDF_TARGET_CPU_WATCHPOINT_NUM} variables can be watched for change or read by the GDB command ``watch myVariable``. Note that menuconfig option :ref:`CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK` uses the last watchpoint and will not provide expected results, if you also try to use it within OpenOCD/GDB. See menuconfig's help for detailed description.
+{IDF_TARGET_NAME} debugger supports {IDF_TARGET_SOC_CPU_BREAKPOINTS_NUM} hardware implemented breakpoints and 64 software ones. Hardware breakpoints are implemented by {IDF_TARGET_NAME} chip's logic and can be set anywhere in the code: either in flash or IRAM program's regions. Additionally there are 2 types of software breakpoints implemented by OpenOCD: flash (up to 32) and IRAM (up to 32) breakpoints. Currently GDB can not set software breakpoints in flash. So until this limitation is removed those breakpoints have to be emulated by OpenOCD as hardware ones (see :ref:`below <jtag-debugging-tip-where-breakpoints>` for details). {IDF_TARGET_NAME} also supports {IDF_TARGET_SOC_CPU_WATCHPOINTS_NUM} watchpoints, so {IDF_TARGET_SOC_CPU_WATCHPOINTS_NUM} variables can be watched for change or read by the GDB command ``watch myVariable``. Note that menuconfig option :ref:`CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK` uses the last watchpoint and will not provide expected results, if you also try to use it within OpenOCD/GDB. See menuconfig's help for detailed description.
 
 
 .. _jtag-debugging-tip-where-breakpoints:
@@ -21,7 +18,7 @@ Breakpoints and Watchpoints Available
 What Else Should I Know About Breakpoints?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Emulating part of hardware breakpoints using software flash ones means that the GDB command ``hb myFunction`` which is invoked for function in flash will use pure hardware breakpoint if it is avalable otherwise one of the 32 software flash breakpoints is used. The same rule applies to ``b myFunction``-like commands. In this case GDB will decide what type of breakpoint to set itself. If ``myFunction`` is resided in writable region (IRAM) software IRAM breakpoint will be used otherwise hardware or software flash breakpoint is used as it is done for ``hb`` command.
+Emulating part of hardware breakpoints using software flash ones means that the GDB command ``hb myFunction`` which is invoked for function in flash will use pure hardware breakpoint if it is available otherwise one of the 32 software flash breakpoints is used. The same rule applies to ``b myFunction``-like commands. In this case GDB will decide what type of breakpoint to set itself. If ``myFunction`` is resided in writable region (IRAM) software IRAM breakpoint will be used otherwise hardware or software flash breakpoint is used as it is done for ``hb`` command.
 
 
 .. _jtag-debugging-tip-flash-mappings:
@@ -29,7 +26,7 @@ Emulating part of hardware breakpoints using software flash ones means that the 
 Flash Mappings vs SW Flash Breakpoints
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In order to set/clear software breakpoints in flash, OpenOCD needs to know their flash addresses. To accomplish conversion from the {IDF_TARGET_NAME} address space to the flash one, OpenOCD uses mappings of program's code regions resided in flash. Those mappings are kept in the image header which is prepended to program binary data (code and data segments) and is specific to every application image written to the flash. So to support software flash breakpoints OpenOCD should know where application image under debugging is resided in the flash. By default OpenOCD reads partition table at 0x8000 and uses mappings from the first found application image, but there can be the cases when it will not work, e.g. partition table is not at standard flash location or even there can be multiple images: one factory and two OTA and you may want to debbug any of them. To cover all possible debugging scenarios OpenOCD supports special command which can be used to set arbitrary location of application image to debug. The command has the following format:
+In order to set/clear software breakpoints in flash, OpenOCD needs to know their flash addresses. To accomplish conversion from the {IDF_TARGET_NAME} address space to the flash one, OpenOCD uses mappings of program's code regions resided in flash. Those mappings are kept in the image header which is prepended to program binary data (code and data segments) and is specific to every application image written to the flash. So to support software flash breakpoints OpenOCD should know where application image under debugging is resided in the flash. By default OpenOCD reads partition table at 0x8000 and uses mappings from the first found application image, but there can be the cases when it will not work, e.g., partition table is not at standard flash location or even there can be multiple images: one factory and two OTA and you may want to debug any of them. To cover all possible debugging scenarios OpenOCD supports special command which can be used to set arbitrary location of application image to debug. The command has the following format:
 
 ``esp appimage_offset <offset>``
 
@@ -52,7 +49,7 @@ Offset should be in hex format. To reset to the default behaviour you can specif
 Why Stepping with "next" Does Not Bypass Subroutine Calls?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-When stepping through the code with ``next`` command, GDB is internally setting a breakpoint (one out of two available) ahead in the code to bypass the subroutine calls. This functionality will not work, if the two available breakpoints are already set elsewhere in the code. If this is the case, delete breakpoints to have one "spare". With both breakpoints already used, stepping through the code with ``next`` command will work as like with ``step`` command and debugger will step inside subroutine calls.
+When stepping through the code with ``next`` command, GDB is internally setting a breakpoint ahead in the code to bypass the subroutine calls. If all {IDF_TARGET_SOC_CPU_BREAKPOINTS_NUM} breakpoints are already set, this functionality will not work. If this is the case, delete breakpoints to have one "spare". With all breakpoints already used, stepping through the code with ``next`` command will work as like with ``step`` command and debugger will step inside subroutine calls.
 
 
 .. _jtag-debugging-tip-code-options:
@@ -86,7 +83,7 @@ GDB has a Python extension for FreeRTOS support. ESP-IDF automatically loads thi
 
     The MTDI pin of ESP32, being among four pins used for JTAG communication, is also one of ESP32's bootstrapping pins. On power up ESP32 is sampling binary level on MTDI to set it's internal voltage regulator used to supply power to external SPI flash chip. If binary level on MDTI pin on power up is low, the voltage regulator is set to deliver 3.3 V, if it is high, then the voltage is set to 1.8 V. The MTDI pin should have a pull-up or may rely on internal weak pull down resistor (see `ESP32 Series Datasheet <https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf>`_ for details), depending on the type of SPI chip used. Once JTAG is connected, it overrides the pull-up or pull-down resistor that is supposed to do the bootstrapping.
 
-    To handle this issue OpenOCD's board configuration file (e.g. ``board\esp32-wrover-kit-3.3v.cfg`` for ESP-WROVER-KIT board) provides ``ESP32_FLASH_VOLTAGE`` parameter to set the idle state of the ``TDO`` line to a specified binary level, therefore reducing the chance of a bad bootup of application due to incorrect flash voltage.
+    To handle this issue OpenOCD's board configuration file (e.g. ``board\esp32-wrover-kit-3.3v.cfg`` for ESP-WROVER-KIT board) provides ``ESP32_FLASH_VOLTAGE`` parameter to set the idle state of the ``TDO`` line to a specified binary level, therefore reducing the chance of a bad boot-up of application due to incorrect flash voltage.
 
     Check specification of ESP32 module connected to JTAG, what is the power supply voltage of SPI flash chip. Then set ``ESP32_FLASH_VOLTAGE`` accordingly. Most WROOM modules use 3.3 V flash. WROVER earlier than ESP32-WROVER-B use 1.8 V flash, while ESP32-WROVER-B and -E modules use 3.3 V flash.
 
@@ -106,17 +103,29 @@ In order to achieve higher data rates and minimize number of dropped packets it 
 3.  In particular reduce frequency, if you get DSR/DIR errors (and they do not relate to OpenOCD trying to read from a memory range without physical memory being present there).
 4.  ESP-WROVER-KIT operates stable at 20 MHz or 26 MHz.
 
+.. only:: SOC_DEBUG_HAVE_OCD_STUB_BINS
 
-.. _jtag-debugging-tip-debugger-startup-commands:
+    .. _jtag-debugging-tip-improve-debugging-speed:
 
-What is the Meaning of Debugger's Startup Commands?
+    Improve Debugging Speed
+    ^^^^^^^^^^^^^^^^^^^^^^^
+
+    Enabling :ref:`CONFIG_ESP_DEBUG_INCLUDE_OCD_STUB_BINS` allocates 8 KB of RAM and embeds pre-built stub binaries into RAM. This improves the overall debugging speed by eliminating the need to load the stub binaries at runtime. It is particularly beneficial when using flash breakpoints, as it reduces the latency of add/remove breakpoints. However, keep in mind that the increased RAM usage may reduce memory availability for other tasks.
+
+    .. _jtag-debugging-tip-debugger-startup-commands:
+
+.. only:: not SOC_DEBUG_HAVE_OCD_STUB_BINS
+
+    .. _jtag-debugging-tip-debugger-startup-commands:
+
+What Is the Meaning of Debugger's Startup Commands?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 On startup, debugger is issuing sequence of commands to reset the chip and halt it at specific line of code. This sequence (shown below) is user defined to pick up at most convenient/appropriate line and start debugging.
 
-* ``set remote hardware-watchpoint-limit 2`` — Restrict GDB to using two hardware watchpoints supported by the chip, 2 for {IDF_TARGET_NAME}. For more information see https://sourceware.org/gdb/onlinedocs/gdb/Remote-Configuration.html.
+* ``set remote hardware-watchpoint-limit {IDF_TARGET_SOC_CPU_WATCHPOINTS_NUM}`` — Restrict GDB to using available hardware watchpoints supported by the chip, {IDF_TARGET_SOC_CPU_WATCHPOINTS_NUM} for {IDF_TARGET_NAME}. For more information see https://sourceware.org/gdb/onlinedocs/gdb/Remote-Configuration.html.
 * ``mon reset halt`` — reset the chip and keep the CPUs halted
-* ``flushregs`` — monitor (``mon``) command can not inform GDB that the target state has changed. GDB will assume that whatever stack the target had before ``mon reset halt`` will still be valid. In fact, after reset the target state will change, and executing ``flushregs`` is a way to force GDB to get new state from the target.
+* ``maintenance flush register-cache`` — monitor (``mon``) command can not inform GDB that the target state has changed. GDB will assume that whatever stack the target had before ``mon reset halt`` will still be valid. In fact, after reset the target state will change, and executing ``maintenance flush register-cache`` is a way to force GDB to get new state from the target.
 * ``thb app_main`` — insert a temporary hardware breakpoint at ``app_main``, put here another function name if required
 * ``c`` — resume the program. It will then stop at breakpoint inserted at ``app_main``.
 
@@ -181,6 +190,8 @@ It is important to set the variable before including the ESP-specific configurat
       - Set to ``0`` to disable Flash breakpoints support.
     * - ``ESP_SEMIHOST_BASEDIR``
       - Set to the path (on the host) which will be the default directory for semihosting functions.
+    * - ``ESP_ONLYCPU``
+      - For multi-core targets, can be set to ``1`` to only enable single core debugging.
 
 .. include:: {IDF_TARGET_PATH_NAME}.inc
     :start-after: openocd-target-specific-config-vars
@@ -196,7 +207,7 @@ The board can be reset by entering ``mon reset`` or ``mon reset halt`` into GDB.
 
 .. _jtag-debugging-tip-jtag-pins-reconfigured:
 
-Can JTAG Pins be Used for Other Purposes?
+Can JTAG Pins Be Used for Other Purposes?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. only:: SOC_USB_SERIAL_JTAG_SUPPORTED
@@ -234,6 +245,10 @@ JTAG with Flash Encryption or Secure Boot
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 By default, enabling Flash Encryption and/or Secure Boot will disable JTAG debugging. On first boot, the bootloader will burn an eFuse bit to permanently disable JTAG at the same time it enables the other features.
+
+.. only:: SOC_HMAC_SUPPORTED
+
+    Please note that once JTAG is permanently disabled, it cannot be re-enabled for JTAG access. However, we do have the option of disabling JTAG softly. For more details on soft disabling and re-enabling soft-disabled JTAG, please refer to the :ref:`hmac_for_enabling_jtag`.
 
 The project configuration option :ref:`CONFIG_SECURE_BOOT_ALLOW_JTAG` will keep JTAG enabled at this time, removing all physical security but allowing debugging. (Although the name suggests Secure Boot, this option can be applied even when only Flash Encryption is enabled).
 

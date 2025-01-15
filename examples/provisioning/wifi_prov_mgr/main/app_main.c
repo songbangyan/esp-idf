@@ -111,9 +111,6 @@ static EventGroupHandle_t wifi_event_group;
 static void event_handler(void* arg, esp_event_base_t event_base,
                           int32_t event_id, void* event_data)
 {
-#ifdef CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE
-    static int retries;
-#endif
     if (event_base == WIFI_PROV_EVENT) {
         switch (event_id) {
             case WIFI_PROV_START:
@@ -134,20 +131,19 @@ static void event_handler(void* arg, esp_event_base_t event_base,
                          (*reason == WIFI_PROV_STA_AUTH_ERROR) ?
                          "Wi-Fi station authentication failed" : "Wi-Fi access-point not found");
 #ifdef CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE
-                retries++;
-                if (retries >= CONFIG_EXAMPLE_PROV_MGR_MAX_RETRY_CNT) {
-                    ESP_LOGI(TAG, "Failed to connect with provisioned AP, reseting provisioned credentials");
-                    wifi_prov_mgr_reset_sm_state_on_failure();
-                    retries = 0;
-                }
+                /* Reset the state machine on provisioning failure.
+                 * This is enabled by the CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE configuration.
+                 * It allows the provisioning manager to retry the provisioning process
+                 * based on the number of attempts specified in wifi_conn_attempts. After attempting
+                 * the maximum number of retries, the provisioning manager will reset the state machine
+                 * and the provisioning process will be terminated.
+                 */
+                wifi_prov_mgr_reset_sm_state_on_failure();
 #endif
                 break;
             }
             case WIFI_PROV_CRED_SUCCESS:
                 ESP_LOGI(TAG, "Provisioning successful");
-#ifdef CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE
-                retries = 0;
-#endif
                 break;
             case WIFI_PROV_END:
                 /* De-initialize manager once provisioning is finished */
@@ -194,6 +190,20 @@ static void event_handler(void* arg, esp_event_base_t event_base,
                 break;
         }
 #endif
+    } else if (event_base == PROTOCOMM_SECURITY_SESSION_EVENT) {
+        switch (event_id) {
+            case PROTOCOMM_SECURITY_SESSION_SETUP_OK:
+                ESP_LOGI(TAG, "Secured session established!");
+                break;
+            case PROTOCOMM_SECURITY_SESSION_INVALID_SECURITY_PARAMS:
+                ESP_LOGE(TAG, "Received invalid security parameters for establishing secure session!");
+                break;
+            case PROTOCOMM_SECURITY_SESSION_CREDENTIALS_MISMATCH:
+                ESP_LOGE(TAG, "Received incorrect username and/or PoP for establishing secure session!");
+                break;
+            default:
+                break;
+        }
     }
 }
 
@@ -216,6 +226,8 @@ static void get_device_service_name(char *service_name, size_t max)
 /* Handler for the optional provisioning endpoint registered by the application.
  * The data format can be chosen by applications. Here, we are using plain ascii text.
  * Applications can choose to use other formats like protobuf, JSON, XML, etc.
+ * Note that memory for the response buffer must be allocated using heap as this buffer
+ * gets freed by the protocomm layer once it has been sent by the transport layer.
  */
 esp_err_t custom_prov_data_handler(uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
                                           uint8_t **outbuf, ssize_t *outlen, void *priv_data)
@@ -264,6 +276,34 @@ static void wifi_prov_print_qr(const char *name, const char *username, const cha
     ESP_LOGI(TAG, "If QR code is not visible, copy paste the below URL in a browser.\n%s?data=%s", QRCODE_BASE_URL, payload);
 }
 
+#ifdef CONFIG_EXAMPLE_PROV_ENABLE_APP_CALLBACK
+void wifi_prov_app_callback(void *user_data, wifi_prov_cb_event_t event, void *event_data)
+{
+    /**
+     * This is blocking callback, any configurations that needs to be set when a particular
+     * provisioning event is triggered can be set here.
+    */
+    switch (event) {
+        case WIFI_PROV_SET_STA_CONFIG: {
+            /**
+             * Wi-Fi configurations can be set here before the Wi-Fi is enabled in
+             * STA mode.
+            */
+            wifi_config_t *wifi_config = (wifi_config_t*)event_data;
+            (void) wifi_config;
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+const wifi_prov_event_handler_t wifi_prov_event_handler = {
+    .event_cb = wifi_prov_app_callback,
+    .user_data = NULL,
+};
+#endif /* EXAMPLE_PROV_ENABLE_APP_CALLBACK */
+
 void app_main(void)
 {
     /* Initialize NVS partition */
@@ -289,7 +329,7 @@ void app_main(void)
 #ifdef CONFIG_EXAMPLE_PROV_TRANSPORT_BLE
     ESP_ERROR_CHECK(esp_event_handler_register(PROTOCOMM_TRANSPORT_BLE_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
 #endif
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(PROTOCOMM_SECURITY_SESSION_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
 
     /* Initialize Wi-Fi including netif with default config */
@@ -302,6 +342,11 @@ void app_main(void)
 
     /* Configuration for the provisioning manager */
     wifi_prov_mgr_config_t config = {
+#ifdef CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE
+        .wifi_prov_conn_cfg = {
+           .wifi_conn_attempts =  CONFIG_EXAMPLE_PROV_MGR_CONNECTION_CNT,
+        },
+#endif
         /* What is the Provisioning Scheme that we want ?
          * wifi_prov_scheme_softap or wifi_prov_scheme_ble */
 #ifdef CONFIG_EXAMPLE_PROV_TRANSPORT_BLE
@@ -310,6 +355,9 @@ void app_main(void)
 #ifdef CONFIG_EXAMPLE_PROV_TRANSPORT_SOFTAP
         .scheme = wifi_prov_scheme_softap,
 #endif /* CONFIG_EXAMPLE_PROV_TRANSPORT_SOFTAP */
+#ifdef CONFIG_EXAMPLE_PROV_ENABLE_APP_CALLBACK
+        .app_event_handler = wifi_prov_event_handler,
+#endif /* EXAMPLE_PROV_ENABLE_APP_CALLBACK */
 
         /* Any default scheme specific event handler that you would
          * like to choose. Since our example application requires
@@ -474,6 +522,7 @@ void app_main(void)
          * so let's release it's resources */
         wifi_prov_mgr_deinit();
 
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
         /* Start Wi-Fi station */
         wifi_init_sta();
     }

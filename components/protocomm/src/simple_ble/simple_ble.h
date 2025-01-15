@@ -51,8 +51,23 @@ typedef struct {
     unsigned ble_bonding:1;
     /** BLE Secure Connection flag */
     unsigned ble_sm_sc:1;
+    /** BLE Address */
+    uint8_t *ble_addr;
+    /**  Flag to keep BLE on */
+    unsigned keep_ble_on:1;
+
 } simple_ble_cfg_t;
 
+
+/**
+ * @brief   Get the current BLE keep-on status
+ *
+ * This function returns the current value of the `keep_ble_on` flag
+ * from the global BLE configuration structure.
+ *
+ * @return uint8_t  Current status of the `keep_ble_on` flag
+ */
+uint8_t get_keep_ble_on(void);
 
 /** Initialize a simple ble connection
  *
@@ -104,7 +119,6 @@ esp_err_t simple_ble_stop(void);
  */
 const uint8_t *simple_ble_get_uuid128(uint16_t handle);
 
-#ifdef CONFIG_WIFI_PROV_DISCONNECT_AFTER_PROV
 /** Terminates connection
  *
  * This API is called to initiate disconnection
@@ -112,5 +126,4 @@ const uint8_t *simple_ble_get_uuid128(uint16_t handle);
  * @return ESP_OK on success, and appropriate error code for failure
  */
 esp_err_t simple_ble_disconnect(void);
-#endif
 #endif /* _SIMPLE_BLE_ */

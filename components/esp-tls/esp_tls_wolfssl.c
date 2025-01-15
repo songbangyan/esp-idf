@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -44,9 +44,7 @@ static uint8_t psk_key_array[PSK_MAX_KEY_LEN];
 static uint8_t psk_key_max_len = 0;
 #endif /* CONFIG_ESP_TLS_PSK_VERIFICATION */
 
-#ifdef CONFIG_ESP_TLS_SERVER
 static esp_err_t set_server_config(esp_tls_cfg_server_t *cfg, esp_tls_t *tls);
-#endif /* CONFIG_ESP_TLS_SERVER */
 
 
 /* This function shall return the error message when appropriate log level has been set otherwise this function shall do nothing */
@@ -99,7 +97,7 @@ static esp_err_t esp_load_wolfssl_verify_buffer(esp_tls_t *tls, const unsigned c
             wolf_fileformat = WOLFSSL_FILETYPE_ASN1;
         }
         if (type == FILE_TYPE_SELF_CERT) {
-            if ((*err_ret = wolfSSL_CTX_use_certificate_buffer( (WOLFSSL_CTX *)tls->priv_ctx, cert_buf, cert_len, wolf_fileformat)) == WOLFSSL_SUCCESS) {
+            if ((*err_ret = wolfSSL_CTX_use_certificate_chain_buffer_format( (WOLFSSL_CTX *)tls->priv_ctx, cert_buf, cert_len, wolf_fileformat)) == WOLFSSL_SUCCESS) {
                 return ESP_OK;
             }
             return ESP_FAIL;
@@ -124,7 +122,7 @@ void *esp_wolfssl_get_ssl_context(esp_tls_t *tls)
     return (void*)tls->priv_ssl;
 }
 
-esp_err_t esp_create_wolfssl_handle(const char *hostname, size_t hostlen, const void *cfg, esp_tls_t *tls)
+esp_err_t esp_create_wolfssl_handle(const char *hostname, size_t hostlen, const void *cfg, esp_tls_t *tls, void *server_params)
 {
 #ifdef CONFIG_ESP_DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -152,16 +150,11 @@ esp_err_t esp_create_wolfssl_handle(const char *hostname, size_t hostlen, const 
             goto exit;
         }
     } else if (tls->role == ESP_TLS_SERVER) {
-#ifdef CONFIG_ESP_TLS_SERVER
         esp_ret = set_server_config((esp_tls_cfg_server_t *) cfg, tls);
         if (esp_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to set server configurations, [0x%04X] (%s)", esp_ret, esp_err_to_name(esp_ret));
             goto exit;
         }
-#else
-        ESP_LOGE(TAG, "ESP_TLS_SERVER Not enabled in menuconfig");
-        goto exit;
-#endif
     }
     else {
         ESP_LOGE(TAG, "tls->role is not valid");
@@ -265,7 +258,7 @@ static esp_err_t set_client_config(const char *hostname, size_t hostlen, esp_tls
             return ESP_ERR_WOLFSSL_CERT_VERIFY_SETUP_FAILED;
         }
     } else if (cfg->clientcert_buf != NULL || cfg->clientkey_buf != NULL) {
-        ESP_LOGE(TAG, "You have to provide both clientcert_buf and clientkey_buf for mutual authentication\n\n");
+        ESP_LOGE(TAG, "You have to provide both clientcert_buf and clientkey_buf for mutual authentication");
         return ESP_FAIL;
     }
 
@@ -295,6 +288,11 @@ static esp_err_t set_client_config(const char *hostname, size_t hostlen, esp_tls
             free(use_host);
             return ESP_ERR_WOLFSSL_SSL_SET_HOSTNAME_FAILED;
         }
+        /* Mimic the semantics of mbedtls_ssl_set_hostname() */
+        if ((ret = wolfSSL_CTX_UseSNI(tls->priv_ctx, WOLFSSL_SNI_HOST_NAME, use_host, strlen(use_host))) != WOLFSSL_SUCCESS) {
+            ESP_LOGE(TAG, "wolfSSL_CTX_UseSNI failed, returned %d", ret);
+            return ESP_ERR_WOLFSSL_SSL_SET_HOSTNAME_FAILED;
+        }
         free(use_host);
     }
 
@@ -317,11 +315,32 @@ static esp_err_t set_client_config(const char *hostname, size_t hostlen, esp_tls
 #endif /* CONFIG_WOLFSSL_HAVE_ALPN */
     }
 
+#ifdef CONFIG_WOLFSSL_HAVE_OCSP
+    int ocsp_options = 0;
+#ifdef ESP_TLS_OCSP_CHECKALL
+    ocsp_options |= WOLFSSL_OCSP_CHECKALL;
+#endif
+    /* enable OCSP certificate status check for this TLS context */
+    if ((ret = wolfSSL_CTX_EnableOCSP((WOLFSSL_CTX *)tls->priv_ctx, ocsp_options)) != WOLFSSL_SUCCESS) {
+        ESP_LOGE(TAG, "wolfSSL_CTX_EnableOCSP failed, returned %d", ret);
+        return ESP_ERR_WOLFSSL_CTX_SETUP_FAILED;
+    }
+    /* enable OCSP stapling for this TLS context */
+    if ((ret = wolfSSL_CTX_EnableOCSPStapling((WOLFSSL_CTX *)tls->priv_ctx )) != WOLFSSL_SUCCESS) {
+        ESP_LOGE(TAG, "wolfSSL_CTX_EnableOCSPStapling failed, returned %d", ret);
+        return ESP_ERR_WOLFSSL_CTX_SETUP_FAILED;
+    }
+    /* set option to use OCSP v1 stapling with nounce extension */
+    if ((ret = wolfSSL_UseOCSPStapling((WOLFSSL *)tls->priv_ssl, WOLFSSL_CSR_OCSP, WOLFSSL_CSR_OCSP_USE_NONCE)) != WOLFSSL_SUCCESS) {
+        ESP_LOGE(TAG, "wolfSSL_UseOCSPStapling failed, returned %d", ret);
+        return ESP_ERR_WOLFSSL_SSL_SETUP_FAILED;
+    }
+#endif /* CONFIG_WOLFSSL_HAVE_OCSP */
+
     wolfSSL_set_fd((WOLFSSL *)tls->priv_ssl, tls->sockfd);
     return ESP_OK;
 }
 
-#ifdef CONFIG_ESP_TLS_SERVER
 static esp_err_t set_server_config(esp_tls_cfg_server_t *cfg, esp_tls_t *tls)
 {
     int ret = WOLFSSL_FAILURE;
@@ -378,7 +397,6 @@ static esp_err_t set_server_config(esp_tls_cfg_server_t *cfg, esp_tls_t *tls)
     wolfSSL_set_fd((WOLFSSL *)tls->priv_ssl, tls->sockfd);
     return ESP_OK;
 }
-#endif
 
 int esp_wolfssl_handshake(esp_tls_t *tls, const esp_tls_cfg_t *cfg)
 {
@@ -394,7 +412,7 @@ int esp_wolfssl_handshake(esp_tls_t *tls, const esp_tls_cfg_t *cfg)
             wolfssl_print_error_msg(err);
             ESP_INT_EVENT_TRACKER_CAPTURE(tls->error_handle, ESP_TLS_ERR_TYPE_WOLFSSL, err);
             ESP_INT_EVENT_TRACKER_CAPTURE(tls->error_handle, ESP_TLS_ERR_TYPE_ESP, ESP_ERR_WOLFSSL_SSL_HANDSHAKE_FAILED);
-            if (cfg->cacert_buf != NULL || cfg->use_global_ca_store == true) {
+            if (cfg->crt_bundle_attach != NULL || cfg->cacert_buf != NULL || cfg->use_global_ca_store == true) {
                 /* This is to check whether handshake failed due to invalid certificate*/
                 esp_wolfssl_verify_certificate(tls);
             }
@@ -486,7 +504,6 @@ void esp_wolfssl_cleanup(esp_tls_t *tls)
     wolfSSL_Cleanup();
 }
 
-#ifdef CONFIG_ESP_TLS_SERVER
 /**
  * @brief       Create TLS/SSL server session
  */
@@ -497,7 +514,9 @@ int esp_wolfssl_server_session_create(esp_tls_cfg_server_t *cfg, int sockfd, esp
     }
     tls->role = ESP_TLS_SERVER;
     tls->sockfd = sockfd;
-    esp_err_t esp_ret = esp_create_wolfssl_handle(NULL, 0, cfg, tls);
+    esp_tls_server_params_t server_params = {};
+    server_params.set_server_cfg = &set_server_config;
+    esp_err_t esp_ret = esp_create_wolfssl_handle(NULL, 0, cfg, tls, &server_params);
     if (esp_ret != ESP_OK) {
         ESP_LOGE(TAG, "create_ssl_handle failed, [0x%04X] (%s)", esp_ret, esp_err_to_name(esp_ret));
         ESP_INT_EVENT_TRACKER_CAPTURE(tls->error_handle, ESP_TLS_ERR_TYPE_ESP, esp_ret);
@@ -531,11 +550,10 @@ void esp_wolfssl_server_session_delete(esp_tls_t *tls)
         free(tls);
     }
 }
-#endif /* CONFIG_ESP_TLS_SERVER */
 
 esp_err_t esp_wolfssl_init_global_ca_store(void)
 {
-    /* This function is just to provide consistancy between function calls of esp_tls.h and wolfssl */
+    /* This function is just to provide consistency between function calls of esp_tls.h and wolfssl */
     return ESP_OK;
 }
 

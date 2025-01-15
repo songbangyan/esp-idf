@@ -6,11 +6,11 @@
 
 #include "soc/pcnt_periph.h"
 #include "soc/gpio_sig_map.h"
+#include "soc/soc.h"
 
 const pcnt_signal_conn_t pcnt_periph_signals = {
     .groups = {
         [0] = {
-            .module = PERIPH_PCNT_MODULE,
             .irq = ETS_PCNT_INTR_SOURCE,
             .units = {
                 [0] = {

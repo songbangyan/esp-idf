@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2016-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,19 +10,19 @@
 #include "esp_log.h"
 #include "sys/lock.h"
 #include "soc/soc_pins.h"
+#include "soc/rtc_cntl_reg.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/xtensa_api.h"
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 #include "esp_intr_alloc.h"
 #include "driver/rtc_io.h"
-#include "driver/touch_pad.h"
+#include "driver/touch_sensor_common.h"
 #include "esp_private/rtc_ctrl.h"
 #include "driver/gpio.h"
 #include "sdkconfig.h"
 #include "esp_check.h"
 
-#include "hal/touch_sensor_types.h"
+#include "hal/touch_sensor_legacy_types.h"
 #include "hal/touch_sensor_hal.h"
 
 #ifndef NDEBUG
@@ -108,7 +108,7 @@ esp_err_t touch_pad_isr_register(intr_handler_t fn, void *arg, touch_pad_intr_ma
 #endif
     esp_err_t ret = rtc_isr_register(fn, arg, en_msk, 0);
     /* Must ensure: After being registered, it is executed first. */
-    if ( (ret == ESP_OK) && (reg_flag == false) && (intr_mask & (TOUCH_PAD_INTR_MASK_SCAN_DONE | TOUCH_PAD_INTR_MASK_TIMEOUT)) ) {
+    if ((ret == ESP_OK) && (reg_flag == false) && (intr_mask & (TOUCH_PAD_INTR_MASK_SCAN_DONE | TOUCH_PAD_INTR_MASK_TIMEOUT))) {
         rtc_isr_register(touch_pad_workaround_isr_internal, NULL, RTC_CNTL_TOUCH_SCAN_DONE_INT_ST_M | RTC_CNTL_TOUCH_TIMEOUT_INT_ST_M, 0);
         reg_flag = true;
     }
@@ -405,7 +405,7 @@ esp_err_t touch_pad_filter_get_config(touch_filter_config_t *filter_info)
 esp_err_t touch_pad_filter_enable(void)
 {
     TOUCH_ENTER_CRITICAL();
-    touch_hal_filter_enable();
+    touch_hal_filter_enable(true);
     TOUCH_EXIT_CRITICAL();
     return ESP_OK;
 }
@@ -413,7 +413,7 @@ esp_err_t touch_pad_filter_enable(void)
 esp_err_t touch_pad_filter_disable(void)
 {
     TOUCH_ENTER_CRITICAL();
-    touch_hal_filter_disable();
+    touch_hal_filter_enable(false);
     TOUCH_EXIT_CRITICAL();
     return ESP_OK;
 }
@@ -596,9 +596,9 @@ esp_err_t touch_pad_sleep_channel_enable_proximity(touch_pad_t pad_num, bool ena
 
     TOUCH_ENTER_CRITICAL();
     if (enable) {
-        touch_hal_sleep_enable_approach();
+        touch_hal_sleep_enable_approach(true);
     } else {
-        touch_hal_sleep_disable_approach();
+        touch_hal_sleep_enable_approach(false);
     }
     TOUCH_EXIT_CRITICAL();
     return ESP_OK;
@@ -608,7 +608,7 @@ esp_err_t touch_pad_sleep_get_channel_num(touch_pad_t *pad_num)
 {
     TOUCH_NULL_POINTER_CHECK(pad_num, "pad_num");
     TOUCH_ENTER_CRITICAL();
-    touch_hal_sleep_get_channel_num(pad_num);
+    touch_hal_sleep_get_channel_num((uint32_t *)pad_num);
     TOUCH_EXIT_CRITICAL();
     return ESP_OK;
 }
@@ -684,3 +684,19 @@ esp_err_t touch_pad_sleep_channel_set_work_time(uint16_t sleep_cycle, uint16_t m
     touch_hal_sleep_channel_set_work_time(sleep_cycle, meas_times);
     return ESP_OK;
 }
+
+#if !CONFIG_TOUCH_SKIP_LEGACY_CONFLICT_CHECK
+/**
+ * @brief This function will be called during start up, to check that the new touch driver is not running along with the legacy touch driver
+ */
+static __attribute__((constructor)) void check_touch_driver_conflict(void)
+{
+    extern __attribute__((weak)) esp_err_t touch_sensor_new_controller(const void*, void *);
+    /* If the new Touch driver is linked, the weak function will point to the actual function in the new driver, otherwise it is NULL*/
+    if ((void *)touch_sensor_new_controller != NULL) {
+        ESP_EARLY_LOGE("legacy_touch_driver", "CONFLICT! The new touch driver can't work along with the legacy touch driver");
+        abort();
+    }
+    ESP_EARLY_LOGW("legacy_touch_driver", "legacy touch driver is deprecated, please migrate to use driver/touch_sens.h");
+}
+#endif //CONFIG_TOUCH_SKIP_LEGACY_CONFLICT_CHECK

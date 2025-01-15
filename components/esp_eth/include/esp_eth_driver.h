@@ -1,12 +1,20 @@
 /*
- * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include "esp_eth_com.h"
-#include "esp_eth_mac.h"
+#if CONFIG_ETH_USE_SPI_ETHERNET
+#include "esp_eth_mac_spi.h"
+#endif // CONFIG_ETH_USE_SPI_ETHERNET
+#if CONFIG_ETH_USE_ESP32_EMAC
+#include "esp_eth_mac_esp.h"
+#endif // CONFIG_ETH_USE_ESP32_EMAC
+#if  CONFIG_ETH_USE_OPENETH
+#include "esp_eth_mac_openeth.h"
+#endif // CONFIG_ETH_USE_OPENETH
 #include "esp_eth_phy.h"
 
 #ifdef __cplusplus
@@ -48,6 +56,7 @@ typedef struct {
     * @param[in] eth_handle: handle of Ethernet driver
     * @param[in] buffer: frame buffer that will get input to upper stack
     * @param[in] length: length of the frame buffer
+    * @param[in] priv pointer to private resource, defined when registering the input function
     *
     * @return
     *      - ESP_OK: input frame buffer to upper stack successfully
@@ -55,6 +64,22 @@ typedef struct {
     *
     */
     esp_err_t (*stack_input)(esp_eth_handle_t eth_handle, uint8_t *buffer, uint32_t length, void *priv);
+
+    /**
+    * @brief Input frame buffer to user's stack with additional information about received frame
+    *
+    * @param[in] eth_handle: handle of Ethernet driver
+    * @param[in] buffer: frame buffer that will get input to upper stack
+    * @param[in] length: length of the frame buffer
+    * @param[in] priv pointer to private resource, defined when registering the input function
+    * @param[in] info: extra information about received Ethernet frame (may be timestamp, CRC offload check result, etc.)
+    *
+    * @return
+    *      - ESP_OK: input frame buffer to upper stack successfully
+    *      - ESP_FAIL: error occurred when inputting buffer to upper stack
+    *
+    */
+    esp_err_t (*stack_input_info)(esp_eth_handle_t eth_handle, uint8_t *buffer, uint32_t length, void *priv, void *info);
 
     /**
     * @brief Callback function invoked when lowlevel initialization is finished
@@ -122,6 +147,15 @@ typedef struct {
 } esp_eth_config_t;
 
 /**
+ * @brief Data structure to Read/Write PHY register via ioctl API
+ *
+ */
+typedef struct {
+    uint32_t reg_addr;              /*!< PHY register address */
+    uint32_t *reg_value_p;          /*!< Pointer to a memory where the register value is read/written */
+} esp_eth_phy_reg_rw_data_t;
+
+/**
 * @brief Command list for ioctl API
 *
 */
@@ -139,9 +173,11 @@ typedef enum {
     ETH_CMD_G_DUPLEX_MODE,            /*!< Get Duplex mode */
     ETH_CMD_S_DUPLEX_MODE,            /*!< Set Duplex mode */
     ETH_CMD_S_PHY_LOOPBACK,           /*!< Set PHY loopback */
+    ETH_CMD_READ_PHY_REG,             /*!< Read PHY register */
+    ETH_CMD_WRITE_PHY_REG,            /*!< Write PHY register */
 
-    ETH_CMD_CUSTOM_MAC_CMDS = 0x0FFF, // Offset for start of MAC custom commands
-    ETH_CMD_CUSTOM_PHY_CMDS = 0x1FFF, // Offset for start of PHY custom commands
+    ETH_CMD_CUSTOM_MAC_CMDS = ETH_CMD_CUSTOM_MAC_CMDS_OFFSET, // Offset for start of MAC custom commands
+    ETH_CMD_CUSTOM_PHY_CMDS = ETH_CMD_CUSTOM_PHY_CMDS_OFFSET, // Offset for start of PHY custom commands
 } esp_eth_io_cmd_t;
 
 /**
@@ -154,6 +190,7 @@ typedef enum {
         .phy = ephy,                     \
         .check_link_period_ms = 2000,    \
         .stack_input = NULL,             \
+        .stack_input_info = NULL,        \
         .on_lowlevel_init_done = NULL,   \
         .on_lowlevel_deinit_done = NULL, \
         .read_phy_reg = NULL,            \
@@ -239,6 +276,31 @@ esp_err_t esp_eth_update_input_path(
     void *priv);
 
 /**
+* @brief Update Ethernet data input path with input function which consumes extra info about received frame.
+*
+* @note Extra information may include but is not limited to such info like Time Stamp, CRC check offload result, etc.
+*       The MAC layer of the Ethernet driver of the particular device must provide extra information using
+*       `stack_input_info()` function. Otherwise, input path function registered by this API is not invoked. If this
+*       is the case, register `stack_input` function by `esp_eth_update_input_path()` instead.
+*
+* @note After install driver, Ethernet still don't know where to deliver the input buffer.
+*       In fact, this API registers a callback function which get invoked when Ethernet received new packets.
+*
+* @param[in] hdl handle of Ethernet driver
+* @param[in] stack_input_info function pointer, which does the actual process on incoming packets
+* @param[in] priv private resource, which gets passed to `stack_input_info` callback without any modification
+*
+* @return
+*       - ESP_OK: update input path successfully
+*       - ESP_ERR_INVALID_ARG: update input path failed because of some invalid argument
+*       - ESP_FAIL: update input path failed because some other error occurred
+*/
+esp_err_t esp_eth_update_input_path_info(
+    esp_eth_handle_t hdl,
+    esp_err_t (*stack_input_info)(esp_eth_handle_t hdl, uint8_t *buffer, uint32_t length, void *priv, void *info),
+    void *priv);
+
+/**
 * @brief General Transmit
 *
 * @param[in] hdl: handle of Ethernet driver
@@ -248,28 +310,48 @@ esp_err_t esp_eth_update_input_path(
 * @return
 *       - ESP_OK: transmit frame buffer successfully
 *       - ESP_ERR_INVALID_ARG: transmit frame buffer failed because of some invalid argument
-*       - ESP_ERR_INVALID_STATE: invalid driver state (e.i. driver is not started)
+*       - ESP_ERR_INVALID_STATE: invalid driver state (e.i., driver is not started)
 *       - ESP_ERR_TIMEOUT: transmit frame buffer failed because HW was not get available in predefined period
 *       - ESP_FAIL: transmit frame buffer failed because some other error occurred
 */
 esp_err_t esp_eth_transmit(esp_eth_handle_t hdl, void *buf, size_t length);
 
 /**
-* @brief Special Transmit with variable number of arguments
+ * @brief Extended Transmit with variable number of arguments
+ *
+ * @note Typical intended use case of this function is to assemble Ethernet frame from multiple input buffers
+ *       at lower layer of the driver (MAC layer) to avoid unnecessary buffer reallocation and copy.
+ *
+ * @param hdl handle of Ethernet driver
+ * @param ctrl optional transmit control structure (MAC specific), set to NULL when not required
+ * @param argc number variable arguments
+ * @param ... variable arguments
+ * @return
+ *       - ESP_OK: transmit successful
+ *       - ESP_ERR_INVALID_STATE: invalid driver state (e.i., driver is not started)
+ *       - ESP_ERR_TIMEOUT: transmit frame buffer failed because HW was not get available in predefined period
+ *       - ESP_FAIL: transmit frame buffer failed because some other error occurred
+ */
+esp_err_t esp_eth_transmit_ctrl_vargs(esp_eth_handle_t hdl, void *ctrl, uint32_t argc, ...);
+
+/**
+* @brief Wrapper over Extended Transmit function to ensure backward compatibility.
 *
-* @param[in] hdl handle of Ethernet driver
+* @note For new implementations, it is recommended to use `esp_eth_transmit_ctrl_vargs()` directly.
+*
+* @param[in] eth_hdl handle of Ethernet driver
 * @param[in] argc number variable arguments
 * @param ... variable arguments
 * @return
-*       - ESP_OK: transmit successfull
-*       - ESP_ERR_INVALID_STATE: invalid driver state (e.i. driver is not started)
+*       - ESP_OK: transmit successful
+*       - ESP_ERR_INVALID_STATE: invalid driver state (e.i., driver is not started)
 *       - ESP_ERR_TIMEOUT: transmit frame buffer failed because HW was not get available in predefined period
 *       - ESP_FAIL: transmit frame buffer failed because some other error occurred
 */
-esp_err_t esp_eth_transmit_vargs(esp_eth_handle_t hdl, uint32_t argc, ...);
+#define esp_eth_transmit_vargs(eth_hdl, argc, ...) esp_eth_transmit_ctrl_vargs(eth_hdl, NULL, (argc) * 2, ##__VA_ARGS__)
 
 /**
-* @brief Misc IO function of Etherent driver
+* @brief Misc IO function of Ethernet driver
 *
 * @param[in] hdl: handle of Ethernet driver
 * @param[in] cmd: IO control command
@@ -302,6 +384,28 @@ esp_err_t esp_eth_transmit_vargs(esp_eth_handle_t hdl, uint32_t argc, ...);
 * @li Note that additional control commands may be available for specific MAC or PHY chips. Please consult specific MAC or PHY documentation or driver code.
 */
 esp_err_t esp_eth_ioctl(esp_eth_handle_t hdl, esp_eth_io_cmd_t cmd, void *data);
+
+/**
+* @brief Get PHY instance memory address
+*
+* @param[in] hdl handle of Ethernet driver
+* @param[out] phy pointer to memory to store the instance
+* @return esp_err_t
+*       - ESP_OK: success
+*       - ESP_ERR_INVALID_ARG: failed because of some invalid argument
+*/
+esp_err_t esp_eth_get_phy_instance(esp_eth_handle_t hdl, esp_eth_phy_t **phy);
+
+/**
+* @brief Get MAC instance memory address
+*
+* @param[in] hdl handle of Ethernet driver
+* @param[out] mac pointer to memory to store the instance
+* @return esp_err_t
+*       - ESP_OK: success
+*       - ESP_ERR_INVALID_ARG: failed because of some invalid argument
+*/
+esp_err_t esp_eth_get_mac_instance(esp_eth_handle_t hdl, esp_eth_mac_t **mac);
 
 /**
 * @brief Increase Ethernet driver reference

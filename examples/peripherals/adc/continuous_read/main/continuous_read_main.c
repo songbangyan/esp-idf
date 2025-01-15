@@ -41,7 +41,6 @@ static adc_channel_t channel[2] = {ADC_CHANNEL_2, ADC_CHANNEL_3};
 static TaskHandle_t s_task_handle;
 static const char *TAG = "EXAMPLE";
 
-
 static bool IRAM_ATTR s_conv_done_cb(adc_continuous_handle_t handle, const adc_continuous_evt_data_t *edata, void *user_data)
 {
     BaseType_t mustYield = pdFALSE;
@@ -103,7 +102,7 @@ void app_main(void)
     ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(handle, &cbs, NULL));
     ESP_ERROR_CHECK(adc_continuous_start(handle));
 
-    while(1) {
+    while (1) {
 
         /**
          * This is to show you the way to use the ADC continuous mode driver event callback.
@@ -120,9 +119,9 @@ void app_main(void)
         while (1) {
             ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 0);
             if (ret == ESP_OK) {
-                ESP_LOGI("TASK", "ret is %x, ret_num is %"PRIu32, ret, ret_num);
+                ESP_LOGI("TASK", "ret is %x, ret_num is %"PRIu32" bytes", ret, ret_num);
                 for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES) {
-                    adc_digi_output_data_t *p = (void*)&result[i];
+                    adc_digi_output_data_t *p = (adc_digi_output_data_t*)&result[i];
                     uint32_t chan_num = EXAMPLE_ADC_GET_CHANNEL(p);
                     uint32_t data = EXAMPLE_ADC_GET_DATA(p);
                     /* Check the channel number validation, the data is invalid if the channel num exceed the maximum channel */
